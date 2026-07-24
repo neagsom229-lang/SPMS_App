@@ -251,6 +251,8 @@ app.get("/api/customers", async (req, res) => {
     params.push(`%${search}%`);
   }
 
+  sql += " ORDER BY first_name ASC";
+
   try {
     const result = await db.query(sql, params);
     console.log(`👥 Customers found: ${result.rows.length}`);
@@ -2628,7 +2630,7 @@ async function startServer() {
       console.log("  🛒 Orders:        GET/POST/DELETE /api/orders");
       console.log("  🛒 Pending:       GET /api/orders/pending");
       console.log("  📊 Low Stock:     GET /api/stock/low-stock");
-      console.log("  📋 Suppliers:     GET/POST/PUT/DELETE /api/suppliers"); // ✅ NOW WORKING!
+      console.log("  📋 Suppliers:     GET/POST/PUT/DELETE /api/suppliers");
       console.log("  💳 Purchase:      POST /api/purchase");
       console.log("  📋 Reports:       GET /api/reports/*");
       console.log("  👤 Users:         GET/POST/PUT/DELETE /api/users");
