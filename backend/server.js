@@ -15,7 +15,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ============================================
-// CORS CONFIGURATION
+// CORS CONFIGURATION - MOVED TO TOP ✅
 // ============================================
 const allowedOrigins = [
   'https://spms-chh-sn-pro.vercel.app',
@@ -42,7 +42,7 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log('❌ CORS blocked origin:', origin);
-      callback(null, true);
+      callback(null, false); // ✅ ACTUALLY BLOCK - FIXED
     }
   },
   credentials: true,
@@ -51,8 +51,19 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
 };
 
+// ✅ CORS MUST BE FIRST - FIXED
+app.use(cors(corsOptions));
+// ❌ REMOVED: app.options('*', cors(corsOptions)); - Redundant and can crash
+
+// ✅ Body parser - SECOND
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+
+console.log('📊 Using PostgreSQL Database');
+console.log('✅ CORS allowed origins:', allowedOrigins);
+
 // ============================================
-// TEST ENDPOINT - Add this!
+// TEST ENDPOINTS - NOW AFTER CORS ✅
 // ============================================
 app.get("/api/test", (req, res) => {
   res.json({ 
@@ -62,7 +73,6 @@ app.get("/api/test", (req, res) => {
   });
 });
 
-// Also add a root /api endpoint
 app.get("/api", (req, res) => {
   res.json({
     message: "SPMS API is running",
@@ -81,16 +91,6 @@ app.get("/api", (req, res) => {
     }
   });
 });
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
-
-// ✅ IMPORTANT: Body parser MUST be before routes
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
-
-console.log('📊 Using PostgreSQL Database');
-console.log('✅ CORS allowed origins:', allowedOrigins);
 
 // ============================================
 // DATABASE TEST ENDPOINT
@@ -158,10 +158,8 @@ app.get("/api/activity-logs", async (req, res) => {
   console.log(`📋 Fetching activity logs (limit: ${limit})`);
   
   try {
-    // Get logs
     let logs = activityLogs.slice(0, Number(limit));
     
-    // Get users for username mapping
     const result = await db.query("SELECT userid, username FROM tbl_users");
     const users = result.rows || [];
     const userMap = {};
@@ -169,7 +167,6 @@ app.get("/api/activity-logs", async (req, res) => {
       userMap[u.userid] = u.username;
     });
     
-    // Map usernames
     logs.forEach((log) => {
       log.username = userMap[log.user_id] || "Unknown";
     });
@@ -178,7 +175,6 @@ app.get("/api/activity-logs", async (req, res) => {
     res.json(logs);
   } catch (err) {
     console.error("❌ Activity logs error:", err.message);
-    // Return logs without usernames if DB fails
     const logs = activityLogs.slice(0, Number(limit));
     res.json(logs);
   }
@@ -270,7 +266,7 @@ app.get("/api/dashboard/stats", async (req, res) => {
 });
 
 // ============================================
-// CUSTOMERS (CRUD) - WITH IMAGE SUPPORT ✅
+// ✅ CUSTOMERS (CRUD) - SINGLE DEFINITION ✅
 // ============================================
 app.get("/api/customers", async (req, res) => {
   const { search } = req.query;
@@ -620,10 +616,9 @@ app.delete("/api/products/:id", async (req, res) => {
 });
 
 // ============================================
-// ✅ COMPLETE ORDERS - ALL METHODS WORKING (FIXED ORDER)
+// ✅ COMPLETE ORDERS - ALL METHODS WORKING
 // ============================================
 
-// ✅ GET all orders with customer_name and item_count
 app.get("/api/orders", async (req, res) => {
   const { limit = 50, status } = req.query;
   
@@ -669,7 +664,6 @@ app.get("/api/orders", async (req, res) => {
   }
 });
 
-// ✅ GET RECENT ORDERS - MUST BE BEFORE /:id
 app.get("/api/orders/recent", async (req, res) => {
   console.log("📊 Fetching recent orders...");
   
@@ -689,7 +683,6 @@ app.get("/api/orders/recent", async (req, res) => {
   }
 });
 
-// ✅ GET PENDING ORDERS - MUST BE BEFORE /:id
 app.get("/api/orders/pending", async (req, res) => {
   console.log("📊 Fetching pending orders...");
   
@@ -710,7 +703,6 @@ app.get("/api/orders/pending", async (req, res) => {
   }
 });
 
-// ✅ GET ORDER BY ID - MUST BE AFTER /recent AND /pending
 app.get("/api/orders/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`📊 Fetching order details for ID: ${id}`);
@@ -796,7 +788,6 @@ app.get("/api/orders/:id", async (req, res) => {
   }
 });
 
-// ✅ POST create order
 app.post("/api/orders", async (req, res) => {
   console.log("📝 Creating new order...");
   
@@ -952,7 +943,6 @@ app.post("/api/orders", async (req, res) => {
   }
 });
 
-// ✅ DELETE order
 app.delete("/api/orders/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`🗑️ Deleting order: ${id}`);
@@ -979,7 +969,6 @@ app.delete("/api/orders/:id", async (req, res) => {
 // ✅ COMPLETE SUPPLIERS - WORKING VERSION
 // ============================================
 
-// ✅ GET ALL SUPPLIERS (Map to Frontend)
 app.get("/api/suppliers", async (req, res) => {
   const { search } = req.query;
   console.log("🔍 GET /api/suppliers - search:", search);
@@ -997,7 +986,6 @@ app.get("/api/suppliers", async (req, res) => {
   try {
     const result = await db.query(sql, params);
     
-    // ✅ Map to frontend format
     const suppliers = result.rows.map(row => ({
       SUP_ID: row.sup_id,
       SUP_NAME: row.company,
@@ -1019,7 +1007,6 @@ app.get("/api/suppliers", async (req, res) => {
   }
 });
 
-// ✅ GET SINGLE SUPPLIER
 app.get("/api/suppliers/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`🔍 GET /api/suppliers/${id}`);
@@ -1049,12 +1036,10 @@ app.get("/api/suppliers/:id", async (req, res) => {
   }
 });
 
-// ✅ CREATE SUPPLIER - ACCEPTS FRONTEND FORMAT
 app.post("/api/suppliers", async (req, res) => {
   console.log("📝 POST /api/suppliers");
   console.log("📦 Received Body:", JSON.stringify(req.body, null, 2));
   
-  // ✅ Extract from frontend format
   const { 
     SUP_NAME, 
     CONTACT_PERSON, 
@@ -1070,7 +1055,6 @@ app.post("/api/suppliers", async (req, res) => {
   console.log("📦 SUP_NAME:", SUP_NAME);
   console.log("📦 CONTACT_PERSON:", CONTACT_PERSON);
 
-  // ✅ Validate
   if (!SUP_NAME || SUP_NAME.trim() === '') {
     console.log("❌ Validation failed: SUP_NAME is empty");
     return res.status(400).json({ 
@@ -1079,7 +1063,6 @@ app.post("/api/suppliers", async (req, res) => {
     });
   }
 
-  // ✅ Split CONTACT_PERSON
   let firstName = '';
   let lastName = '';
   if (CONTACT_PERSON) {
@@ -1094,7 +1077,6 @@ app.post("/api/suppliers", async (req, res) => {
   }
 
   try {
-    // ✅ Generate new ID
     const maxIdResult = await db.query("SELECT MAX(sup_id) as maxId FROM tbl_suppliers");
     let nextNumber = 1;
     if (maxIdResult.rows[0]?.maxid) {
@@ -1104,7 +1086,6 @@ app.post("/api/suppliers", async (req, res) => {
     const newSupId = `SUP${String(nextNumber).padStart(3, "0")}`;
     console.log(`📦 Generated ID: ${newSupId}`);
 
-    // ✅ Insert with proper mapping
     const result = await db.query(
       `INSERT INTO tbl_suppliers 
        (sup_id, company, first_name, last_name, phone, e_mail, address, status, website, tax_id, notes) 
@@ -1112,16 +1093,16 @@ app.post("/api/suppliers", async (req, res) => {
        RETURNING sup_id`,
       [
         newSupId, 
-        SUP_NAME.trim(),      // ✅ Map to company
-        firstName || null,    // ✅ From CONTACT_PERSON
-        lastName || null,     // ✅ From CONTACT_PERSON
-        PHONE || null,        // ✅ Map to phone
-        EMAIL || null,        // ✅ Map to e_mail
-        ADDRESS || null,      // ✅ Map to address
-        STATUS || 'Active',   // ✅ Map to status
-        WEBSITE || null,      // ✅ Map to website
-        TAX_ID || null,       // ✅ Map to tax_id
-        NOTES || null         // ✅ Map to notes
+        SUP_NAME.trim(),
+        firstName || null,
+        lastName || null,
+        PHONE || null,
+        EMAIL || null,
+        ADDRESS || null,
+        STATUS || 'Active',
+        WEBSITE || null,
+        TAX_ID || null,
+        NOTES || null
       ]
     );
 
@@ -1142,7 +1123,6 @@ app.post("/api/suppliers", async (req, res) => {
   }
 });
 
-// ✅ UPDATE SUPPLIER - ACCEPTS FRONTEND FORMAT
 app.put("/api/suppliers/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`📝 PUT /api/suppliers/${id}`);
@@ -1223,7 +1203,6 @@ app.put("/api/suppliers/:id", async (req, res) => {
   }
 });
 
-// ✅ BULK DELETE — must come BEFORE /:id or it never gets matched
 app.delete("/api/suppliers/bulk", async (req, res) => {
   const { ids } = req.body;
   console.log(`🗑️ Bulk delete - IDs:`, ids);
@@ -1253,9 +1232,6 @@ app.delete("/api/suppliers/bulk", async (req, res) => {
   }
 });
 
-
-
-// ✅ DELETE SUPPLIER (Soft Delete)
 app.delete("/api/suppliers/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`🗑️ DELETE /api/suppliers/${id}`);
@@ -1280,8 +1256,6 @@ app.delete("/api/suppliers/:id", async (req, res) => {
     });
   }
 });
-
-
 
 // ============================================
 // STOCK MANAGEMENT
@@ -1713,55 +1687,7 @@ app.get("/api/analytics/monthly-revenue", async (req, res) => {
   }
 });
 
-// ============================================
-// ✅ CUSTOMERS ROUTE FOR ANALYTICS
-// ============================================
-app.get("/api/customers", async (req, res) => {
-  const { search } = req.query;
-  let sql = "SELECT * FROM tbl_customers WHERE status = 'Active'";
-  const params = [];
-
-  if (search) {
-    sql += ` AND (first_name ILIKE $1 OR last_name ILIKE $1 OR phone ILIKE $1 OR e_mail ILIKE $1)`;
-    params.push(`%${search}%`);
-  }
-
-  sql += " ORDER BY first_name ASC";
-
-  try {
-    const result = await db.query(sql, params);
-    console.log(`👥 Customers found: ${result.rows.length}`);
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Customers error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============================================
-// ✅ GET ALL CUSTOMERS (For Analytics)
-// ============================================
-app.get("/api/customers", async (req, res) => {
-  const { search } = req.query;
-  let sql = "SELECT * FROM tbl_customers WHERE status = 'Active'";
-  const params = [];
-
-  if (search) {
-    sql += ` AND (first_name ILIKE $1 OR last_name ILIKE $1 OR phone ILIKE $1 OR e_mail ILIKE $1)`;
-    params.push(`%${search}%`);
-  }
-
-  sql += " ORDER BY first_name ASC";
-
-  try {
-    const result = await db.query(sql, params);
-    console.log(`👥 Customers found: ${result.rows.length}`);
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Customers error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+// ✅ ONLY ONE CUSTOMERS ROUTE - KEPT ABOVE ✅
 
 app.get("/api/analytics/top-products", async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 10, 50);
@@ -1874,11 +1800,11 @@ app.get("/api/analytics/summary", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ============================================
 // ✅ COMPLETE FIXED: USER MANAGEMENT
 // ============================================
 
-// ✅ GET ALL USERS
 app.get("/api/users", async (req, res) => {
   try {
     const result = await db.query(
@@ -1900,7 +1826,7 @@ app.get("/api/users", async (req, res) => {
       status: user.status || "ACTIVE",
       email: user.email || "",
       phone: user.phone || "",
-      created_at: user.createdat || null,  // ✅ Fixed: Frontend expects 'created_at'
+      created_at: user.createdat || null,
       last_login: user.lastlogin || null,
     }));
     res.json(mappedUsers);
@@ -1910,7 +1836,6 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-// ✅ GET SINGLE USER
 app.get("/api/users/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -1943,7 +1868,6 @@ app.get("/api/users/:id", async (req, res) => {
   }
 });
 
-// ✅ CREATE USER - FULLY FIXED
 app.post("/api/users", async (req, res) => {
   console.log("📝 POST /api/users - Body:", req.body);
   
@@ -1966,7 +1890,6 @@ app.post("/api/users", async (req, res) => {
   const userStatus = status || "ACTIVE";
 
   try {
-    // Check if username exists
     const existingResult = await db.query(
       "SELECT userid FROM tbl_users WHERE username = $1",
       [username]
@@ -1976,7 +1899,6 @@ app.post("/api/users", async (req, res) => {
       return res.status(400).json({ error: "Username already exists" });
     }
 
-    // ✅ Insert with ALL fields including email, phone
     const result = await db.query(
       `INSERT INTO tbl_users 
        (username, password, fullname, role, status, email, phone) 
@@ -2005,7 +1927,6 @@ app.post("/api/users", async (req, res) => {
   }
 });
 
-// ✅ UPDATE USER - FULLY FIXED
 app.put("/api/users/:id", async (req, res) => {
   const { id } = req.params;
   console.log("📝 PUT /api/users/:id - Body:", req.body);
@@ -2029,7 +1950,6 @@ app.put("/api/users/:id", async (req, res) => {
   const userStatus = status || "ACTIVE";
 
   try {
-    // Check if username exists for other users
     const existingResult = await db.query(
       "SELECT userid FROM tbl_users WHERE username = $1 AND userid != $2",
       [username, id]
@@ -2039,7 +1959,6 @@ app.put("/api/users/:id", async (req, res) => {
       return res.status(400).json({ error: "Username already exists" });
     }
 
-    // ✅ Build dynamic query based on whether password is provided
     let query = `UPDATE tbl_users 
                  SET username = $1, 
                      fullname = $2, 
@@ -2072,7 +1991,6 @@ app.put("/api/users/:id", async (req, res) => {
   }
 });
 
-// ✅ DELETE USER
 app.delete("/api/users/:id", async (req, res) => {
   const { id } = req.params;
 
@@ -2098,7 +2016,6 @@ app.delete("/api/users/:id", async (req, res) => {
   }
 });
 
-// ✅ BULK DELETE USERS
 app.delete("/api/users/bulk", async (req, res) => {
   const { ids } = req.body;
   console.log("🗑️ Bulk delete - IDs:", ids);
@@ -2107,7 +2024,6 @@ app.delete("/api/users/bulk", async (req, res) => {
     return res.status(400).json({ error: "No user IDs provided" });
   }
 
-  // Prevent deleting admin
   if (ids.includes(1)) {
     return res.status(400).json({ error: "Cannot delete the main admin user" });
   }
@@ -2134,14 +2050,9 @@ app.delete("/api/users/bulk", async (req, res) => {
 });
 
 // ============================================
-// ✅ WARRANTY & SERVICES API - COMPLETE FIXED
+// ✅ WARRANTY & SERVICES API
 // ============================================
 
-// ============================================
-// WARRANTY ROUTES
-// ============================================
-
-// ✅ GET ALL WARRANTIES
 app.get("/api/warranties", async (req, res) => {
   try {
     const result = await db.query(`
@@ -2160,7 +2071,6 @@ app.get("/api/warranties", async (req, res) => {
   }
 });
 
-// ✅ GET SINGLE WARRANTY
 app.get("/api/warranties/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -2184,7 +2094,6 @@ app.get("/api/warranties/:id", async (req, res) => {
   }
 });
 
-// ✅ CREATE WARRANTY
 app.post("/api/warranties", async (req, res) => {
   console.log("📝 POST /api/warranties - Body:", req.body);
   
@@ -2241,7 +2150,6 @@ app.post("/api/warranties", async (req, res) => {
   }
 });
 
-// ✅ UPDATE WARRANTY
 app.put("/api/warranties/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`📝 PUT /api/warranties/${id} - Body:`, req.body);
@@ -2302,7 +2210,6 @@ app.put("/api/warranties/:id", async (req, res) => {
   }
 });
 
-// ✅ DELETE WARRANTY (Soft Delete)
 app.delete("/api/warranties/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`🗑️ DELETE /api/warranties/${id}`);
@@ -2325,7 +2232,6 @@ app.delete("/api/warranties/:id", async (req, res) => {
   }
 });
 
-// ✅ BULK DELETE WARRANTIES
 app.delete("/api/warranties/bulk", async (req, res) => {
   const { ids } = req.body;
   console.log(`🗑️ Bulk delete warranties - IDs:`, ids);
@@ -2353,10 +2259,9 @@ app.delete("/api/warranties/bulk", async (req, res) => {
 });
 
 // ============================================
-// ✅ SERVICE ROUTES
+// SERVICE ROUTES
 // ============================================
 
-// ✅ GET ALL SERVICES
 app.get("/api/services", async (req, res) => {
   try {
     const result = await db.query(`
@@ -2375,7 +2280,6 @@ app.get("/api/services", async (req, res) => {
   }
 });
 
-// ✅ GET SINGLE SERVICE
 app.get("/api/services/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -2399,7 +2303,6 @@ app.get("/api/services/:id", async (req, res) => {
   }
 });
 
-// ✅ CREATE SERVICE
 app.post("/api/services", async (req, res) => {
   console.log("📝 POST /api/services - Body:", req.body);
   
@@ -2451,7 +2354,6 @@ app.post("/api/services", async (req, res) => {
   }
 });
 
-// ✅ UPDATE SERVICE
 app.put("/api/services/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`📝 PUT /api/services/${id} - Body:`, req.body);
@@ -2504,7 +2406,6 @@ app.put("/api/services/:id", async (req, res) => {
   }
 });
 
-// ✅ DELETE SERVICE
 app.delete("/api/services/:id", async (req, res) => {
   const { id } = req.params;
   console.log(`🗑️ DELETE /api/services/${id}`);
@@ -2527,7 +2428,6 @@ app.delete("/api/services/:id", async (req, res) => {
   }
 });
 
-// ✅ BULK DELETE SERVICES
 app.delete("/api/services/bulk", async (req, res) => {
   const { ids } = req.body;
   console.log(`🗑️ Bulk delete services - IDs:`, ids);
@@ -2555,6 +2455,7 @@ app.delete("/api/services/bulk", async (req, res) => {
 });
 
 console.log("✅ Warranty & Service routes loaded!");
+
 // ============================================
 // PAYMENT API
 // ============================================
