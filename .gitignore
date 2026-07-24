@@ -14,7 +14,7 @@ pnpm-lock.yaml
 .env.test.local
 .env.production.local
 .env.*.local
-
+frontend/.env
 # ============= BUILD OUTPUTS =============
 dist/
 build/

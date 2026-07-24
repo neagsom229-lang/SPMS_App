@@ -10,15 +10,29 @@ import {
 // ============================================
 // API CONFIGURATION - FIXED ✅
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || '/api';
+const getApiBase = () => {
+  const envUrl = import.meta.env?.VITE_API_URL;
+  
+  if (!envUrl) return '/api';
+  
+  // Remove trailing slash
+  const cleanUrl = envUrl.replace(/\/+$/, '');
+  
+  // Add /api if not present
+  return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+};
+
+const API_BASE = getApiBase();
+
+console.log('🔧 API_BASE:', API_BASE);
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 30000, // Increased timeout
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true, // Send cookies if needed
+  withCredentials: true,
 });
 
 // Request interceptor
@@ -31,7 +45,7 @@ api.interceptors.request.use(
   error => Promise.reject(error)
 );
 
-// Response interceptor for better error handling
+// Response interceptor
 api.interceptors.response.use(
   response => {
     console.log('📥 Login Response:', response.status);
@@ -127,7 +141,7 @@ const Login = ({ setUser }) => {
     setLoading(true);
 
     try {
-      // ✅ Use '/auth/login' (API_BASE already has /api)
+      // ✅ Now POST /auth/login will go to /api/auth/login
       const response = await api.post('/auth/login', { username, password });
       console.log('✅ Login response:', response.data);
       
@@ -512,4 +526,3 @@ const Login = ({ setUser }) => {
 };
 
 export default memo(Login);
-

@@ -1,29 +1,37 @@
 // src/utils/api.js
 import axios from 'axios';
 
-// ✅ FIXED: Remove /api from the base URL
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Get API base from environment or use default
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+// Create axios instance
 const api = axios.create({
-  baseURL: API_URL, // Should be just the domain, e.g., https://spms-chh-sn.onrender.com
+  baseURL: API_BASE,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Add request interceptor for logging
+// ✅ AUTO-FIX: Add /api prefix if missing
 api.interceptors.request.use(
   config => {
-    console.log(`📤 ${config.method?.toUpperCase()} ${config.url}`);
+    // If URL doesn't start with /api, add it
+    if (config.url && !config.url.startsWith('/api')) {
+      config.url = `/api${config.url}`;
+    }
+    console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`);
     return config;
   },
   error => Promise.reject(error)
 );
 
-// Add response interceptor for error handling
+// Response interceptor for error handling
 api.interceptors.response.use(
-  response => response,
+  response => {
+    console.log(`📥 API Response: ${response.status} ${response.config.url}`);
+    return response;
+  },
   error => {
     if (error.response) {
       console.error(`❌ API Error ${error.response.status}:`, error.response.data);
