@@ -51,6 +51,37 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
 };
 
+// ============================================
+// TEST ENDPOINT - Add this!
+// ============================================
+app.get("/api/test", (req, res) => {
+  res.json({ 
+    message: "API is working!", 
+    time: new Date().toISOString(),
+    status: "ok"
+  });
+});
+
+// Also add a root /api endpoint
+app.get("/api", (req, res) => {
+  res.json({
+    message: "SPMS API is running",
+    status: "ok",
+    endpoints: {
+      auth: "/api/auth/login",
+      customers: "/api/customers",
+      products: "/api/products",
+      orders: "/api/orders",
+      suppliers: "/api/suppliers",
+      users: "/api/users",
+      analytics: "/api/analytics",
+      reports: "/api/reports",
+      test: "/api/test",
+      dbTest: "/api/db-test"
+    }
+  });
+});
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
