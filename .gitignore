@@ -122,3 +122,4 @@ coverage/
 *.7z
 *.tar.gz
 *.tgz
+.env*
