@@ -1,3 +1,4 @@
+
 // ============================================
 // ✅ server.js - COMPLETE FIXED VERSION
 // ============================================
@@ -17,6 +18,8 @@ const PORT = process.env.PORT || 5000;
 // ============================================
 // CORS CONFIGURATION - MOVED TO TOP ✅
 // ============================================
+
+
 const allowedOrigins = [
   'https://spms-chh-sn-pro.vercel.app',
   'https://spms-chh-sn-new.vercel.app',
@@ -1342,6 +1345,59 @@ app.get("/api/stock/low-stock", async (req, res) => {
   } catch (err) {
     console.error("❌ Low stock error:", err.message);
     res.status(500).json([]);
+  }
+});
+
+app.put("/api/stock/:id", async (req, res) => {
+  const { id } = req.params;
+  console.log(`📝 Updating stock ID: ${id} - Body:`, req.body);
+
+  const { QtyInStock, QtyAvailable, QtyReserved, action } = req.body;
+
+  try {
+    let result;
+
+    if (action === 'add') {
+      // Increment existing quantities
+      result = await db.query(
+        `UPDATE tbl_stock 
+         SET qtyinstock = qtyinstock + $1, 
+             qtyavailable = qtyavailable + $2, 
+             qtyreserved = qtyreserved + $3, 
+             lastupdated = NOW()
+         WHERE stockid = $4`,
+        [QtyInStock || 0, QtyAvailable || 0, QtyReserved || 0, id]
+      );
+    } else if (action === 'subtract') {
+      // Decrement existing quantities
+      result = await db.query(
+        `UPDATE tbl_stock 
+         SET qtyinstock = GREATEST(qtyinstock - $1, 0), 
+             qtyavailable = GREATEST(qtyavailable - $2, 0), 
+             qtyreserved = GREATEST(qtyreserved - $3, 0), 
+             lastupdated = NOW()
+         WHERE stockid = $4`,
+        [QtyInStock || 0, QtyAvailable || 0, QtyReserved || 0, id]
+      );
+    } else {
+      // Default 'set': overwrite with exact values
+      result = await db.query(
+        `UPDATE tbl_stock 
+         SET qtyinstock = $1, qtyavailable = $2, qtyreserved = $3, lastupdated = NOW()
+         WHERE stockid = $4`,
+        [QtyInStock || 0, QtyAvailable || 0, QtyReserved || 0, id]
+      );
+    }
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Stock record not found" });
+    }
+
+    logActivity(req.body.user_id || 1, "Updated stock", "tbl_stock", id);
+    res.json({ message: "Stock updated successfully" });
+  } catch (err) {
+    console.error("❌ Update stock error:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
