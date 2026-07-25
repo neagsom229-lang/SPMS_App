@@ -239,7 +239,7 @@ const Reports = () => {
     
     try {
       // Try to fetch from API with timeout
-      const res = await api.get(`/api/reports/${reportType}`, {
+      const res = await api.get(`/reports/${reportType}`, {
         timeout: 8000,
         params: { search: searchTerm || undefined }
       });

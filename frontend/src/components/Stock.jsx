@@ -122,7 +122,7 @@ const Stock = () => {
   const fetchStock = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/api/stock");
+      const res = await api.get("/stock");
       if (isMounted.current) {
         if (res.data && res.data.length > 0) {
           setStock(res.data);
@@ -325,7 +325,7 @@ const Stock = () => {
         action: formData.action || 'set'
       };
 
-      const res = await api.put(`/api/stock/${formData.stockId}`, payload);
+      const res = await api.put(`/stock/${formData.stockId}`, payload);
       
       if (res.data) {
         showMessage('✅ Stock updated successfully!', 'success');
