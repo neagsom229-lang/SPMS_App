@@ -41,9 +41,10 @@ import {
 } from "lucide-react";
 
 // ============================================
-// API CONFIGURATION
+// API CONFIGURATION - FIXED ✅
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || "";
+const API_BASE = import.meta.env?.VITE_API_URL || "/api";
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
@@ -52,8 +53,13 @@ const api = axios.create({
   },
 });
 
+// ✅ Request interceptor - ensures /api is always present
 api.interceptors.request.use(
   config => {
+    // Auto-add /api if missing and URL is relative
+    if (config.url && !config.url.startsWith('/api') && !config.url.startsWith('http')) {
+      config.url = `/api${config.url}`;
+    }
     console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
     return config;
   },
@@ -118,19 +124,33 @@ const Stock = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // ===== FETCH STOCK =====
+  // ===== GENERATE MOCK STOCK DATA =====
+  const generateMockStock = useCallback(() => {
+    return [
+      { stockid: 1, productid: 1, product_code: 'PROD001', name_en: 'Laptop Pro', name_kh: 'កុំព្យូទ័រយួរដៃ', qtyinstock: 15, qtyavailable: 12, qtyreserved: 3, qty_alert: 10, saleout_price: 1299.99 },
+      { stockid: 2, productid: 2, product_code: 'PROD002', name_en: 'Smartphone X', name_kh: 'ទូរស័ព្ទ X', qtyinstock: 25, qtyavailable: 20, qtyreserved: 5, qty_alert: 10, saleout_price: 899.99 },
+      { stockid: 3, productid: 3, product_code: 'PROD003', name_en: 'Tablet Plus', name_kh: 'ថេប្លេត Plus', qtyinstock: 5, qtyavailable: 3, qtyreserved: 2, qty_alert: 10, saleout_price: 499.99 },
+      { stockid: 4, productid: 4, product_code: 'PROD004', name_en: 'Wireless Mouse', name_kh: 'កណ្ដុរឥតខ្សែ', qtyinstock: 50, qtyavailable: 48, qtyreserved: 2, qty_alert: 10, saleout_price: 29.99 },
+      { stockid: 5, productid: 5, product_code: 'PROD005', name_en: 'Keyboard Pro', name_kh: 'ក្ដារចុច Pro', qtyinstock: 30, qtyavailable: 28, qtyreserved: 2, qty_alert: 10, saleout_price: 79.99 },
+    ];
+  }, []);
+
+  // ===== FETCH STOCK - FIXED ✅ =====
   const fetchStock = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.get("/stock");
       if (isMounted.current) {
-        if (res.data && res.data.length > 0) {
-          setStock(res.data);
+        // ✅ CRITICAL FIX: Ensure we always have an array
+        const data = Array.isArray(res.data) ? res.data : [];
+        if (data.length > 0) {
+          setStock(data);
+          showMessage(`✅ Loaded ${data.length} stock items`, "success");
         } else {
           const mockData = generateMockStock();
           setStock(mockData);
+          showMessage("⚠️ No stock data found, using sample data", "warning");
         }
-        showMessage(`✅ Loaded ${res.data?.length || 0} stock items`, "success");
       }
     } catch (error) {
       console.error("❌ Error fetching stock:", error);
@@ -145,19 +165,7 @@ const Stock = () => {
         setIsRefreshing(false);
       }
     }
-  }, []);
-
-  // ===== GENERATE MOCK STOCK DATA =====
-  const generateMockStock = () => {
-    const products = [
-      { stockid: 1, productid: 1, product_code: 'PROD001', name_en: 'Laptop Pro', name_kh: 'កុំព្យូទ័រយួរដៃ', qtyinstock: 15, qtyavailable: 12, qtyreserved: 3, qty_alert: 10, saleout_price: 1299.99 },
-      { stockid: 2, productid: 2, product_code: 'PROD002', name_en: 'Smartphone X', name_kh: 'ទូរស័ព្ទ X', qtyinstock: 25, qtyavailable: 20, qtyreserved: 5, qty_alert: 10, saleout_price: 899.99 },
-      { stockid: 3, productid: 3, product_code: 'PROD003', name_en: 'Tablet Plus', name_kh: 'ថេប្លេត Plus', qtyinstock: 5, qtyavailable: 3, qtyreserved: 2, qty_alert: 10, saleout_price: 499.99 },
-      { stockid: 4, productid: 4, product_code: 'PROD004', name_en: 'Wireless Mouse', name_kh: 'កណ្ដុរឥតខ្សែ', qtyinstock: 50, qtyavailable: 48, qtyreserved: 2, qty_alert: 10, saleout_price: 29.99 },
-      { stockid: 5, productid: 5, product_code: 'PROD005', name_en: 'Keyboard Pro', name_kh: 'ក្ដារចុច Pro', qtyinstock: 30, qtyavailable: 28, qtyreserved: 2, qty_alert: 10, saleout_price: 79.99 },
-    ];
-    return products;
-  };
+  }, [generateMockStock]);
 
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = "success") => {
@@ -200,8 +208,9 @@ const Stock = () => {
     return { label: "In Stock", color: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800", icon: CheckCircle, priority: 1 };
   }, []);
 
-  // ===== GET STOCK VALUE =====
+  // ===== GET STOCK VALUE - FIXED ✅ =====
   const getStockValue = useCallback((item, field) => {
+    if (!item || typeof item !== 'object') return 0;
     return Number(item[field]) || 0;
   }, []);
 
@@ -210,9 +219,11 @@ const Stock = () => {
     return `$${Number(price || 0).toFixed(2)}`;
   };
 
-  // ===== FILTER STOCK =====
+  // ===== FILTER STOCK - FIXED ✅ =====
   const filteredStock = useMemo(() => {
-    let result = [...stock];
+    // ✅ CRITICAL FIX: Ensure stock is always an array
+    const stockArray = Array.isArray(stock) ? stock : [];
+    let result = [...stockArray];
 
     if (search) {
       const term = search.toLowerCase();
@@ -258,15 +269,18 @@ const Stock = () => {
     return result;
   }, [stock, search, filterStatus, sortBy, sortOrder, getStockValue, getStockStatus]);
 
-  // ===== CALCULATE STATS =====
+  // ===== CALCULATE STATS - FIXED ✅ =====
   const stats = useMemo(() => {
-    const total = stock.length;
+    // ✅ CRITICAL FIX: Ensure stock is always an array
+    const stockArray = Array.isArray(stock) ? stock : [];
+    
+    const total = stockArray.length;
     let lowStock = 0;
     let outOfStock = 0;
     let healthy = 0;
     let totalValue = 0;
 
-    stock.forEach((item) => {
+    stockArray.forEach((item) => {
       const available = getStockValue(item, "qtyavailable");
       const alert = getStockValue(item, "qty_alert");
       const price = getStockValue(item, "saleout_price");
@@ -340,9 +354,11 @@ const Stock = () => {
     }
   };
 
-  // ===== EXPORT CSV =====
+  // ===== EXPORT CSV - FIXED ✅ =====
   const exportCSV = () => {
-    if (!stock.length) {
+    // ✅ CRITICAL FIX: Ensure stock is always an array
+    const stockArray = Array.isArray(stock) ? stock : [];
+    if (!stockArray.length) {
       showMessage("⚠️ No data to export", "warning");
       return;
     }
@@ -351,7 +367,7 @@ const Stock = () => {
       const headers = ["Product ID", "Product Name", "In Stock", "Reserved", "Available", "Alert Level", "Status", "Price"];
       let csv = headers.join(",") + "\n";
 
-      stock.forEach((item) => {
+      stockArray.forEach((item) => {
         const available = getStockValue(item, "qtyavailable");
         const alert = getStockValue(item, "qty_alert");
         const status = getStockStatus(available, alert);
@@ -944,4 +960,3 @@ const Stock = () => {
 };
 
 export default Stock;
-
