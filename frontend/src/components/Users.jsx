@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import axios from 'axios';
-
+import apiClient from '../api/client';
 import { 
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw,
   User, Users as UsersIcon, CheckCircle, AlertCircle,
@@ -11,37 +10,30 @@ import {
   Loader2, AlertTriangle, ChevronRight,
   Sparkles, Gift, Heart
 } from 'lucide-react';
+import '../styles/users.css'
 
 // ============================================
-// API CONFIGURATION — FIXED ✅
-// Same pattern as Suppliers.jsx: baseURL points at the real backend,
-// every call below is relative to it (e.g. '/users', not '/api/users').
+// API INTERCEPTORS — FIXED ✅
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Add interceptors for debugging
-api.interceptors.request.use(
+apiClient.interceptors.request.use(
   config => {
     console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
+    console.log('📤 Request Data:', config.data);
     return config;
   },
   error => Promise.reject(error)
 );
 
-api.interceptors.response.use(
+apiClient.interceptors.response.use(
   response => {
     console.log('📥 API Response:', response.status, response.config.url);
     return response;
   },
   error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
+    console.error('❌ API Error:', error.response?.status);
+    console.error('❌ Error Data:', error.response?.data);
+    console.error('❌ Error Data Stringified:', JSON.stringify(error.response?.data, null, 2));
+    console.error('❌ Error Message:', error.message);
     return Promise.reject(error);
   }
 );
@@ -54,6 +46,7 @@ const Users = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [isSubmittingRef, setIsSubmittingRef] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [message, setMessage] = useState('');
@@ -75,6 +68,7 @@ const Users = () => {
     cashiers: 0
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // ===== FORM DATA =====
   const [formData, setFormData] = useState({
@@ -91,6 +85,7 @@ const Users = () => {
   const isMounted = useRef(true);
   const searchTimeout = useRef(null);
   const headerRef = useRef(null);
+  const submitTimeoutRef = useRef(null);
 
   // ===== MOUSE TRACKING =====
   useEffect(() => {
@@ -101,22 +96,28 @@ const Users = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // ===== FETCH USERS — FIXED ✅ (consistent '/users' relative to API_BASE) =====
+  // ===== FETCH USERS =====
   const fetchUsers = useCallback(async () => {
+    if (!isMounted.current) return;
+    
     setLoading(true);
     try {
-      const res = await api.get('/users', {
+      const res = await apiClient.get('/users', {
         params: { search: searchTerm || undefined }
       });
       if (isMounted.current) {
-        const data = res.data || [];
+        const data = res.data?.data || res.data || [];
         setUsers(data);
         calculateStats(data);
+        if (data.length > 0) {
+          showMessage(`✅ Loaded ${data.length} users`, 'success');
+        }
       }
     } catch (error) {
       console.error('Error fetching users:', error);
       if (isMounted.current) {
         showMessage('❌ Failed to load users', 'error');
+        // Fallback mock data
         const fallbackData = [
           { user_id: 1, username: 'admin', fullname: 'Administrator', role_id: 1, role: 'Admin', status: 'ACTIVE', email: 'admin@example.com', phone: '555-0001', created_at: '2026-01-01' },
           { user_id: 2, username: 'cashier1', fullname: 'John Doe', role_id: 2, role: 'Cashier', status: 'ACTIVE', email: 'john@example.com', phone: '555-0002', created_at: '2026-01-15' },
@@ -138,7 +139,7 @@ const Users = () => {
   const calculateStats = useCallback((data) => {
     const stats = {
       total: data.length,
-      active: data.filter(u => (u.status || 'ACTIVE') === 'ACTIVE').length,
+      active: data.filter(u => (u.status || 'ACTIVE').toUpperCase() === 'ACTIVE').length,
       admins: data.filter(u => u.role_id === 1 || u.role === 'Admin').length,
       cashiers: data.filter(u => u.role_id === 2 || u.role === 'Cashier').length
     };
@@ -149,8 +150,10 @@ const Users = () => {
   const showMessage = useCallback((text, type = 'success') => {
     setMessage(text);
     setMessageType(type);
-    const timer = setTimeout(() => setMessage(''), 5000);
-    return () => clearTimeout(timer);
+    if (submitTimeoutRef.current) {
+      clearTimeout(submitTimeoutRef.current);
+    }
+    submitTimeoutRef.current = setTimeout(() => setMessage(''), 5000);
   }, []);
 
   // ===== INITIAL LOAD =====
@@ -162,6 +165,9 @@ const Users = () => {
       isMounted.current = false;
       if (searchTimeout.current) {
         clearTimeout(searchTimeout.current);
+      }
+      if (submitTimeoutRef.current) {
+        clearTimeout(submitTimeoutRef.current);
       }
     };
   }, [fetchUsers]);
@@ -194,7 +200,7 @@ const Users = () => {
       };
       const roles = roleMap[filterRole] || [];
       result = result.filter(u => {
-        const userRole = u.role_id || (u.Role === 'Admin' ? 1 : u.Role === 'Cashier' ? 2 : 3);
+        const userRole = u.role_id || (u.role === 'Admin' ? 1 : u.role === 'Cashier' ? 2 : 3);
         return roles.includes(userRole) || roles.includes(u.role);
       });
     }
@@ -223,59 +229,182 @@ const Users = () => {
     return result;
   }, [users, filterRole, filterStatus, sortBy, sortOrder]);
 
-  // ===== HANDLE SUBMIT — FIXED ✅ (POST now goes to '/users', matching PUT/DELETE) =====
+  // ===== VALIDATE FORM =====
+  const validateForm = useCallback(() => {
+    const errors = {};
+    
+    if (!formData.username?.trim()) {
+      errors.username = 'Username is required';
+    } else if (formData.username.length < 3) {
+      errors.username = 'Username must be at least 3 characters';
+    } else if (!/^[a-zA-Z0-9_]+$/.test(formData.username)) {
+      errors.username = 'Username can only contain letters, numbers, and underscores';
+    }
+    
+    if (!editingUser && !formData.password) {
+      errors.password = 'Password is required for new users';
+    } else if (formData.password && formData.password.length < 4) {
+      errors.password = 'Password must be at least 4 characters';
+    }
+    
+    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Please enter a valid email address';
+    }
+    
+    if (formData.phone && !/^[\d\s\-()+]+$/.test(formData.phone)) {
+      errors.phone = 'Please enter a valid phone number';
+    }
+    
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [formData, editingUser]);
+
+  // ===== HANDLE SUBMIT =====
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Prevent duplicate submissions
+    if (isSubmittingRef || submitting) {
+      console.log('⏳ Submission already in progress');
+      return;
+    }
+    
+    // Validate form
+    if (!validateForm()) {
+      showMessage('❌ Please fix the errors in the form', 'error');
+      return;
+    }
+    
+    setIsSubmittingRef(true);
     setSubmitting(true);
     
-    if (!formData.username.trim()) {
-      showMessage('❌ Username is required', 'error');
-      setSubmitting(false);
-      return;
-    }
-    if (!editingUser && !formData.password) {
-      showMessage('❌ Password is required for new users', 'error');
-      setSubmitting(false);
-      return;
-    }
-    if (formData.password && formData.password.length < 4) {
-      showMessage('❌ Password must be at least 4 characters', 'error');
-      setSubmitting(false);
-      return;
-    }
-    
     try {
+      // Prepare submit data - only include fields that have values
       const submitData = {
         username: formData.username.trim(),
-        password: formData.password,
-        fullname: formData.fullname.trim() || formData.username.trim(),
-        role_id: formData.role_id,
-        email: formData.email || '',
-        phone: formData.phone || '',
+        fullname: formData.fullname?.trim() || formData.username.trim(),
+        role_id: parseInt(formData.role_id, 10),
         status: formData.status || 'ACTIVE'
       };
       
+      // Only add email if it's provided
+      if (formData.email?.trim()) {
+        submitData.email = formData.email.trim();
+      }
+      
+      // Only add phone if it's provided
+      if (formData.phone?.trim()) {
+        submitData.phone = formData.phone.trim();
+      }
+      
+      // Only include password if it's provided
+      if (formData.password) {
+        submitData.password = formData.password;
+      }
+      
+      console.log('📤 Submitting data:', JSON.stringify(submitData, null, 2));
+      
+      let response;
       if (editingUser) {
-        await api.put(`/users/${editingUser.user_id}`, submitData);
+        // For updates, only send fields that should be updated
+        const updateData = { ...submitData };
+        // If password is empty, don't send it
+        if (!formData.password) {
+          delete updateData.password;
+        }
+        
+        console.log(`📤 Updating user ${editingUser.user_id} with:`, updateData);
+        response = await apiClient.put(`/users/${editingUser.user_id}`, updateData);
         showMessage('✅ User updated successfully!');
       } else {
-        await api.post('/users', submitData);
+        // For new users, password is required
+        if (!submitData.password) {
+          showMessage('❌ Password is required for new users', 'error');
+          setIsSubmittingRef(false);
+          setSubmitting(false);
+          return;
+        }
+        console.log('📤 Creating new user with:', submitData);
+        response = await apiClient.post('/users', submitData);
         showMessage('✅ User created successfully!');
       }
       
+      console.log('✅ Success response:', response.data);
+      
+      // Reset form and close modal
       setShowModal(false);
       setEditingUser(null);
       resetForm();
-      fetchUsers();
+      setFieldErrors({});
+      
+      // Refresh user list
+      await fetchUsers();
+      
     } catch (error) {
-      console.error('Submit error:', error.response?.data || error.message);
-      showMessage(`❌ ${error.response?.data?.error || 'Failed to save user'}`, 'error');
+      console.error('❌ Submit error:', error);
+      
+      // Log the full error for debugging
+      if (error.response?.data) {
+        console.log('📋 Full server error:', JSON.stringify(error.response.data, null, 2));
+        
+        // Try to parse the errors array
+        if (error.response.data.errors) {
+          const errors = error.response.data.errors;
+          console.log('📋 Errors array:', errors);
+          
+          // If errors is an array of objects with msg property
+          if (Array.isArray(errors) && errors.length > 0) {
+            const firstError = errors[0];
+            console.log('📋 First error object:', firstError);
+            
+            // Extract error message
+            let errorMessage = '';
+            if (typeof firstError === 'string') {
+              errorMessage = firstError;
+            } else if (firstError.msg) {
+              errorMessage = firstError.msg;
+            } else if (firstError.message) {
+              errorMessage = firstError.message;
+            } else if (firstError.error) {
+              errorMessage = firstError.error;
+            } else {
+              errorMessage = JSON.stringify(firstError);
+            }
+            
+            showMessage(`❌ ${errorMessage}`, 'error');
+          } else {
+            // Handle other error formats
+            let errorMessage = '';
+            if (typeof errors === 'string') {
+              errorMessage = errors;
+            } else if (errors.msg) {
+              errorMessage = errors.msg;
+            } else if (errors.message) {
+              errorMessage = errors.message;
+            } else {
+              errorMessage = JSON.stringify(errors);
+            }
+            showMessage(`❌ ${errorMessage}`, 'error');
+          }
+        } else if (error.response.data.error) {
+          showMessage(`❌ ${error.response.data.error}`, 'error');
+        } else if (error.response.data.message) {
+          showMessage(`❌ ${error.response.data.message}`, 'error');
+        } else {
+          showMessage(`❌ ${JSON.stringify(error.response.data)}`, 'error');
+        }
+      } else {
+        showMessage('❌ Failed to save user. Please check the form and try again.', 'error');
+      }
     } finally {
-      setSubmitting(false);
+      setIsSubmittingRef(false);
+      if (isMounted.current) {
+        setSubmitting(false);
+      }
     }
   };
 
-  // ===== HANDLE DELETE — FIXED ✅ =====
+  // ===== HANDLE DELETE =====
   const handleDelete = useCallback(async (id) => {
     if (id === 1) {
       showMessage('❌ Cannot delete the admin user', 'error');
@@ -284,16 +413,16 @@ const Users = () => {
     if (!window.confirm('Are you sure you want to delete this user?')) return;
     
     try {
-      await api.delete(`/users/${id}`);
+      await apiClient.delete(`/users/${id}`);
       showMessage('✅ User deleted successfully!');
-      fetchUsers();
+      await fetchUsers();
     } catch (error) {
       console.error('Delete error:', error);
       showMessage('❌ Failed to delete user', 'error');
     }
   }, [fetchUsers, showMessage]);
 
-  // ===== BULK DELETE — FIXED ✅ =====
+  // ===== BULK DELETE =====
   const handleBulkDelete = useCallback(async () => {
     if (selectedUsers.length === 0) return;
     if (selectedUsers.includes(1)) {
@@ -303,11 +432,10 @@ const Users = () => {
     if (!window.confirm(`Delete ${selectedUsers.length} selected users?`)) return;
 
     try {
-      // Run deletes in parallel instead of sequential await-in-loop
-      await Promise.all(selectedUsers.map(id => api.delete(`/users/${id}`)));
+      await Promise.all(selectedUsers.map(id => apiClient.delete(`/users/${id}`)));
       showMessage(`✅ ${selectedUsers.length} users deleted!`);
       setSelectedUsers([]);
-      fetchUsers();
+      await fetchUsers();
     } catch (error) {
       console.error('Bulk delete error:', error);
       showMessage('❌ Failed to delete some users', 'error');
@@ -334,6 +462,8 @@ const Users = () => {
       phone: '',
       status: 'ACTIVE'
     });
+    setFieldErrors({});
+    setShowPassword(false);
   }, []);
 
   // ===== OPEN MODAL =====
@@ -348,6 +478,7 @@ const Users = () => {
       phone: user.phone || '',
       status: user.status || 'ACTIVE'
     });
+    setFieldErrors({});
     setShowModal(true);
   }, []);
 
@@ -522,7 +653,7 @@ const Users = () => {
         </div>
       )}
 
-      {/* ===== HEADER WITH STATS - 3D Tilt ===== */}
+      {/* ===== HEADER WITH STATS ===== */}
       <div 
         ref={headerRef}
         className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-300"
@@ -531,7 +662,6 @@ const Users = () => {
           transition: 'transform 0.1s ease-out'
         }}
       >
-        {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full animate-pulse-slow" />
           <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-purple-300/20 rounded-full animate-pulse-slow animation-delay-1000" />
@@ -559,8 +689,9 @@ const Users = () => {
             <button 
               onClick={handleRefresh}
               className="bg-white/20 backdrop-blur-sm p-2 rounded-xl hover:bg-white/30 transition hover:scale-110 duration-300"
+              disabled={loading}
             >
-              <RefreshCw className="w-5 h-5" />
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={openAddModal}
@@ -572,7 +703,6 @@ const Users = () => {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 relative z-10">
           {[
             { label: 'Total Users', value: userStats.total, icon: 'total' },
@@ -595,7 +725,6 @@ const Users = () => {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-all duration-300">
         <div className="flex flex-wrap justify-between items-center gap-3">
           <div className="flex flex-wrap items-center gap-3 flex-1">
-            {/* Search */}
             <div className="relative flex-1 min-w-[200px] group">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-indigo-500 transition-colors w-4 h-4" />
               <input
@@ -607,7 +736,6 @@ const Users = () => {
               />
             </div>
 
-            {/* Filter Role */}
             <select
               value={filterRole}
               onChange={(e) => setFilterRole(e.target.value)}
@@ -619,7 +747,6 @@ const Users = () => {
               <option value="viewer">Viewer</option>
             </select>
 
-            {/* Filter Status */}
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -630,7 +757,6 @@ const Users = () => {
               <option value="inactive">Inactive</option>
             </select>
 
-            {/* Sort */}
             <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
               <select
                 value={sortBy}
@@ -652,7 +778,6 @@ const Users = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* View Mode */}
             <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
               <button
                 onClick={() => setViewMode('grid')}
@@ -678,7 +803,6 @@ const Users = () => {
               </button>
             </div>
 
-            {/* Bulk Actions */}
             {selectedUsers.length > 0 && (
               <button
                 onClick={handleBulkDelete}
@@ -709,7 +833,6 @@ const Users = () => {
           </button>
         </div>
       ) : viewMode === 'grid' ? (
-        // ===== GRID VIEW =====
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredUsers.map((user, index) => {
             const id = user.user_id;
@@ -718,8 +841,6 @@ const Users = () => {
             const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');
             const roleId = user.role_id || (role === 'Admin' ? 1 : role === 'Cashier' ? 2 : 3);
             const status = user.status || 'ACTIVE';
-            const initials = getInitials(fullname || username);
-            const avatarColor = getAvatarColor(fullname || username);
             const isSelected = selectedUsers.includes(id);
             const emoji = getUserEmoji(role);
 
@@ -733,11 +854,10 @@ const Users = () => {
                 onClick={() => toggleSelect(id)}
               >
                 <div className="p-5">
-                  {/* Header */}
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <div className="relative">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${avatarColor} shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:rotate-6`}>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl ${getAvatarColor(fullname || username)} shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:rotate-6`}>
                           {emoji}
                         </div>
                         <div className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-gray-800 ${
@@ -793,7 +913,6 @@ const Users = () => {
                     </div>
                   </div>
 
-                  {/* Role & Status */}
                   <div className="flex items-center gap-2 mb-3">
                     {getRoleBadge(roleId, role)}
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-all duration-300 ${getStatusBadge(status)} group-hover:scale-105`}>
@@ -801,7 +920,6 @@ const Users = () => {
                     </span>
                   </div>
 
-                  {/* Contact Info */}
                   <div className="space-y-1.5">
                     {user.email && (
                       <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
@@ -828,7 +946,6 @@ const Users = () => {
                     )}
                   </div>
 
-                  {/* Footer */}
                   <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
                     <span className="text-xs text-gray-400 flex items-center gap-1">
                       <Key className="w-3 h-3" />
@@ -845,7 +962,6 @@ const Users = () => {
           })}
         </div>
       ) : (
-        // ===== LIST VIEW =====
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-lg transition-all duration-300">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -988,7 +1104,6 @@ const Users = () => {
             </div>
             
             <div className="p-6">
-              {/* User Avatar */}
               <div className="flex items-center gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-2xl ${getAvatarColor(selectedUserDetail.fullname || selectedUserDetail.username)} shadow-lg`}>
                   {getInitials(selectedUserDetail.fullname || selectedUserDetail.username)}
@@ -1008,7 +1123,6 @@ const Users = () => {
                 </div>
               </div>
 
-              {/* Contact Details */}
               <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                 <User className="w-4 h-4 text-indigo-500" />
                 Contact Information
@@ -1071,7 +1185,11 @@ const Users = () => {
                 {editingUser ? 'Edit User' : 'Add New User'}
               </h2>
               <button 
-                onClick={() => setShowModal(false)} 
+                onClick={() => {
+                  setShowModal(false);
+                  setEditingUser(null);
+                  resetForm();
+                }} 
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all duration-300 hover:rotate-90"
                 disabled={submitting}
               >
@@ -1081,7 +1199,6 @@ const Users = () => {
 
             <form onSubmit={handleSubmit} className="p-6">
               <div className="space-y-4">
-                {/* Username */}
                 <div className="group">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
                     Username <span className="text-red-500">*</span>
@@ -1090,14 +1207,28 @@ const Users = () => {
                     type="text"
                     required
                     value={formData.username}
-                    onChange={(e) => setFormData({...formData, username: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                    onChange={(e) => {
+                      setFormData({...formData, username: e.target.value});
+                      if (fieldErrors.username) {
+                        setFieldErrors(prev => ({...prev, username: ''}));
+                      }
+                    }}
+                    className={`w-full px-3 py-2.5 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 ${
+                      fieldErrors.username 
+                        ? 'border-red-500 dark:border-red-500' 
+                        : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                    } dark:bg-gray-700 dark:text-white`}
                     placeholder="Enter username"
                     disabled={submitting}
                   />
+                  {fieldErrors.username && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {fieldErrors.username}
+                    </p>
+                  )}
                 </div>
 
-                {/* Full Name */}
                 <div className="group">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
                     <User className="w-4 h-4" />
@@ -1107,13 +1238,12 @@ const Users = () => {
                     type="text"
                     value={formData.fullname}
                     onChange={(e) => setFormData({...formData, fullname: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
                     placeholder="Enter full name"
                     disabled={submitting}
                   />
                 </div>
 
-                {/* Password */}
                 <div className="group">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
                     <Lock className="w-4 h-4" />
@@ -1124,8 +1254,17 @@ const Users = () => {
                       type={showPassword ? 'text' : 'password'}
                       required={!editingUser}
                       value={formData.password}
-                      onChange={(e) => setFormData({...formData, password: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300 pr-10"
+                      onChange={(e) => {
+                        setFormData({...formData, password: e.target.value});
+                        if (fieldErrors.password) {
+                          setFieldErrors(prev => ({...prev, password: ''}));
+                        }
+                      }}
+                      className={`w-full px-3 py-2.5 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 ${
+                        fieldErrors.password 
+                          ? 'border-red-500 dark:border-red-500' 
+                          : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                      } dark:bg-gray-700 dark:text-white pr-10`}
                       placeholder={editingUser ? 'Leave blank to keep current' : 'Enter password (min 4 chars)'}
                       disabled={submitting}
                     />
@@ -1137,9 +1276,14 @@ const Users = () => {
                       {showPassword ? <X className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                  {fieldErrors.password && (
+                    <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {fieldErrors.password}
+                    </p>
+                  )}
                 </div>
 
-                {/* Email & Phone */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="group">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
@@ -1149,11 +1293,26 @@ const Users = () => {
                     <input
                       type="email"
                       value={formData.email}
-                      onChange={(e) => setFormData({...formData, email: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                      onChange={(e) => {
+                        setFormData({...formData, email: e.target.value});
+                        if (fieldErrors.email) {
+                          setFieldErrors(prev => ({...prev, email: ''}));
+                        }
+                      }}
+                      className={`w-full px-3 py-2.5 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 ${
+                        fieldErrors.email 
+                          ? 'border-red-500 dark:border-red-500' 
+                          : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                      } dark:bg-gray-700 dark:text-white`}
                       placeholder="Enter email"
                       disabled={submitting}
                     />
+                    {fieldErrors.email && (
+                      <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {fieldErrors.email}
+                      </p>
+                    )}
                   </div>
                   <div className="group">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
@@ -1163,15 +1322,29 @@ const Users = () => {
                     <input
                       type="tel"
                       value={formData.phone}
-                      onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                      onChange={(e) => {
+                        setFormData({...formData, phone: e.target.value});
+                        if (fieldErrors.phone) {
+                          setFieldErrors(prev => ({...prev, phone: ''}));
+                        }
+                      }}
+                      className={`w-full px-3 py-2.5 border-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 ${
+                        fieldErrors.phone 
+                          ? 'border-red-500 dark:border-red-500' 
+                          : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                      } dark:bg-gray-700 dark:text-white`}
                       placeholder="Enter phone"
                       disabled={submitting}
                     />
+                    {fieldErrors.phone && (
+                      <p className="mt-1 text-xs text-red-500 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        {fieldErrors.phone}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                {/* Role & Status */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="group">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
@@ -1181,7 +1354,7 @@ const Users = () => {
                     <select
                       value={formData.role_id}
                       onChange={(e) => setFormData({...formData, role_id: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
                       disabled={submitting}
                     >
                       <option value="1">Admin</option>
@@ -1197,7 +1370,7 @@ const Users = () => {
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData({...formData, status: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
                       disabled={submitting}
                     >
                       <option value="ACTIVE">Active</option>
@@ -1207,11 +1380,14 @@ const Users = () => {
                 </div>
               </div>
 
-              {/* Actions */}
               <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <button 
                   type="button" 
-                  onClick={() => setShowModal(false)} 
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditingUser(null);
+                    resetForm();
+                  }} 
                   className="px-6 py-2.5 border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-300 dark:text-white font-medium disabled:opacity-50"
                   disabled={submitting}
                 >
@@ -1220,7 +1396,7 @@ const Users = () => {
                 <button 
                   type="submit" 
                   className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                  disabled={submitting}
+                  disabled={submitting || isSubmittingRef}
                 >
                   {submitting ? (
                     <>
@@ -1239,75 +1415,6 @@ const Users = () => {
           </div>
         </div>
       )}
-
-      {/* ===== CSS ANIMATIONS — FIXED ✅ removed invalid `jsx` attribute (Next.js-only, not valid in plain React/Vite) ===== */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(100px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        @keyframes float-delayed {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-15px) rotate(10deg); }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 0.2; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(1.1); }
-        }
-        @keyframes spin-slow {
-          0% { transform: translate(-50%, -50%) rotate(0deg); }
-          100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-
-        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideIn { animation: slideIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideInRight { animation: slideInRight 0.5s ease-out forwards; }
-        .animate-slideUp { animation: slideUp 0.4s ease-out forwards; opacity: 0; }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-        .animate-float-delayed { animation: float-delayed 4s ease-in-out infinite; }
-        .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
-        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
-        .animate-bounce { animation: bounce 1s ease-in-out infinite; }
-        .animation-delay-1000 { animation-delay: 1s; }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #c4c4c4;
-          border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #a0a0a0;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-          background: #4b5563;
-        }
-        .dark ::-webkit-scrollbar-thumb:hover {
-          background: #6b7280;
-        }
-      `}</style>
     </div>
   );
 };

@@ -1,5 +1,5 @@
+// Warranty.jsx - Enhanced with Alive Animations
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import axios from 'axios';
 import { 
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw, Wrench,
   Search, Filter, Download, Eye, CheckCircle, Clock,
@@ -9,45 +9,16 @@ import {
   Award, Star, Zap, Activity, TrendingUp,
   AlertTriangle, ChevronRight, ClipboardList,
   Printer, Home, Briefcase, Users as UsersIcon,
-  Key
+  Key, Sparkles, Gem, Crown, Target, BarChart3,
+  Rocket, Gift, Heart, Sun, Moon, Stars, 
+  Flower2, PartyPopper, Compass, Feather, 
+  Palette, Music, Coffee, Cloud, Wind
 } from 'lucide-react';
+import '../styles/warranty.css';
+import apiClient from '../api/client';
 
 // ============================================
-// ✅ API CONFIGURATION
-// ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-console.log('🔧 API_BASE (Warranty):', API_BASE);
-
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-api.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-api.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
-
-// ============================================
-// ✅ MOCK DATA GENERATOR (Fallback)
+// MOCK DATA GENERATOR (Fallback)
 // ============================================
 const generateMockData = () => {
   const now = new Date();
@@ -122,7 +93,79 @@ const generateMockData = () => {
 };
 
 // ============================================
-// ✅ MAIN WARRANTY COMPONENT
+// ANIMATED BACKGROUND PARTICLES
+// ============================================
+const AnimatedBackground = () => {
+  const particles = useMemo(() => {
+    return Array.from({ length: 30 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 6 + 2,
+      duration: Math.random() * 20 + 10,
+      delay: Math.random() * 10,
+      opacity: Math.random() * 0.3 + 0.1
+    }));
+  }, []);
+
+  return (
+    <div className="animated-bg">
+      {particles.map((p) => (
+        <div
+          key={p.id}
+          className="bg-particle"
+          style={{
+            left: `${p.x}%`,
+            top: `${p.y}%`,
+            width: `${p.size}px`,
+            height: `${p.size}px`,
+            animationDuration: `${p.duration}s`,
+            animationDelay: `${p.delay}s`,
+            opacity: p.opacity
+          }}
+        />
+      ))}
+      <div className="bg-gradient-overlay" />
+    </div>
+  );
+};
+
+// ============================================
+// FLOATING ICONS ANIMATION
+// ============================================
+const FloatingIcons = () => {
+  const icons = [
+    { Icon: Shield, delay: 0, x: 5, y: 10 },
+    { Icon: Sparkles, delay: 2, x: 85, y: 15 },
+    { Icon: Rocket, delay: 4, x: 15, y: 75 },
+    { Icon: Gem, delay: 1, x: 92, y: 80 },
+    { Icon: Crown, delay: 3, x: 45, y: 5 },
+    { Icon: Star, delay: 5, x: 50, y: 90 },
+    { Icon: Flower2, delay: 2.5, x: 78, y: 45 },
+    { Icon: Compass, delay: 4.5, x: 22, y: 50 },
+  ];
+
+  return (
+    <div className="floating-icons">
+      {icons.map(({ Icon, delay, x, y }, i) => (
+        <div
+          key={i}
+          className="floating-icon"
+          style={{
+            animationDelay: `${delay}s`,
+            left: `${x}%`,
+            top: `${y}%`
+          }}
+        >
+          <Icon className="w-6 h-6" />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ============================================
+// MAIN WARRANTY COMPONENT
 // ============================================
 const Warranty = () => {
   // ===== STATE =====
@@ -148,6 +191,7 @@ const Warranty = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedItems, setSelectedItems] = useState([]);
+  const [time, setTime] = useState(new Date());
   const [warrantyStats, setWarrantyStats] = useState({
     total: 0,
     active: 0,
@@ -172,12 +216,20 @@ const Warranty = () => {
     status: 'Active',
     issue_description: '',
     service_type: 'Repair',
-    received_date: ''
+    received_date: '',
+    notes: ''
   });
 
   // ===== REFS =====
   const isMounted = useRef(true);
   const searchTimeout = useRef(null);
+  const cardRefs = useRef({});
+
+  // ===== TIME UPDATE =====
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {
@@ -187,12 +239,56 @@ const Warranty = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // ===== EXTRACT DATA HELPER =====
+  const extractData = useCallback((responseData) => {
+    if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) {
+      console.warn('⚠️ Received HTML - API not available');
+      return [];
+    }
+    
+    if (Array.isArray(responseData)) {
+      return responseData;
+    }
+    
+    if (responseData && typeof responseData === 'object') {
+      if (Array.isArray(responseData.data)) {
+        return responseData.data;
+      }
+      if (Array.isArray(responseData.items)) {
+        return responseData.items;
+      }
+      if (Array.isArray(responseData.warranties)) {
+        return responseData.warranties;
+      }
+      if (Array.isArray(responseData.services)) {
+        return responseData.services;
+      }
+      if (responseData.data && typeof responseData.data === 'object') {
+        if (Array.isArray(responseData.data.items)) {
+          return responseData.data.items;
+        }
+        if (Array.isArray(responseData.data.warranties)) {
+          return responseData.data.warranties;
+        }
+        if (Array.isArray(responseData.data.services)) {
+          return responseData.data.services;
+        }
+        const values = Object.values(responseData.data);
+        if (values.length > 0 && Array.isArray(values[0])) {
+          return values[0];
+        }
+      }
+    }
+    
+    return [];
+  }, []);
+
   // ===== FETCH CUSTOMERS & PRODUCTS =====
   const fetchCustomersAndProducts = useCallback(async () => {
     try {
       const [customersRes, productsRes] = await Promise.all([
-        api.get('/customers'),
-        api.get('/products')
+        apiClient.get('/customers'),
+        apiClient.get('/products')
       ]);
       
       if (isMounted.current) {
@@ -210,19 +306,21 @@ const Warranty = () => {
         const mockData = generateMockData();
         setCustomers(mockData.customers);
         setProducts(mockData.products);
+        showMessage('⚠️ Using sample data (API connection failed)', 'warning');
       }
     }
-  }, []);
+  }, [showMessage]);
 
   // ===== FETCH WARRANTIES =====
   const fetchWarranties = useCallback(async () => {
     try {
-      const res = await api.get('/warranties');
+      const res = await apiClient.get('/warranties');
       if (isMounted.current) {
-        const data = Array.isArray(res.data) ? res.data : [];
-        setWarranties(data);
-        calculateWarrantyStats(data);
-        console.log(`🛡️ Warranties loaded: ${data.length}`);
+        const data = extractData(res.data);
+        const warrantiesArray = Array.isArray(data) ? data : [];
+        setWarranties(warrantiesArray);
+        calculateWarrantyStats(warrantiesArray);
+        console.log(`🛡️ Warranties loaded: ${warrantiesArray.length}`);
       }
     } catch (error) {
       console.error('❌ Error fetching warranties:', error);
@@ -233,17 +331,18 @@ const Warranty = () => {
         showMessage('⚠️ Using sample warranty data', 'warning');
       }
     }
-  }, [showMessage]);
+  }, [extractData, showMessage]);
 
   // ===== FETCH SERVICES =====
   const fetchServices = useCallback(async () => {
     try {
-      const res = await api.get('/services');
+      const res = await apiClient.get('/services');
       if (isMounted.current) {
-        const data = Array.isArray(res.data) ? res.data : [];
-        setServices(data);
-        calculateServiceStats(data);
-        console.log(`🔧 Services loaded: ${data.length}`);
+        const data = extractData(res.data);
+        const servicesArray = Array.isArray(data) ? data : [];
+        setServices(servicesArray);
+        calculateServiceStats(servicesArray);
+        console.log(`🔧 Services loaded: ${servicesArray.length}`);
       }
     } catch (error) {
       console.error('❌ Error fetching services:', error);
@@ -254,7 +353,7 @@ const Warranty = () => {
         showMessage('⚠️ Using sample service data', 'warning');
       }
     }
-  }, [showMessage]);
+  }, [extractData, showMessage]);
 
   // ===== LOAD ALL DATA =====
   const loadData = useCallback(async () => {
@@ -367,13 +466,13 @@ const Warranty = () => {
   // ===== GET STATUS BADGE =====
   const getStatusBadge = useCallback((status) => {
     const statusMap = {
-      'Active': 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
-      'Expired': 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800',
-      'Pending': 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800',
-      'In Progress': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
-      'Completed': 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800'
+      'Active': 'status-badge status-active',
+      'Expired': 'status-badge status-expired',
+      'Pending': 'status-badge status-pending',
+      'In Progress': 'status-badge status-in-progress',
+      'Completed': 'status-badge status-completed'
     };
-    return `inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusMap[status] || statusMap['Pending']}`;
+    return statusMap[status] || 'status-badge status-pending';
   }, []);
 
   // ===== GET STATUS ICON =====
@@ -394,9 +493,9 @@ const Warranty = () => {
     const icons = {
       total: <Shield className="w-5 h-5 text-indigo-500" />,
       active: <CheckCircle className="w-5 h-5 text-emerald-500" />,
-      expiring: <AlertCircle className="w-5 h-5 text-yellow-500" />,
-      expired: <X className="w-5 h-5 text-red-500" />,
-      pending: <Clock className="w-5 h-5 text-yellow-500" />,
+      expiring: <AlertCircle className="w-5 h-5 text-amber-500" />,
+      expired: <X className="w-5 h-5 text-rose-500" />,
+      pending: <Clock className="w-5 h-5 text-amber-500" />,
       inProgress: <Activity className="w-5 h-5 text-blue-500" />,
       completed: <Award className="w-5 h-5 text-purple-500" />
     };
@@ -406,9 +505,15 @@ const Warranty = () => {
   // ===== GET AVATAR COLOR =====
   const getAvatarColor = useCallback((name) => {
     const colors = [
-      'bg-indigo-500', 'bg-purple-500', 'bg-pink-500', 
-      'bg-blue-500', 'bg-green-500', 'bg-yellow-500',
-      'bg-red-500', 'bg-orange-500', 'bg-teal-500'
+      'bg-gradient-to-br from-indigo-500 to-purple-600',
+      'bg-gradient-to-br from-rose-500 to-pink-600',
+      'bg-gradient-to-br from-emerald-500 to-teal-600',
+      'bg-gradient-to-br from-blue-500 to-cyan-600',
+      'bg-gradient-to-br from-amber-500 to-orange-600',
+      'bg-gradient-to-br from-violet-500 to-purple-600',
+      'bg-gradient-to-br from-fuchsia-500 to-pink-600',
+      'bg-gradient-to-br from-sky-500 to-blue-600',
+      'bg-gradient-to-br from-lime-500 to-emerald-600'
     ];
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
@@ -441,11 +546,11 @@ const Warranty = () => {
     }
 
     if (filterStatus !== 'all') {
-      result = result.filter(w => {
-        if (filterStatus === 'active') return w.status === 'Active';
-        if (filterStatus === 'expired') return w.status === 'Expired';
-        return true;
-      });
+      if (filterStatus === 'active') {
+        result = result.filter(w => w.status === 'Active');
+      } else if (filterStatus === 'expired') {
+        result = result.filter(w => w.status === 'Expired');
+      }
     }
 
     result.sort((a, b) => {
@@ -462,6 +567,10 @@ const Warranty = () => {
       } else {
         aVal = a[sortBy] ?? '';
         bVal = b[sortBy] ?? '';
+      }
+
+      if (aVal instanceof Date && bVal instanceof Date) {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
       }
 
       if (typeof aVal === 'string') {
@@ -521,6 +630,10 @@ const Warranty = () => {
         bVal = b[sortBy] ?? '';
       }
 
+      if (aVal instanceof Date && bVal instanceof Date) {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
       if (typeof aVal === 'string') {
         aVal = aVal.toLowerCase();
         bVal = bVal.toLowerCase();
@@ -554,7 +667,8 @@ const Warranty = () => {
       status: 'Active',
       issue_description: '',
       service_type: 'Repair',
-      received_date: today
+      received_date: today,
+      notes: ''
     });
   }, []);
 
@@ -629,10 +743,10 @@ const Warranty = () => {
 
         if (editingItem) {
           const id = editingItem.warrantyid || editingItem.WarrantyID;
-          await api.put(`/warranties/${id}`, data);
+          await apiClient.put(`/warranties/${id}`, data);
           showMessage('✅ Warranty updated successfully!');
         } else {
-          await api.post('/warranties', data);
+          await apiClient.post('/warranties', data);
           showMessage('✅ Warranty created successfully!');
         }
         await fetchWarranties();
@@ -644,10 +758,10 @@ const Warranty = () => {
 
         if (editingItem) {
           const id = editingItem.serviceid || editingItem.ServiceID;
-          await api.put(`/services/${id}`, data);
+          await apiClient.put(`/services/${id}`, data);
           showMessage('✅ Service updated successfully!');
         } else {
-          await api.post('/services', data);
+          await apiClient.post('/services', data);
           showMessage('✅ Service created successfully!');
         }
         await fetchServices();
@@ -670,11 +784,11 @@ const Warranty = () => {
 
     try {
       if (activeTab === 'warranty') {
-        await api.delete(`/warranties/${id}`);
+        await apiClient.delete(`/warranties/${id}`);
         await fetchWarranties();
         showMessage('✅ Warranty deleted successfully!');
       } else {
-        await api.delete(`/services/${id}`);
+        await apiClient.delete(`/services/${id}`);
         await fetchServices();
         showMessage('✅ Service deleted successfully!');
       }
@@ -691,10 +805,14 @@ const Warranty = () => {
 
     try {
       if (activeTab === 'warranty') {
-        await api.delete('/warranties/bulk', { data: { ids: selectedItems } });
+        for (const id of selectedItems) {
+          await apiClient.delete(`/warranties/${id}`);
+        }
         await fetchWarranties();
       } else {
-        await api.delete('/services/bulk', { data: { ids: selectedItems } });
+        for (const id of selectedItems) {
+          await apiClient.delete(`/services/${id}`);
+        }
         await fetchServices();
       }
       showMessage(`✅ ${selectedItems.length} items deleted!`);
@@ -785,46 +903,43 @@ const Warranty = () => {
   // ===== LOADING =====
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <div className="relative">
-          <div className="w-14 h-14 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-indigo-500/20 animate-ping" />
+      <div className="loading-container">
+        <div className="loading-wrapper">
+          <div className="loading-spinner">
+            <div className="spinner-ring"></div>
+            <div className="spinner-ring"></div>
+            <div className="spinner-ring"></div>
+            <Shield className="spinner-icon" />
           </div>
-        </div>
-        <p className="text-gray-400 font-medium">Loading warranty data...</p>
-        <div className="flex gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.4s' }} />
+          <h2 className="loading-title">Loading Warranty Data</h2>
+          <p className="loading-subtitle">Please wait while we fetch your information...</p>
+          <div className="loading-progress">
+            <div className="progress-bar">
+              <div className="progress-fill"></div>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ===== RENDER =====
   return (
-    <div className="space-y-4 p-3 sm:p-4 md:p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 min-h-screen">
+    <div className="warranty-container">
+      {/* Animated Background */}
+      <AnimatedBackground />
+      <FloatingIcons />
       
       {/* ===== MESSAGE TOAST ===== */}
       {message && (
-        <div className={`fixed top-4 right-4 z-50 max-w-md w-full p-4 rounded-xl shadow-2xl border transform transition-all duration-500 animate-slideInRight ${
-          messageType === 'success' 
-            ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' 
-            : messageType === 'error'
-            ? 'bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-            : messageType === 'warning'
-            ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/30 dark:to-amber-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300'
-            : 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
-        }`}>
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5">
-              {messageType === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
-              {messageType === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
-              {messageType === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
+        <div className={`toast-message toast-${messageType}`}>
+          <div className="toast-content">
+            <div className="toast-icon">
+              {messageType === 'success' && <CheckCircle className="w-5 h-5" />}
+              {messageType === 'error' && <AlertCircle className="w-5 h-5" />}
+              {messageType === 'warning' && <AlertTriangle className="w-5 h-5" />}
             </div>
-            <div className="flex-1 text-sm font-medium">{message}</div>
-            <button onClick={() => setMessage('')} className="flex-shrink-0 opacity-50 hover:opacity-100 transition">
+            <div className="toast-text">{message}</div>
+            <button onClick={() => setMessage('')} className="toast-close">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -832,37 +947,53 @@ const Warranty = () => {
       )}
 
       {/* ===== HEADER WITH STATS ===== */}
-      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl">
-        <div className="flex flex-wrap justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3">
-              <Shield className="w-8 h-8" />
-              Warranty & Service Management
+      <div className="header-section">
+        <div className="header-glow" />
+        <div className="header-content">
+          <div className="header-left">
+            <div className="header-badge">
+              <Sparkles className="w-4 h-4" />
+              <span>Enterprise</span>
+              <span className="badge-dot">•</span>
+              <span className="badge-live">
+                <span className="live-dot" />
+                Live
+              </span>
+            </div>
+            <h1 className="header-title">
+              <Shield className="header-icon" />
+              <span className="title-text">Warranty & Service</span>
+              <span className="title-highlight">Management</span>
             </h1>
-            <p className="text-indigo-100 mt-1 text-sm">Track warranties and manage service requests</p>
+            <p className="header-subtitle">
+              Track warranties and manage service requests with precision
+              <span className="subtitle-decoration">✨</span>
+            </p>
           </div>
-          <div className="flex items-center gap-3 mt-3 sm:mt-0">
-            <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl text-sm flex items-center gap-2">
+          <div className="header-actions">
+            <div className="header-time">
               <Clock className="w-4 h-4" />
-              {new Date().toLocaleTimeString()}
+              <span>{time.toLocaleTimeString()}</span>
+              <span className="time-separator">•</span>
+              <span>{time.toLocaleDateString()}</span>
             </div>
             <button 
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="bg-white/20 backdrop-blur-sm p-2 rounded-xl hover:bg-white/30 transition"
+              className="header-btn"
             >
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={handleExport}
-              className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition flex items-center gap-2"
+              className="header-btn"
             >
               <Download className="w-4 h-4" />
               Export
             </button>
             <button
               onClick={openAddModal}
-              className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition flex items-center gap-2"
+              className="header-btn-primary"
             >
               <Plus className="w-4 h-4" />
               Add {activeTab === 'warranty' ? 'Warranty' : 'Service'}
@@ -871,67 +1002,135 @@ const Warranty = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+        <div className="stats-grid">
           {activeTab === 'warranty' ? (
             <>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp">
-                <div className="flex items-center gap-2">
-                  {getStatIcon('total')}
-                  <p className="text-xs text-indigo-200">Total Warranties</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('total')}
+                  </div>
+                  <span className="stat-label">Total Warranties</span>
+                  <span className="stat-trend up">
+                    <TrendingUp className="w-3 h-3" />
+                    12%
+                  </span>
                 </div>
-                <p className="text-2xl font-bold">{warrantyStats.total}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{warrantyStats.total}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar" style={{ width: '100%' }} />
+                </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: '0.1s' }}>
-                <div className="flex items-center gap-2">
-                  {getStatIcon('active')}
-                  <p className="text-xs text-indigo-200">Active</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('active')}
+                  </div>
+                  <span className="stat-label">Active</span>
                 </div>
-                <p className="text-2xl font-bold">{warrantyStats.active}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{warrantyStats.active}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar" style={{ width: warrantyStats.total ? `${(warrantyStats.active / warrantyStats.total) * 100}%` : '0%' }} />
+                </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: '0.2s' }}>
-                <div className="flex items-center gap-2">
-                  {getStatIcon('expiring')}
-                  <p className="text-xs text-indigo-200">Expiring Soon</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('expiring')}
+                  </div>
+                  <span className="stat-label">Expiring Soon</span>
+                  <span className="stat-trend down">
+                    <AlertTriangle className="w-3 h-3" />
+                    {warrantyStats.expiring}
+                  </span>
                 </div>
-                <p className="text-2xl font-bold">{warrantyStats.expiring}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{warrantyStats.expiring}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar warning" style={{ width: warrantyStats.total ? `${(warrantyStats.expiring / warrantyStats.total) * 100}%` : '0%' }} />
+                </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: '0.3s' }}>
-                <div className="flex items-center gap-2">
-                  {getStatIcon('expired')}
-                  <p className="text-xs text-indigo-200">Expired</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('expired')}
+                  </div>
+                  <span className="stat-label">Expired</span>
                 </div>
-                <p className="text-2xl font-bold">{warrantyStats.expired}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{warrantyStats.expired}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar danger" style={{ width: warrantyStats.total ? `${(warrantyStats.expired / warrantyStats.total) * 100}%` : '0%' }} />
+                </div>
               </div>
             </>
           ) : (
             <>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp">
-                <div className="flex items-center gap-2">
-                  {getStatIcon('total')}
-                  <p className="text-xs text-indigo-200">Total Services</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('total')}
+                  </div>
+                  <span className="stat-label">Total Services</span>
+                  <span className="stat-trend up">
+                    <TrendingUp className="w-3 h-3" />
+                    8%
+                  </span>
                 </div>
-                <p className="text-2xl font-bold">{serviceStats.total}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{serviceStats.total}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar" style={{ width: '100%' }} />
+                </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: '0.1s' }}>
-                <div className="flex items-center gap-2">
-                  {getStatIcon('pending')}
-                  <p className="text-xs text-indigo-200">Pending</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('pending')}
+                  </div>
+                  <span className="stat-label">Pending</span>
                 </div>
-                <p className="text-2xl font-bold">{serviceStats.pending}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{serviceStats.pending}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar warning" style={{ width: serviceStats.total ? `${(serviceStats.pending / serviceStats.total) * 100}%` : '0%' }} />
+                </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: '0.2s' }}>
-                <div className="flex items-center gap-2">
-                  {getStatIcon('inProgress')}
-                  <p className="text-xs text-indigo-200">In Progress</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('inProgress')}
+                  </div>
+                  <span className="stat-label">In Progress</span>
                 </div>
-                <p className="text-2xl font-bold">{serviceStats.inProgress}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{serviceStats.inProgress}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar" style={{ width: serviceStats.total ? `${(serviceStats.inProgress / serviceStats.total) * 100}%` : '0%' }} />
+                </div>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: '0.3s' }}>
-                <div className="flex items-center gap-2">
-                  {getStatIcon('completed')}
-                  <p className="text-xs text-indigo-200">Completed</p>
+              <div className="stat-card">
+                <div className="stat-header">
+                  <div className="stat-icon-wrapper">
+                    {getStatIcon('completed')}
+                  </div>
+                  <span className="stat-label">Completed</span>
                 </div>
-                <p className="text-2xl font-bold">{serviceStats.completed}</p>
+                <p className="stat-value">
+                  <span className="stat-number">{serviceStats.completed}</span>
+                </p>
+                <div className="stat-progress">
+                  <div className="stat-progress-bar success" style={{ width: serviceStats.total ? `${(serviceStats.completed / serviceStats.total) * 100}%` : '0%' }} />
+                </div>
               </div>
             </>
           )}
@@ -939,8 +1138,8 @@ const Warranty = () => {
       </div>
 
       {/* ===== TABS ===== */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="flex border-b border-gray-200 dark:border-gray-700">
+      <div className="tabs-container">
+        <div className="tabs-header">
           <button
             onClick={() => {
               setActiveTab('warranty');
@@ -949,17 +1148,11 @@ const Warranty = () => {
               setFilterType('all');
               setSelectedItems([]);
             }}
-            className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition border-b-2 ${
-              activeTab === 'warranty'
-                ? 'border-indigo-600 dark:border-indigo-400 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/10'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-            }`}
+            className={`tab-btn ${activeTab === 'warranty' ? 'tab-active' : ''}`}
           >
             <Shield className="w-4 h-4" />
             Warranties
-            <span className="ml-1 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-              {warranties.length}
-            </span>
+            <span className="tab-count">{warranties.length}</span>
           </button>
           <button
             onClick={() => {
@@ -969,41 +1162,43 @@ const Warranty = () => {
               setFilterType('all');
               setSelectedItems([]);
             }}
-            className={`flex items-center gap-2 px-6 py-4 text-sm font-medium transition border-b-2 ${
-              activeTab === 'services'
-                ? 'border-indigo-600 dark:border-indigo-400 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/10'
-                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300'
-            }`}
+            className={`tab-btn ${activeTab === 'services' ? 'tab-active' : ''}`}
           >
             <Wrench className="w-4 h-4" />
             Services
-            <span className="ml-1 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
-              {services.length}
-            </span>
+            <span className="tab-count">{services.length}</span>
           </button>
         </div>
 
         {/* ===== CONTROLS ===== */}
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          <div className="flex flex-wrap justify-between items-center gap-3">
-            <div className="flex flex-wrap items-center gap-3 flex-1">
+        <div className="controls-section">
+          <div className="controls-wrapper">
+            <div className="controls-left">
               {/* Search */}
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <div className="search-wrapper">
+                <Search className="search-icon" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={`🔍 Search ${activeTab}...`}
-                  className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  placeholder={`Search ${activeTab}...`}
+                  className="search-input"
                 />
+                {searchTerm && (
+                  <button 
+                    onClick={() => setSearchTerm('')}
+                    className="search-clear"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
               {/* Status Filter */}
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className="filter-select"
               >
                 <option value="all">All Status</option>
                 {activeTab === 'warranty' ? (
@@ -1025,7 +1220,7 @@ const Warranty = () => {
                 <select
                   value={filterType}
                   onChange={(e) => setFilterType(e.target.value)}
-                  className="px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  className="filter-select"
                 >
                   <option value="all">All Types</option>
                   <option value="Repair">Repair</option>
@@ -1034,11 +1229,11 @@ const Warranty = () => {
               )}
 
               {/* Sort */}
-              <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
+              <div className="sort-wrapper">
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="bg-transparent text-sm font-medium text-gray-700 dark:text-gray-300 focus:outline-none px-2"
+                  className="sort-select"
                 >
                   <option value="customer">Customer</option>
                   <option value="product">Product</option>
@@ -1048,29 +1243,29 @@ const Warranty = () => {
                 </select>
                 <button
                   onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="p-1.5 rounded-lg hover:bg-white/50 dark:hover:bg-gray-600 transition"
+                  className="sort-btn"
                 >
-                  {sortOrder === 'asc' ? <ArrowUp className="w-4 h-4 text-gray-500" /> : <ArrowDown className="w-4 h-4 text-gray-500" />}
+                  {sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="controls-right">
               {/* View Mode */}
-              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
+              <div className="view-toggle">
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-lg transition ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                  className={`view-btn ${viewMode === 'grid' ? 'view-active' : ''}`}
                   title="Grid view"
                 >
-                  <Grid3x3 className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <Grid3x3 className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => setViewMode('list')}
-                  className={`p-1.5 rounded-lg transition ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow-sm' : 'hover:bg-gray-200 dark:hover:bg-gray-600'}`}
+                  className={`view-btn ${viewMode === 'list' ? 'view-active' : ''}`}
                   title="List view"
                 >
-                  <List className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                  <List className="w-4 h-4" />
                 </button>
               </div>
 
@@ -1078,7 +1273,7 @@ const Warranty = () => {
               {selectedItems.length > 0 && (
                 <button
                   onClick={handleBulkDelete}
-                  className="px-3 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition flex items-center gap-2 text-sm"
+                  className="bulk-delete-btn"
                 >
                   <Trash2 className="w-4 h-4" />
                   Delete ({selectedItems.length})
@@ -1090,31 +1285,33 @@ const Warranty = () => {
 
         {/* ===== CONTENT ===== */}
         {currentData.length === 0 ? (
-          <div className="p-12 text-center">
-            {activeTab === 'warranty' ? (
-              <Shield className="w-20 h-20 mx-auto text-gray-300 dark:text-gray-600 mb-4 animate-float" />
-            ) : (
-              <Wrench className="w-20 h-20 mx-auto text-gray-300 dark:text-gray-600 mb-4 animate-float" />
-            )}
-            <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">
+          <div className="empty-state">
+            <div className="empty-icon-wrapper">
+              {activeTab === 'warranty' ? (
+                <Shield className="empty-icon" />
+              ) : (
+                <Wrench className="empty-icon" />
+              )}
+            </div>
+            <h3 className="empty-title">
               No {activeTab} found
             </h3>
-            <p className="text-gray-400 dark:text-gray-500 mt-2">
+            <p className="empty-description">
               {searchTerm || filterStatus !== 'all' || filterType !== 'all' 
                 ? 'Try adjusting your search or filters' 
                 : `Add your first ${activeTab === 'warranty' ? 'warranty' : 'service'} to get started`}
             </p>
             <button
               onClick={openAddModal}
-              className="mt-4 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium"
+              className="empty-btn"
             >
-              <Plus className="w-4 h-4 inline mr-2" />
+              <Plus className="w-4 h-4" />
               Add {activeTab === 'warranty' ? 'Warranty' : 'Service'}
             </button>
           </div>
         ) : viewMode === 'grid' ? (
           // ===== GRID VIEW =====
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4">
+          <div className="grid-view">
             {currentData.map((item, index) => {
               const id = activeTab === 'warranty' ? (item.warrantyid || item.WarrantyID) : (item.serviceid || item.ServiceID);
               const customerName = item.customer_name || getCustomerName(item);
@@ -1126,36 +1323,33 @@ const Warranty = () => {
               return (
                 <div
                   key={id}
-                  className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border-2 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 group animate-fadeIn cursor-pointer ${
-                    isSelected ? 'border-indigo-500 dark:border-indigo-400 ring-2 ring-indigo-500/30' : 'border-gray-100 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700'
-                  }`}
+                  ref={el => cardRefs.current[id] = el}
+                  className={`grid-card ${isSelected ? 'grid-card-selected' : ''}`}
                   style={{ animationDelay: `${index * 0.05}s` }}
-                  onClick={() => toggleSelect(id)}
                 >
-                  <div className="p-5">
+                  <div className="grid-card-content">
                     {/* Header */}
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-lg ${avatarColor} shadow-lg`}>
+                    <div className="grid-card-header">
+                      <div className="grid-card-user">
+                        <div className={`grid-card-avatar ${avatarColor}`}>
                           {initials}
+                          <div className="avatar-ring"></div>
                         </div>
-                        <div className="min-w-0">
-                          <h3 className="font-semibold text-gray-800 dark:text-white truncate max-w-[120px]">
-                            {customerName}
-                          </h3>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[120px] flex items-center gap-1">
+                        <div className="grid-card-info">
+                          <h3 className="grid-card-name">{customerName}</h3>
+                          <p className="grid-card-product">
                             <Package className="w-3 h-3" />
                             {productName}
                           </p>
                         </div>
                       </div>
-                      <div className="flex gap-1">
+                      <div className="grid-card-actions">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             viewDetail(item);
                           }}
-                          className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition opacity-0 group-hover:opacity-100"
+                          className="grid-card-action view"
                           title="View details"
                         >
                           <Eye className="w-4 h-4" />
@@ -1165,7 +1359,7 @@ const Warranty = () => {
                             e.stopPropagation();
                             openEditModal(item);
                           }}
-                          className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition opacity-0 group-hover:opacity-100"
+                          className="grid-card-action edit"
                           title="Edit"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1175,7 +1369,7 @@ const Warranty = () => {
                             e.stopPropagation();
                             handleDelete(id);
                           }}
-                          className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition opacity-0 group-hover:opacity-100"
+                          className="grid-card-action delete"
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1184,47 +1378,47 @@ const Warranty = () => {
                     </div>
 
                     {/* Details */}
-                    <div className="space-y-1.5 mb-3">
-                      <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                    <div className="grid-card-details">
+                      <div className="grid-card-detail">
                         <ClipboardList className="w-3.5 h-3.5 text-gray-400" />
-                        {item.serialnumber || item.SerialNumber || 'N/A'}
-                      </p>
+                        <span>{item.serialnumber || item.SerialNumber || 'N/A'}</span>
+                      </div>
                       {activeTab === 'warranty' ? (
                         <>
-                          <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                          <div className="grid-card-detail">
                             <Calendar className="w-3.5 h-3.5 text-purple-500" />
-                            {formatDate(item.warrantystartdate || item.WarrantyStartDate)} → {formatDate(item.warrantyenddate || item.WarrantyEndDate)}
-                          </p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                            <span>{formatDate(item.warrantystartdate || item.WarrantyStartDate)} → {formatDate(item.warrantyenddate || item.WarrantyEndDate)}</span>
+                          </div>
+                          <div className="grid-card-detail">
                             <Clock className="w-3.5 h-3.5 text-blue-500" />
-                            {item.warrantyperiod || item.WarrantyPeriod || 12} months
-                          </p>
+                            <span>{item.warrantyperiod || item.WarrantyPeriod || 12} months</span>
+                          </div>
                         </>
                       ) : (
                         <>
-                          <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 truncate">
+                          <div className="grid-card-detail truncate">
                             <Info className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
                             <span className="truncate">{item.issuedescription || item.IssueDescription || 'No description'}</span>
-                          </p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                          </div>
+                          <div className="grid-card-detail">
                             <Briefcase className="w-3.5 h-3.5 text-amber-500" />
-                            {item.servicetype || item.ServiceType || 'N/A'}
-                          </p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                            <span>{item.servicetype || item.ServiceType || 'N/A'}</span>
+                          </div>
+                          <div className="grid-card-detail">
                             <Calendar className="w-3.5 h-3.5 text-purple-500" />
-                            Received: {formatDate(item.receiveddate || item.ReceivedDate)}
-                          </p>
+                            <span>Received: {formatDate(item.receiveddate || item.ReceivedDate)}</span>
+                          </div>
                         </>
                       )}
                     </div>
 
                     {/* Status */}
-                    <div className="flex items-center justify-between pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <div className="grid-card-footer">
                       <span className={getStatusBadge(item.status || item.Status)}>
                         {getStatusIcon(item.status || item.Status)}
                         {item.status || item.Status}
                       </span>
-                      <span className="text-xs text-gray-400">
+                      <span className="grid-card-id">
                         ID: #{id}
                       </span>
                     </div>
@@ -1235,39 +1429,39 @@ const Warranty = () => {
           </div>
         ) : (
           // ===== LIST VIEW =====
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
+          <div className="list-view">
+            <table className="list-table">
+              <thead className="list-thead">
                 <tr>
-                  <th className="px-3 py-3 w-10">
+                  <th className="list-th w-10">
                     <input
                       type="checkbox"
                       checked={selectedItems.length === currentData.length && currentData.length > 0}
                       onChange={toggleSelectAll}
-                      className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      className="list-checkbox"
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Customer</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Product</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden md:table-cell">Serial</th>
+                  <th className="list-th">Customer</th>
+                  <th className="list-th">Product</th>
+                  <th className="list-th hidden md:table-cell">Serial</th>
                   {activeTab === 'warranty' ? (
                     <>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden lg:table-cell">Start Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden lg:table-cell">End Date</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden sm:table-cell">Period</th>
+                      <th className="list-th hidden lg:table-cell">Start Date</th>
+                      <th className="list-th hidden lg:table-cell">End Date</th>
+                      <th className="list-th hidden sm:table-cell">Period</th>
                     </>
                   ) : (
                     <>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden lg:table-cell">Issue</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden sm:table-cell">Type</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden md:table-cell">Received</th>
+                      <th className="list-th hidden lg:table-cell">Issue</th>
+                      <th className="list-th hidden sm:table-cell">Type</th>
+                      <th className="list-th hidden md:table-cell">Received</th>
                     </>
                   )}
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+                  <th className="list-th text-center">Status</th>
+                  <th className="list-th text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody className="list-tbody">
                 {currentData.map((item, index) => {
                   const id = activeTab === 'warranty' ? (item.warrantyid || item.WarrantyID) : (item.serviceid || item.ServiceID);
                   const customerName = item.customer_name || getCustomerName(item);
@@ -1277,81 +1471,79 @@ const Warranty = () => {
                   return (
                     <tr 
                       key={id} 
-                      className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition group animate-slideIn ${isSelected ? 'bg-indigo-50 dark:bg-indigo-900/10' : ''}`}
+                      className={`list-tr ${isSelected ? 'list-tr-selected' : ''}`}
                       style={{ animationDelay: `${index * 0.03}s` }}
                     >
-                      <td className="px-3 py-3">
+                      <td className="list-td w-10">
                         <input
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => toggleSelect(id)}
-                          className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                          className="list-checkbox"
                         />
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs ${getAvatarColor(customerName)}`}>
+                      <td className="list-td">
+                        <div className="list-customer">
+                          <div className={`list-avatar ${getAvatarColor(customerName)}`}>
                             {getInitials(customerName)}
                           </div>
-                          <span className="font-medium text-sm dark:text-white">{customerName}</span>
+                          <span className="list-customer-name">{customerName}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                        {productName}
-                      </td>
-                      <td className="px-4 py-3 text-sm font-mono text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                      <td className="list-td">{productName}</td>
+                      <td className="list-td hidden md:table-cell font-mono text-sm text-gray-500 dark:text-gray-400">
                         {item.serialnumber || item.SerialNumber || '-'}
                       </td>
                       {activeTab === 'warranty' ? (
                         <>
-                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden lg:table-cell">
+                          <td className="list-td hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400">
                             {formatDate(item.warrantystartdate || item.WarrantyStartDate)}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden lg:table-cell">
+                          <td className="list-td hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400">
                             {formatDate(item.warrantyenddate || item.WarrantyEndDate)}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">
+                          <td className="list-td hidden sm:table-cell text-sm text-gray-500 dark:text-gray-400">
                             {item.warrantyperiod || item.WarrantyPeriod || 12} mo
                           </td>
                         </>
                       ) : (
                         <>
-                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden lg:table-cell max-w-[150px] truncate">
+                          <td className="list-td hidden lg:table-cell text-sm text-gray-500 dark:text-gray-400 max-w-[150px] truncate">
                             {item.issuedescription || item.IssueDescription || '-'}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">
+                          <td className="list-td hidden sm:table-cell text-sm text-gray-500 dark:text-gray-400">
                             {item.servicetype || item.ServiceType || '-'}
                           </td>
-                          <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell">
+                          <td className="list-td hidden md:table-cell text-sm text-gray-500 dark:text-gray-400">
                             {formatDate(item.receiveddate || item.ReceivedDate)}
                           </td>
                         </>
                       )}
-                      <td className="px-4 py-3 text-center">
+                      <td className="list-td text-center">
                         <span className={getStatusBadge(item.status || item.Status)}>
                           {getStatusIcon(item.status || item.Status)}
                           {item.status || item.Status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="list-td text-right">
+                        <div className="list-actions">
                           <button
                             onClick={() => viewDetail(item)}
-                            className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition group-hover:scale-110"
+                            className="list-action view"
                             title="View"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => openEditModal(item)}
-                            className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition group-hover:scale-110"
+                            className="list-action edit"
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDelete(id)}
-                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition group-hover:scale-110"
+                            className="list-action delete"
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1367,127 +1559,132 @@ const Warranty = () => {
         )}
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500 flex justify-between items-center">
+        <div className="table-footer">
           <span>Showing {currentData.length} of {activeTab === 'warranty' ? warranties.length : services.length} records</span>
           <span>Updated: {new Date().toLocaleString()}</span>
         </div>
       </div>
 
       {/* ===== FOOTER ===== */}
-      <div className="text-center text-xs text-gray-400 dark:text-gray-500 py-4 border-t border-gray-200 dark:border-gray-700">
-        <p className="flex items-center justify-center gap-4 flex-wrap">
-          <span>🛡️ {activeTab === 'warranty' ? 'Warranty' : 'Service'} Management</span>
-          <span>•</span>
-          <span>📊 {currentData.length} records displayed</span>
-          <span>•</span>
-          <span>📅 {new Date().toLocaleString()}</span>
-          <span>•</span>
-          <span>© {new Date().getFullYear()} SPMS</span>
-        </p>
+      <div className="app-footer">
+        <div className="footer-content">
+          <div className="footer-left">
+            <Shield className="w-4 h-4 text-indigo-500" />
+            <span>{activeTab === 'warranty' ? 'Warranty' : 'Service'} Management</span>
+          </div>
+          <div className="footer-center">
+            <span>📊 {currentData.length} records displayed</span>
+            <span className="footer-dot">•</span>
+            <span>📅 {new Date().toLocaleString()}</span>
+          </div>
+          <div className="footer-right">
+            <span>© {new Date().getFullYear()} SPMS</span>
+            <span className="footer-dot">•</span>
+            <span className="footer-version">v2.0</span>
+          </div>
+        </div>
       </div>
 
       {/* ===== DETAIL MODAL ===== */}
       {showDetailModal && selectedItem && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-            <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-              <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
+        <div className="modal-overlay" onClick={() => setShowDetailModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">
                 {activeTab === 'warranty' ? <Shield className="w-5 h-5 text-indigo-600" /> : <Wrench className="w-5 h-5 text-indigo-600" />}
                 {activeTab === 'warranty' ? 'Warranty' : 'Service'} Details
               </h2>
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition"
+                className="modal-close"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="p-6">
+            <div className="modal-body">
               {/* Header */}
-              <div className="flex items-center gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-2xl ${getAvatarColor(customerName)} shadow-lg`}>
-                  {getInitials(customerName)}
+              <div className="detail-header">
+                <div className={`detail-avatar ${getAvatarColor(getCustomerName(selectedItem))}`}>
+                  {getInitials(getCustomerName(selectedItem))}
                 </div>
-                <div>
-                  <p className="text-lg font-bold dark:text-white">{customerName}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                <div className="detail-info">
+                  <p className="detail-name">{getCustomerName(selectedItem)}</p>
+                  <p className="detail-product">
                     <Package className="w-4 h-4" />
-                    {productName}
+                    {getProductName(selectedItem)}
                   </p>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="detail-status">
                     <span className={getStatusBadge(selectedItem.status || selectedItem.Status)}>
                       {getStatusIcon(selectedItem.status || selectedItem.Status)}
                       {selectedItem.status || selectedItem.Status}
                     </span>
-                    <span className="text-xs text-gray-400">#{activeTab === 'warranty' ? (selectedItem.warrantyid || selectedItem.WarrantyID) : (selectedItem.serviceid || selectedItem.ServiceID)}</span>
+                    <span className="detail-id">#{activeTab === 'warranty' ? (selectedItem.warrantyid || selectedItem.WarrantyID) : (selectedItem.serviceid || selectedItem.ServiceID)}</span>
                   </div>
                 </div>
               </div>
 
               {/* Details */}
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Serial Number</p>
-                    <p className="font-medium dark:text-white font-mono">{selectedItem.serialnumber || selectedItem.SerialNumber || 'N/A'}</p>
-                  </div>
-                  {activeTab === 'warranty' ? (
-                    <>
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Period</p>
-                        <p className="font-medium dark:text-white">{selectedItem.warrantyperiod || selectedItem.WarrantyPeriod || 'N/A'} months</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Start Date</p>
-                        <p className="font-medium dark:text-white">{formatDate(selectedItem.warrantystartdate || selectedItem.WarrantyStartDate)}</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">End Date</p>
-                        <p className="font-medium dark:text-white">{formatDate(selectedItem.warrantyenddate || selectedItem.WarrantyEndDate)}</p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="col-span-2 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Issue Description</p>
-                        <p className="font-medium dark:text-white">{selectedItem.issuedescription || selectedItem.IssueDescription || 'N/A'}</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Service Type</p>
-                        <p className="font-medium dark:text-white">{selectedItem.servicetype || selectedItem.ServiceType || 'N/A'}</p>
-                      </div>
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Received Date</p>
-                        <p className="font-medium dark:text-white">{formatDate(selectedItem.receiveddate || selectedItem.ReceivedDate)}</p>
-                      </div>
-                    </>
-                  )}
+              <div className="detail-grid">
+                <div className="detail-item">
+                  <p className="detail-label">Serial Number</p>
+                  <p className="detail-value font-mono">{selectedItem.serialnumber || selectedItem.SerialNumber || 'N/A'}</p>
                 </div>
-
-                {selectedItem.notes && (
-                  <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">Notes</p>
-                    <p className="text-sm dark:text-white mt-1">{selectedItem.notes}</p>
-                  </div>
+                {activeTab === 'warranty' ? (
+                  <>
+                    <div className="detail-item">
+                      <p className="detail-label">Period</p>
+                      <p className="detail-value">{selectedItem.warrantyperiod || selectedItem.WarrantyPeriod || 'N/A'} months</p>
+                    </div>
+                    <div className="detail-item">
+                      <p className="detail-label">Start Date</p>
+                      <p className="detail-value">{formatDate(selectedItem.warrantystartdate || selectedItem.WarrantyStartDate)}</p>
+                    </div>
+                    <div className="detail-item">
+                      <p className="detail-label">End Date</p>
+                      <p className="detail-value">{formatDate(selectedItem.warrantyenddate || selectedItem.WarrantyEndDate)}</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="detail-item col-span-2">
+                      <p className="detail-label">Issue Description</p>
+                      <p className="detail-value">{selectedItem.issuedescription || selectedItem.IssueDescription || 'N/A'}</p>
+                    </div>
+                    <div className="detail-item">
+                      <p className="detail-label">Service Type</p>
+                      <p className="detail-value">{selectedItem.servicetype || selectedItem.ServiceType || 'N/A'}</p>
+                    </div>
+                    <div className="detail-item">
+                      <p className="detail-label">Received Date</p>
+                      <p className="detail-value">{formatDate(selectedItem.receiveddate || selectedItem.ReceivedDate)}</p>
+                    </div>
+                  </>
                 )}
               </div>
+
+              {selectedItem.notes && (
+                <div className="detail-notes">
+                  <p className="detail-label">Notes</p>
+                  <p className="detail-value">{selectedItem.notes}</p>
+                </div>
+              )}
             </div>
 
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
+            <div className="modal-footer">
               <button 
                 onClick={() => {
                   setShowDetailModal(false);
                   openEditModal(selectedItem);
                 }}
-                className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-medium flex items-center gap-2"
+                className="modal-footer-btn edit"
               >
                 <Edit2 className="w-4 h-4" />
                 Edit
               </button>
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium"
+                className="modal-footer-btn close"
               >
                 Close
               </button>
@@ -1498,27 +1695,27 @@ const Warranty = () => {
 
       {/* ===== ADD/EDIT MODAL ===== */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-            <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-              <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
+        <div className="modal-overlay" onClick={() => !submitting && setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">
                 {activeTab === 'warranty' ? <Shield className="w-5 h-5 text-indigo-600" /> : <Wrench className="w-5 h-5 text-indigo-600" />}
                 {editingItem ? 'Edit' : 'Add New'} {activeTab === 'warranty' ? 'Warranty' : 'Service'}
               </h2>
               <button 
                 onClick={() => setShowModal(false)} 
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition"
+                className="modal-close"
                 disabled={submitting}
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6">
-              <div className="space-y-4">
+            <form onSubmit={handleSubmit} className="modal-form">
+              <div className="form-group">
                 {/* Customer */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                <div className="form-field">
+                  <label className="form-label">
                     <User className="w-4 h-4" />
                     Customer <span className="text-red-500">*</span>
                   </label>
@@ -1526,7 +1723,7 @@ const Warranty = () => {
                     required
                     value={formData.customer_id}
                     onChange={(e) => setFormData({...formData, customer_id: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="form-select"
                     disabled={submitting}
                   >
                     <option value="">Select Customer</option>
@@ -1539,8 +1736,8 @@ const Warranty = () => {
                 </div>
 
                 {/* Product */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                <div className="form-field">
+                  <label className="form-label">
                     <Package className="w-4 h-4" />
                     Product <span className="text-red-500">*</span>
                   </label>
@@ -1548,7 +1745,7 @@ const Warranty = () => {
                     required
                     value={formData.product_id}
                     onChange={(e) => setFormData({...formData, product_id: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="form-select"
                     disabled={submitting}
                   >
                     <option value="">Select Product</option>
@@ -1561,8 +1758,8 @@ const Warranty = () => {
                 </div>
 
                 {/* Serial Number */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                <div className="form-field">
+                  <label className="form-label">
                     <ClipboardList className="w-4 h-4" />
                     Serial Number
                   </label>
@@ -1570,7 +1767,7 @@ const Warranty = () => {
                     type="text"
                     value={formData.serial_number}
                     onChange={(e) => setFormData({...formData, serial_number: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="form-input"
                     placeholder="Enter serial number"
                     disabled={submitting}
                   />
@@ -1579,8 +1776,8 @@ const Warranty = () => {
                 {activeTab === 'warranty' ? (
                   <>
                     {/* Warranty Period */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <div className="form-field">
+                      <label className="form-label">
                         <Clock className="w-4 h-4" />
                         Warranty Period (months)
                       </label>
@@ -1590,15 +1787,15 @@ const Warranty = () => {
                         max="60"
                         value={formData.warranty_period}
                         onChange={(e) => setFormData({...formData, warranty_period: e.target.value})}
-                        className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                        className="form-input"
                         disabled={submitting}
                       />
                     </div>
 
                     {/* Start & End Date */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <div className="form-row">
+                      <div className="form-field">
+                        <label className="form-label">
                           <Calendar className="w-4 h-4" />
                           Start Date
                         </label>
@@ -1606,12 +1803,12 @@ const Warranty = () => {
                           type="date"
                           value={formData.start_date}
                           onChange={(e) => setFormData({...formData, start_date: e.target.value})}
-                          className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                          className="form-input"
                           disabled={submitting}
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                      <div className="form-field">
+                        <label className="form-label">
                           <Calendar className="w-4 h-4" />
                           End Date
                         </label>
@@ -1619,7 +1816,7 @@ const Warranty = () => {
                           type="date"
                           value={formData.end_date}
                           onChange={(e) => setFormData({...formData, end_date: e.target.value})}
-                          className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                          className="form-input"
                           disabled={submitting}
                         />
                       </div>
@@ -1628,8 +1825,8 @@ const Warranty = () => {
                 ) : (
                   <>
                     {/* Issue Description */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <div className="form-field">
+                      <label className="form-label">
                         <Info className="w-4 h-4" />
                         Issue Description <span className="text-red-500">*</span>
                       </label>
@@ -1638,31 +1835,31 @@ const Warranty = () => {
                         rows="3"
                         value={formData.issue_description}
                         onChange={(e) => setFormData({...formData, issue_description: e.target.value})}
-                        className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                        className="form-textarea"
                         placeholder="Describe the issue"
                         disabled={submitting}
                       />
                     </div>
 
                     {/* Service Type & Received Date */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <div className="form-row">
+                      <div className="form-field">
+                        <label className="form-label">
                           <Briefcase className="w-4 h-4" />
                           Service Type
                         </label>
                         <select
                           value={formData.service_type}
                           onChange={(e) => setFormData({...formData, service_type: e.target.value})}
-                          className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                          className="form-select"
                           disabled={submitting}
                         >
                           <option value="Repair">Repair</option>
                           <option value="Maintenance">Maintenance</option>
                         </select>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                      <div className="form-field">
+                        <label className="form-label">
                           <Calendar className="w-4 h-4" />
                           Received Date
                         </label>
@@ -1670,7 +1867,7 @@ const Warranty = () => {
                           type="date"
                           value={formData.received_date}
                           onChange={(e) => setFormData({...formData, received_date: e.target.value})}
-                          className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                          className="form-input"
                           disabled={submitting}
                         />
                       </div>
@@ -1679,15 +1876,15 @@ const Warranty = () => {
                 )}
 
                 {/* Status */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                <div className="form-field">
+                  <label className="form-label">
                     <Activity className="w-4 h-4" />
                     Status
                   </label>
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData({...formData, status: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="form-select"
                     disabled={submitting}
                   >
                     {activeTab === 'warranty' ? (
@@ -1704,21 +1901,37 @@ const Warranty = () => {
                     )}
                   </select>
                 </div>
+
+                {/* Notes */}
+                <div className="form-field">
+                  <label className="form-label">
+                    <Info className="w-4 h-4" />
+                    Notes
+                  </label>
+                  <textarea
+                    rows="2"
+                    value={formData.notes}
+                    onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                    className="form-textarea"
+                    placeholder="Additional notes..."
+                    disabled={submitting}
+                  />
+                </div>
               </div>
 
               {/* Actions */}
-              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="form-actions">
                 <button 
                   type="button" 
                   onClick={() => setShowModal(false)} 
-                  className="px-6 py-2.5 border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition dark:text-white font-medium disabled:opacity-50"
+                  className="form-btn-cancel"
                   disabled={submitting}
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit" 
-                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  className="form-btn-submit"
                   disabled={submitting}
                 >
                   {submitting ? (
@@ -1738,58 +1951,6 @@ const Warranty = () => {
           </div>
         </div>
       )}
-
-      {/* ===== CSS ANIMATIONS ===== */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(100px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-
-        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideIn { animation: slideIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideInRight { animation: slideInRight 0.5s ease-out forwards; }
-        .animate-slideUp { animation: slideUp 0.4s ease-out forwards; opacity: 0; }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #c4c4c4;
-          border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #a0a0a0;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-          background: #4b5563;
-        }
-        .dark ::-webkit-scrollbar-thumb:hover {
-          background: #6b7280;
-        }
-      `}</style>
     </div>
   );
 };

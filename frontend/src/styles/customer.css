@@ -1,0 +1,81 @@
+/* Customers.css
+   Extracted from the inline <style> block in Customers.jsx.
+   Import this file at the top of Customers.jsx:
+     import './Customers.css';
+*/
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.1); }
+}
+@keyframes spin-slow {
+  0% { transform: translate(-50%, -50%) rotate(0deg); }
+  100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes bar1 {
+  0%, 100% { height: 4px; }
+  50% { height: 8px; }
+}
+@keyframes bar2 {
+  0%, 100% { height: 6px; }
+  50% { height: 12px; }
+}
+@keyframes bar3 {
+  0%, 100% { height: 8px; }
+  50% { height: 16px; }
+}
+
+.animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
+.animate-slideIn { animation: slideIn 0.4s ease-out forwards; opacity: 0; }
+.animate-slideInRight { animation: slideInRight 0.5s ease-out forwards; }
+.animate-slideUp { animation: slideUp 0.4s ease-out forwards; opacity: 0; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
+.animate-spin-slow { animation: spin-slow 20s linear infinite; }
+.animate-bar1 { animation: bar1 1.5s ease-in-out infinite; }
+.animate-bar2 { animation: bar2 1.5s ease-in-out infinite; }
+.animate-bar3 { animation: bar3 1.5s ease-in-out infinite; }
+.animate-bounce { animation: bounce 1s ease-in-out infinite; }
+.animation-delay-1000 { animation-delay: 1s; }
+.animation-delay-2000 { animation-delay: 2s; }
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c4c4c4;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a0a0;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}

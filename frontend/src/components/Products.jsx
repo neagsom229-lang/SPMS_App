@@ -1,368 +1,438 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import axios from 'axios';
-import { 
-  Search, Plus, Edit2, Trash2, Package, X, Save, 
+import { toast } from 'react-hot-toast';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import Pagination from './Pagination';
+import apiClient from '../api/client';
+import {
+  Search, Plus, Edit2, Trash2, Package, X, Save,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
-  Filter, ArrowUp, ArrowDown, Grid3x3, List,
-  TrendingUp, TrendingDown, DollarSign, ShoppingBag,
-  BarChart3, Zap, Award, Star, Clock, AlertTriangle,
-  ChevronRight, Eye, Copy, Tag, Layers, Box,
-  Sparkles, Gift, Shield,
-  ClipboardList, Image as ImageIcon, Upload, Camera
+  ArrowUp, ArrowDown, Grid3x3, List,
+  DollarSign, AlertTriangle, Clock,
+  Image as ImageIcon, Upload
 } from 'lucide-react';
 
 // ============================================
-// API CONFIGURATION
+// CONSTANTS
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-console.log('🔧 API_BASE:', API_BASE);
+const ITEMS_PER_PAGE = 10;
 
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
+const FALLBACK_PRODUCTS = [
+  { id: 1, product_id: 'PROD001', NAME_EN: 'Laptop Pro', NAME_KH: 'កុំព្យូទ័រយួរដៃ', BARCODE: 'LP001', BRAND: 'TechPro', BUYIN_PRICE: 899.99, SALEOUT_PRICE: 1299.99, QtyInStock: 50, QTY_ALERT: 10, STATUS: 'Active', image_url: null },
+  { id: 2, product_id: 'PROD002', NAME_EN: 'Smartphone X', NAME_KH: 'ទូរស័ព្ទឆ្លាត', BARCODE: 'SP002', BRAND: 'PhoneMaster', BUYIN_PRICE: 599.99, SALEOUT_PRICE: 899.99, QtyInStock: 30, QTY_ALERT: 10, STATUS: 'Active', image_url: null },
+  { id: 3, product_id: 'PROD003', NAME_EN: 'Wireless Mouse', NAME_KH: 'កណ្ដុរឥតខ្សែ', BARCODE: 'WM003', BRAND: 'Accessory', BUYIN_PRICE: 15.99, SALEOUT_PRICE: 29.99, QtyInStock: 100, QTY_ALERT: 15, STATUS: 'Active', image_url: null },
+  { id: 4, product_id: 'PROD004', NAME_EN: 'Keyboard Pro', NAME_KH: 'ក្ដារចុច', BARCODE: 'KP004', BRAND: 'Accessory', BUYIN_PRICE: 45.99, SALEOUT_PRICE: 79.99, QtyInStock: 45, QTY_ALERT: 10, STATUS: 'Active', image_url: null },
+];
+
+const PRODUCT_EMOJIS = [
+  '📱', '💻', '⌨️', '🖥️', '📷', '🎧', '⌚', '📡', '🔋', '💾',
+  '🖱️', '📀', '💿', '📹', '🎮', '📺', '🔊', '📻', '⏰', '💡'
+];
+
+// ============================================
+// FIELD HELPERS (tolerate either key casing)
+// ============================================
+const getField = (obj, ...keys) => {
+  for (const k of keys) {
+    if (obj?.[k] !== undefined && obj?.[k] !== null && obj?.[k] !== '') return obj[k];
+  }
+  return undefined;
+};
+const getId = (p) => getField(p, 'PRODUCT_ID', 'product_id');
+const getNumericId = (p) => getField(p, 'id', 'ID');  // numeric id from DB
+const getName = (p) => getField(p, 'NAME_EN', 'name_en') || 'Unknown';
+const getNameKh = (p) => getField(p, 'NAME_KH', 'name_kh') || '';
+const getBarcode = (p) => getField(p, 'BARCODE', 'barcode') || '-';
+const getBrand = (p) => getField(p, 'BRAND', 'brand') || '';
+const getBuyPrice = (p) => Number(getField(p, 'BUYIN_PRICE', 'buy_price') || 0);
+const getSalePrice = (p) => Number(getField(p, 'SALEOUT_PRICE', 'saleout_price') || 0);
+const getOwnStockField = (p) => Number(getField(p, 'QtyInStock', 'qty_instock', 'QTY_INSTOCK') || 0);
+const getAlert = (p) => Number(getField(p, 'QTY_ALERT', 'qty_alert') || 10);
+const getStatus = (p) => getField(p, 'STATUS', 'status') || 'Active';
+const getImage = (p) => getField(p, 'image_url', 'IMAGE_URL') || '';
+
+const getProductIcon = (name) => {
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return PRODUCT_EMOJIS[Math.abs(hash) % PRODUCT_EMOJIS.length];
+};
+
+const isValidImage = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('data:image/')) return true;
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return !(url.includes('example.com') || url.includes('placeholder'));
+  }
+  if (url.startsWith('/uploads/')) return true;
+  return false;
+};
+
+const extractProductsData = (responseData) => {
+  if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) return [];
+  if (Array.isArray(responseData)) return responseData;
+  if (responseData && typeof responseData === 'object') {
+    if (Array.isArray(responseData.data)) return responseData.data;
+    if (Array.isArray(responseData.products)) return responseData.products;
+    if (Array.isArray(responseData.items)) return responseData.items;
+    if (responseData.data && typeof responseData.data === 'object') {
+      if (Array.isArray(responseData.data.items)) return responseData.data.items;
+      if (Array.isArray(responseData.data.products)) return responseData.data.products;
+      const values = Object.values(responseData.data);
+      if (values.length > 0 && Array.isArray(values[0])) return values[0];
+    }
+  }
+  return [];
+};
+
+const formatPrice = (price) => `$${Number(price || 0).toFixed(2)}`;
+
+const getStatusBadge = (status) => (status || 'Active') === 'Active'
+  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+  : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800';
+
+const getStockBadge = (stock, alert) => {
+  if (stock <= 0) return { color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800', icon: AlertCircle };
+  if (stock <= alert) return { color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800', icon: AlertTriangle };
+  return { color: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800', icon: CheckCircle };
+};
+
+const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => resolve(reader.result);
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(file);
 });
 
-api.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-api.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
+// ============================================
+// STOCK SYNC HELPERS (using numeric IDs)
+// ============================================
+const createStockForProduct = async (numericId, qtyInStock, qtyAlert) => {
+  if (!numericId) return;
+  try {
+    await apiClient.post('/stock', {
+      productid: numericId,
+      qtyinstock: qtyInStock || 0,
+      qtyavailable: qtyInStock || 0,
+      qtyreserved: 0,
+      qty_alert: qtyAlert || 10,
+    });
+    console.log(`✅ Stock created for product ${numericId}`);
+  } catch (err) {
+    // If the backend already created stock (via trigger or POST /products), this will fail;
+    // we ignore the error because it's harmless.
+    console.warn('⚠️ Stock creation skipped (may already exist):', err.message);
   }
-);
+};
+
+const deleteStockForProduct = async (numericId) => {
+  if (!numericId) return;
+  try {
+    await apiClient.delete(`/stock/${numericId}`);
+    console.log(`✅ Stock deleted for product ${numericId}`);
+  } catch (err) {
+    console.warn('⚠️ Could not delete stock:', err.message);
+  }
+};
 
 // ============================================
 // MAIN PRODUCTS COMPONENT
 // ============================================
 const Products = () => {
-  // ===== STATE =====
-  const [products, setProducts] = useState([]);
+  const queryClient = useQueryClient();
+
+  // ===== UI STATE =====
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('success');
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
   const [filterStatus, setFilterStatus] = useState('all');
   const [sortBy, setSortBy] = useState('NAME_EN');
   const [sortOrder, setSortOrder] = useState('asc');
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [productStats, setProductStats] = useState({
-    total: 0,
-    lowStock: 0,
-    active: 0,
-    totalValue: 0
-  });
+  const [page, setPage] = useState(1);
 
   // ===== IMAGE UPLOAD STATE =====
-  const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false); // ✅ now a real lock, see handleImageSelect
+  const [isUploading, setIsUploading] = useState(false);
 
   // ===== FORM DATA =====
   const [formData, setFormData] = useState({
-    NAME_EN: '',
-    NAME_KH: '',
-    BARCODE: '',
-    BRAND: '',
-    CATEGORY_ID: '',
-    BUYIN_PRICE: '',
-    SALEOUT_PRICE: '',
-    QTY_ALERT: '10',
-    QTY_INSTOCK: '0',
-    IMAGE_URL: ''
+    NAME_EN: '', NAME_KH: '', BARCODE: '', BRAND: '', CATEGORY_ID: '',
+    BUYIN_PRICE: '', SALEOUT_PRICE: '', QTY_ALERT: '10', QTY_INSTOCK: '0', IMAGE_URL: ''
   });
 
   // ===== REFS =====
-  const isMounted = useRef(true);
   const searchTimeout = useRef(null);
   const headerRef = useRef(null);
   const fileInputRef = useRef(null);
-  // ✅ Mirrors formData.IMAGE_URL synchronously so handleSubmit never reads a stale
-  // value even if it somehow fires in the same tick as a state update.
   const imageUrlRef = useRef('');
 
   // ===== MOUSE TRACKING =====
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
+    const handleMouseMove = (e) => setMousePosition({ x: e.clientX, y: e.clientY });
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // ============================================
-  // SHOW MESSAGE
-  // ============================================
+  // ===== DEBOUNCED SEARCH =====
+  useEffect(() => {
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(searchTimeout.current);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterStatus, sortBy, sortOrder]);
+
   const showMessage = useCallback((text, type = 'success') => {
     setMessage(text);
     setMessageType(type);
-    const timer = setTimeout(() => setMessage(''), 5000);
-    return () => clearTimeout(timer);
+    setTimeout(() => setMessage(''), 5000);
   }, []);
 
   // ============================================
-  // GET FALLBACK PRODUCTS
+  // QUERY: PRODUCTS
   // ============================================
-  const getFallbackProducts = useCallback(() => {
-    return [
-      { 
-        PRODUCT_ID: 'PROD001', 
-        NAME_EN: 'Laptop Pro', 
-        NAME_KH: 'កុំព្យូទ័រយួរដៃ', 
-        BARCODE: 'LP001', 
-        BRAND: 'TechPro', 
-        BUYIN_PRICE: 899.99,
-        SALEOUT_PRICE: 1299.99, 
-        QtyInStock: 50, 
-        QTY_ALERT: 10, 
-        STATUS: 'Active',
-        image_url: null
-      },
-      { 
-        PRODUCT_ID: 'PROD002', 
-        NAME_EN: 'Smartphone X', 
-        NAME_KH: 'ទូរស័ព្ទឆ្លាត', 
-        BARCODE: 'SP002', 
-        BRAND: 'PhoneMaster', 
-        BUYIN_PRICE: 599.99,
-        SALEOUT_PRICE: 899.99, 
-        QtyInStock: 30, 
-        QTY_ALERT: 10, 
-        STATUS: 'Active',
-        image_url: null
-      },
-      { 
-        PRODUCT_ID: 'PROD003', 
-        NAME_EN: 'Wireless Mouse', 
-        NAME_KH: 'កណ្ដុរឥតខ្សែ', 
-        BARCODE: 'WM003', 
-        BRAND: 'Accessory', 
-        BUYIN_PRICE: 15.99,
-        SALEOUT_PRICE: 29.99, 
-        QtyInStock: 100, 
-        QTY_ALERT: 15, 
-        STATUS: 'Active',
-        image_url: null
-      },
-      { 
-        PRODUCT_ID: 'PROD004', 
-        NAME_EN: 'Keyboard Pro', 
-        NAME_KH: 'ក្ដារចុច', 
-        BARCODE: 'KP004', 
-        BRAND: 'Accessory', 
-        BUYIN_PRICE: 45.99,
-        SALEOUT_PRICE: 79.99, 
-        QtyInStock: 45, 
-        QTY_ALERT: 10, 
-        STATUS: 'Active',
-        image_url: null
-      },
-    ];
-  }, []);
+  const {
+    data: products = [],
+    isLoading: loading,
+    isFetching: isRefreshing,
+    refetch,
+  } = useQuery({
+    queryKey: ['products', debouncedSearch],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get('/products', { params: debouncedSearch ? { search: debouncedSearch } : {} });
+        if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
+          showMessage('📋 Using offline data (API not available)', 'warning');
+          return FALLBACK_PRODUCTS;
+        }
+        const data = extractProductsData(res.data);
+        if (Array.isArray(data) && data.length > 0) return data;
+        showMessage('📋 Using fallback data (API returned empty)', 'info');
+        return FALLBACK_PRODUCTS;
+      } catch (error) {
+        console.error('❌ Error fetching products:', error.message);
+        showMessage('📋 Using offline data (API connection failed)', 'warning');
+        return FALLBACK_PRODUCTS;
+      }
+    },
+    staleTime: 30_000,
+  });
 
   // ============================================
-  // SAFE DATA EXTRACTION
+  // QUERY: STOCK (read‑only for stock info)
   // ============================================
-  const extractProductsData = useCallback((responseData) => {
-    if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) {
-      console.warn('⚠️ Received HTML - API not available');
-      return [];
-    }
-    
-    if (Array.isArray(responseData)) {
-      return responseData;
-    }
-    
-    if (responseData && typeof responseData === 'object') {
-      if (Array.isArray(responseData.data)) {
-        return responseData.data;
+  const { data: stockList = [] } = useQuery({
+    queryKey: ['stock'],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get('/stock');
+        if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) return [];
+        const raw = res.data;
+        if (Array.isArray(raw)) return raw;
+        if (Array.isArray(raw?.data)) return raw.data;
+        if (Array.isArray(raw?.stock)) return raw.stock;
+        if (Array.isArray(raw?.items)) return raw.items;
+        return [];
+      } catch {
+        return [];
       }
-      if (Array.isArray(responseData.products)) {
-        return responseData.products;
-      }
-      if (Array.isArray(responseData.items)) {
-        return responseData.items;
-      }
-      if (responseData.data && typeof responseData.data === 'object') {
-        if (Array.isArray(responseData.data.items)) {
-          return responseData.data.items;
-        }
-        if (Array.isArray(responseData.data.products)) {
-          return responseData.data.products;
-        }
-        const values = Object.values(responseData.data);
-        if (values.length > 0 && Array.isArray(values[0])) {
-          return values[0];
-        }
-      }
-    }
-    
-    return [];
-  }, []);
+    },
+    staleTime: 30_000,
+  });
 
-  // ============================================
-  // CALCULATE STATS
-  // ============================================
-  const calculateStats = useCallback((data) => {
-    const productsArray = Array.isArray(data) ? data : [];
-    const stats = {
-      total: productsArray.length,
-      lowStock: productsArray.filter(p => {
-        const stock = Number(p.QtyInStock || p.qty_instock || 0);
-        const alert = Number(p.QTY_ALERT || p.qty_alert || 10);
-        return stock <= alert;
-      }).length,
-      active: productsArray.filter(p => {
-        const status = p.STATUS || p.status || 'Active';
-        return status === 'Active';
-      }).length,
-      totalValue: productsArray.reduce((sum, p) => {
-        const price = Number(p.SALEOUT_PRICE || p.saleout_price || 0);
-        const stock = Number(p.QtyInStock || p.qty_instock || 0);
-        return sum + (price * stock);
-      }, 0)
+  // Merge stock quantities into products (most recent stock row wins)
+  // We match by product id (numeric) – stock table stores productid as numeric.
+  const stockByNumericId = useMemo(() => {
+    const map = new Map();
+    (stockList || []).forEach((s) => {
+      const pid = s.productid || s.PRODUCTID || s.product_id;
+      const stockId = Number(s.stockid || s.STOCKID || 0);
+      const available = Number(s.qtyavailable ?? s.QTYAVAILABLE ?? s.qtyinstock ?? s.QTYINSTOCK ?? 0);
+      if (pid !== undefined) {
+        const key = String(pid);
+        const existing = map.get(key);
+        if (!existing || stockId > existing.stockId) {
+          map.set(key, { available, stockId });
+        }
+      }
+    });
+    return map;
+  }, [stockList]);
+
+  const getStock = useCallback((product) => {
+    const numericId = getNumericId(product);
+    if (numericId !== undefined) {
+      const match = stockByNumericId.get(String(numericId));
+      if (match !== undefined) return match.available;
+    }
+    // fallback to product's own QtyInStock if no stock row
+    return getOwnStockField(product);
+  }, [stockByNumericId]);
+
+  // ===== STATS =====
+  const productStats = useMemo(() => {
+    const arr = Array.isArray(products) ? products : [];
+    return {
+      total: arr.length,
+      lowStock: arr.filter(p => getStock(p) <= getAlert(p)).length,
+      active: arr.filter(p => getStatus(p) === 'Active').length,
+      totalValue: arr.reduce((sum, p) => sum + getSalePrice(p) * getStock(p), 0),
     };
-    setProductStats(stats);
-  }, []);
+  }, [products, getStock]);
 
   // ============================================
-  // RESET FORM
+  // MUTATIONS WITH AUTO STOCK SYNC (numeric IDs)
+  // ============================================
+
+  // Create / Update product
+  const saveMutation = useMutation({
+    mutationFn: async (payload) => {
+      if (editingProduct) {
+        const id = getId(editingProduct);
+        return apiClient.put(`/products/${id}`, payload);
+      }
+      return apiClient.post('/products', payload);
+    },
+    onSuccess: async (response) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+
+      // If this is a new product, create a stock row automatically (if not already done by backend)
+      if (!editingProduct) {
+        const newProduct = response.data?.product || response.data;
+        const numericId = getNumericId(newProduct);
+        if (numericId) {
+          const qtyInStock = parseInt(formData.QTY_INSTOCK) || 0;
+          const qtyAlert = parseInt(formData.QTY_ALERT) || 10;
+          // Call helper – it will silently ignore if stock already exists
+          await createStockForProduct(numericId, qtyInStock, qtyAlert);
+          queryClient.invalidateQueries({ queryKey: ['stock'] });
+        }
+      }
+
+      showMessage(editingProduct ? '✅ Product updated successfully!' : '✅ Product created with stock!');
+      toast.success(editingProduct ? 'Product updated!' : 'Product created!');
+      closeModal();
+    },
+    onError: (error) => {
+      showMessage(`❌ ${error?.response?.data?.error || 'Failed to save product'}`, 'error');
+    },
+  });
+
+  // Delete product + its stock (numeric ID)
+  const deleteMutation = useMutation({
+    mutationFn: async (productIdString) => {
+      // First, get the numeric ID from the product object we have in the list
+      const product = products.find(p => getId(p) === productIdString);
+      if (product) {
+        const numericId = getNumericId(product);
+        if (numericId) {
+          await deleteStockForProduct(numericId);
+        }
+      }
+      // Then delete the product (soft delete – set status to Inactive)
+      return apiClient.delete(`/products/${productIdString}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      showMessage('✅ Product and its stock deleted successfully!');
+      toast.success('Product deleted!');
+    },
+    onError: (error) => {
+      console.error('❌ Delete error:', error);
+      showMessage('❌ Failed to delete product', 'error');
+    },
+  });
+
+  // Bulk delete: delete each product + its stock
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids) => {
+      for (const id of ids) {
+        const product = products.find(p => getId(p) === id);
+        if (product) {
+          const numericId = getNumericId(product);
+          if (numericId) {
+            try {
+              await deleteStockForProduct(numericId);
+            } catch (e) { /* ignore */ }
+          }
+        }
+        await apiClient.delete(`/products/${id}`);
+      }
+    },
+    onSuccess: (_data, ids) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      showMessage(`✅ ${ids.length} products and their stock deleted!`);
+      setSelectedProducts([]);
+    },
+    onError: () => showMessage('❌ Failed to delete some products', 'error'),
+  });
+
+  // ============================================
+  // FORM / MODAL HELPERS
   // ============================================
   const resetForm = useCallback(() => {
-    setFormData({ 
-      NAME_EN: '', 
-      NAME_KH: '', 
-      BARCODE: '', 
-      BRAND: '', 
-      CATEGORY_ID: '', 
-      BUYIN_PRICE: '', 
-      SALEOUT_PRICE: '', 
-      QTY_ALERT: '10', 
-      QTY_INSTOCK: '0',
-      IMAGE_URL: ''
-    });
+    setFormData({ NAME_EN: '', NAME_KH: '', BARCODE: '', BRAND: '', CATEGORY_ID: '', BUYIN_PRICE: '', SALEOUT_PRICE: '', QTY_ALERT: '10', QTY_INSTOCK: '0', IMAGE_URL: '' });
     imageUrlRef.current = '';
   }, []);
 
-  // ============================================
-  // FETCH PRODUCTS
-  // ============================================
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api.get('/products', { 
-        params: search ? { search: search } : {} 
-      });
-      
-      if (isMounted.current) {
-        if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
-          const fallbackData = getFallbackProducts();
-          setProducts(fallbackData);
-          calculateStats(fallbackData);
-          showMessage('📋 Using offline data (API not available)', 'warning');
-          setLoading(false);
-          setIsRefreshing(false);
-          return;
-        }
-
-        const productsData = extractProductsData(res.data);
-        const productsArray = Array.isArray(productsData) ? productsData : [];
-        
-        if (productsArray.length > 0) {
-          console.log('✅ Products loaded:', productsArray.length);
-          setProducts(productsArray);
-          calculateStats(productsArray);
-        } else {
-          const fallbackData = getFallbackProducts();
-          setProducts(fallbackData);
-          calculateStats(fallbackData);
-          showMessage('📋 Using fallback data (API returned empty)', 'info');
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error fetching products:', error.message);
-      if (isMounted.current) {
-        const fallbackData = getFallbackProducts();
-        setProducts(fallbackData);
-        calculateStats(fallbackData);
-        showMessage('📋 Using offline data (API connection failed)', 'warning');
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, [search, showMessage, getFallbackProducts, extractProductsData, calculateStats]);
-
-  // ============================================
-  // IMAGE VALIDATION
-  // ============================================
-  const isValidImage = useCallback((url) => {
-    if (!url) return false;
-    if (typeof url !== 'string') return false;
-    if (url.startsWith('data:image/')) return true;
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      if (url.includes('example.com') || url.includes('placeholder')) {
-        return false;
-      }
-      return true;
-    }
-    if (url.startsWith('/uploads/')) return true;
-    return false;
+  const removeImage = useCallback(() => {
+    setImagePreview(null);
+    setUploadProgress(0);
+    imageUrlRef.current = '';
+    setFormData(prev => ({ ...prev, IMAGE_URL: '' }));
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
-  // ============================================
-  // ✅ FIXED: IMAGE HANDLING
-  // The bug: FileReader.readAsDataURL() is asynchronous. The old code never set
-  // isUploading, so the Save button stayed clickable while the file was still
-  // being read — if you clicked Save right after choosing a file, formData.IMAGE_URL
-  // was still '' and the image never made it into the request. Fixing this by:
-  //   1. Actually setting isUploading true/false around the read.
-  //   2. Wrapping FileReader in a Promise so we can await it.
-  //   3. Writing to imageUrlRef synchronously the instant we have the base64 string,
-  //      so nothing downstream can read a stale/empty value.
-  //   4. Disabling the Save button (and blocking handleSubmit) while isUploading.
-  // ============================================
-  const readFileAsDataURL = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
+  const closeModal = useCallback(() => {
+    setShowModal(false);
+    setEditingProduct(null);
+    resetForm();
+    removeImage();
+  }, [resetForm, removeImage]);
+
+  const openAddModal = useCallback(() => {
+    setEditingProduct(null);
+    resetForm();
+    setImagePreview(null);
+    setShowModal(true);
+  }, [resetForm]);
+
+  const openEditModal = useCallback((product) => {
+    const imageData = getImage(product);
+    const hasValidImage = isValidImage(imageData);
+
+    setEditingProduct(product);
+    setFormData({
+      NAME_EN: getField(product, 'NAME_EN', 'name_en') || '',
+      NAME_KH: getField(product, 'NAME_KH', 'name_kh') || '',
+      BARCODE: getField(product, 'BARCODE', 'barcode') || '',
+      BRAND: getField(product, 'BRAND', 'brand') || '',
+      CATEGORY_ID: getField(product, 'CATEGORY_ID', 'category_id') || '',
+      BUYIN_PRICE: getField(product, 'BUYIN_PRICE', 'buy_price') || '',
+      SALEOUT_PRICE: getField(product, 'SALEOUT_PRICE', 'saleout_price') || '',
+      QTY_ALERT: getField(product, 'QTY_ALERT', 'qty_alert') || '10',
+      QTY_INSTOCK: '0',
+      IMAGE_URL: hasValidImage ? imageData : '',
     });
-  };
+    imageUrlRef.current = hasValidImage ? imageData : '';
+    setImagePreview(hasValidImage ? imageData : null);
+    setShowModal(true);
+  }, []);
 
   const handleImageSelect = useCallback(async (e) => {
     const file = e.target.files[0];
-    if (!file) {
-      console.log('❌ No file selected');
-      return;
-    }
+    if (!file) return;
 
-    console.log('📸 File selected:', file.name, file.type, file.size);
-
-    // Basic guard: only accept actual image files
     if (!file.type.startsWith('image/')) {
       showMessage('❌ Please select a valid image file', 'error');
       return;
@@ -374,17 +444,9 @@ const Products = () => {
     try {
       const base64Image = await readFileAsDataURL(file);
       setUploadProgress(100);
-
-      console.log('📸 Base64 image length:', base64Image.length);
-      console.log('📸 Base64 preview:', base64Image.substring(0, 50) + '...');
-
-      // ✅ Write to the ref immediately — this is synchronous and can't race with a click.
       imageUrlRef.current = base64Image;
-
       setImagePreview(base64Image);
-      setSelectedImage(file);
       setFormData(prev => ({ ...prev, IMAGE_URL: base64Image }));
-
       showMessage('✅ Image selected successfully!', 'success');
     } catch (err) {
       console.error('❌ Failed to read image:', err);
@@ -395,75 +457,6 @@ const Products = () => {
     }
   }, [showMessage]);
 
-  const removeImage = useCallback(() => {
-    console.log('🗑️ Removing image...');
-    setSelectedImage(null);
-    setImagePreview(null);
-    setUploadProgress(0);
-    imageUrlRef.current = '';
-    setFormData(prev => {
-      console.log('🗑️ Clearing image from formData');
-      return { ...prev, IMAGE_URL: '' };
-    });
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, []);
-
-  // ============================================
-  // OPEN MODALS
-  // ============================================
-  const openAddModal = useCallback(() => {
-    setEditingProduct(null);
-    resetForm();
-    setImagePreview(null);
-    setSelectedImage(null);
-    setShowModal(true);
-  }, [resetForm]);
-
-  const openEditModal = useCallback((product) => {
-    const productId = product.PRODUCT_ID || product.product_id;
-    console.log('✏️ Editing product:', productId);
-    
-    const imageData = product.image_url || product.IMAGE_URL || '';
-    const hasValidImage = isValidImage(imageData);
-    
-    console.log('📸 Existing image:', hasValidImage ? 'YES' : 'NO');
-    if (imageData) {
-      console.log('📸 Image preview:', imageData.substring(0, 50) + '...');
-    }
-    
-    setEditingProduct(product);
-    setFormData({
-      NAME_EN: product.NAME_EN || '',
-      NAME_KH: product.NAME_KH || '',
-      BARCODE: product.BARCODE || '',
-      BRAND: product.BRAND || '',
-      CATEGORY_ID: product.CATEGORY_ID || '',
-      BUYIN_PRICE: product.BUYIN_PRICE || '',
-      SALEOUT_PRICE: product.SALEOUT_PRICE || '',
-      QTY_ALERT: product.QTY_ALERT || '10',
-      QTY_INSTOCK: '0',
-      IMAGE_URL: hasValidImage ? imageData : ''
-    });
-    imageUrlRef.current = hasValidImage ? imageData : '';
-    
-    if (hasValidImage) {
-      setImagePreview(imageData);
-      console.log('📸 Image preview loaded from existing');
-    } else {
-      setImagePreview(null);
-      console.log('📸 No valid image, ready for upload');
-    }
-    setSelectedImage(null);
-    setShowModal(true);
-  }, [isValidImage]);
-
-  // ============================================
-  // ✅ FIXED: HANDLE SUBMIT
-  // Now reads imageUrlRef.current (always current) instead of trusting formData
-  // alone, and refuses to submit while an image is still being processed.
-  // ============================================
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -471,31 +464,17 @@ const Products = () => {
       showMessage('⏳ Please wait, image is still processing...', 'warning');
       return;
     }
-
-    setSubmitting(true);
-    
-    // Validate required fields
     if (!formData.NAME_EN || formData.NAME_EN.trim() === '') {
       showMessage('❌ Product English name is required', 'error');
-      setSubmitting(false);
       return;
     }
-    
     if (!formData.SALEOUT_PRICE || parseFloat(formData.SALEOUT_PRICE) <= 0) {
       showMessage('❌ Valid sale price is required', 'error');
-      setSubmitting(false);
       return;
     }
 
-    // ✅ CRITICAL: prefer the ref — it's always in sync, formData can lag by a tick
     const imageUrl = imageUrlRef.current || formData.IMAGE_URL || '';
-    console.log('📸 Image URL before submit:', imageUrl ? `✅ EXISTS (${imageUrl.length} chars)` : '❌ EMPTY');
-    
-    if (imageUrl) {
-      console.log('📸 Image preview:', imageUrl.substring(0, 50) + '...');
-    }
 
-    // ✅ Build payload with IMAGE_URL
     const payload = {
       NAME_EN: formData.NAME_EN.trim(),
       NAME_KH: formData.NAME_KH?.trim() || '',
@@ -506,267 +485,93 @@ const Products = () => {
       SALEOUT_PRICE: parseFloat(formData.SALEOUT_PRICE) || 0,
       QTY_ALERT: parseInt(formData.QTY_ALERT) || 10,
       QTY_INSTOCK: parseInt(formData.QTY_INSTOCK) || 0,
-      IMAGE_URL: imageUrl  // ✅ This MUST be included!
+      IMAGE_URL: imageUrl,
     };
 
-    console.log('📤 Sending product data:', {
-      ...payload,
-      IMAGE_URL: payload.IMAGE_URL ? `✅ (${payload.IMAGE_URL.length} chars)` : '❌ MISSING'
-    });
-
-    try {
-      let response;
-      if (editingProduct) {
-        const productId = editingProduct.PRODUCT_ID || editingProduct.product_id;
-        console.log('🆔 Updating product ID:', productId);
-        response = await api.put(`/products/${productId}`, payload);
-        console.log('📥 Update response:', response.data);
-        showMessage('✅ Product updated successfully!');
-      } else {
-        response = await api.post('/products', payload);
-        console.log('📥 Create response:', response.data);
-        showMessage('✅ Product created successfully!');
-      }
-      
-      setShowModal(false);
-      setEditingProduct(null);
-      
-      // ✅ Refresh products to show new image
-      await fetchProducts();
-      
-      // ✅ Reset form AFTER fetch
-      resetForm();
-      removeImage();
-      
-    } catch (error) {
-      console.error('❌ Submit error:', error);
-      console.error('❌ Error response:', error.response?.data);
-      showMessage(`❌ ${error.response?.data?.error || 'Failed to save product'}`, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    saveMutation.mutate(payload);
   };
 
-  // ============================================
-  // HANDLE DELETE
-  // ============================================
-  const handleDelete = useCallback(async (id) => {
-    if (!window.confirm('Are you sure you want to delete this product?')) return;
-    
-    const product = products.find(p => (p.PRODUCT_ID || p.product_id) === id);
-    if (product?._local) {
-      setProducts(prev => prev.filter(p => (p.PRODUCT_ID || p.product_id) !== id));
-      calculateStats(products.filter(p => (p.PRODUCT_ID || p.product_id) !== id));
-      showMessage('✅ Local product deleted!');
-      return;
-    }
+  const handleDelete = useCallback((id) => {
+    if (!window.confirm('Are you sure you want to delete this product and its stock?')) return;
+    deleteMutation.mutate(id);
+  }, [deleteMutation]);
 
-    try {
-      await api.delete(`/products/${id}`);
-      showMessage('✅ Product deleted successfully!');
-      fetchProducts();
-    } catch (error) {
-      console.error('Delete error:', error);
-      showMessage('❌ Failed to delete product', 'error');
-    }
-  }, [products, fetchProducts, showMessage, calculateStats]);
-
-  // ============================================
-  // BULK DELETE
-  // ============================================
-  const handleBulkDelete = useCallback(async () => {
+  const handleBulkDelete = useCallback(() => {
     if (selectedProducts.length === 0) return;
-    if (!window.confirm(`Delete ${selectedProducts.length} selected products?`)) return;
+    if (!window.confirm(`Delete ${selectedProducts.length} selected products and their stock?`)) return;
+    bulkDeleteMutation.mutate(selectedProducts);
+  }, [selectedProducts, bulkDeleteMutation]);
 
-    try {
-      const localIds = [];
-      const apiIds = [];
-      
-      for (const id of selectedProducts) {
-        const product = products.find(p => (p.PRODUCT_ID || p.product_id) === id);
-        if (product?._local) {
-          localIds.push(id);
-        } else {
-          apiIds.push(id);
-        }
-      }
-
-      if (localIds.length > 0) {
-        setProducts(prev => prev.filter(p => !localIds.includes(p.PRODUCT_ID || p.product_id)));
-        calculateStats(products.filter(p => !localIds.includes(p.PRODUCT_ID || p.product_id)));
-      }
-
-      for (const id of apiIds) {
-        await api.delete(`/products/${id}`);
-      }
-
-      showMessage(`✅ ${selectedProducts.length} products deleted!`);
-      setSelectedProducts([]);
-      if (apiIds.length > 0) fetchProducts();
-    } catch (error) {
-      console.error('Bulk delete error:', error);
-      showMessage('❌ Failed to delete some products', 'error');
-    }
-  }, [selectedProducts, products, fetchProducts, showMessage, calculateStats]);
-
-  // ============================================
-  // TOGGLE SELECT
-  // ============================================
   const toggleSelect = useCallback((id) => {
-    setSelectedProducts(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(p => p !== id);
-      } else {
-        return [...prev, id];
-      }
-    });
+    setSelectedProducts(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
   }, []);
 
-  const toggleSelectAll = useCallback(() => {
-    if (selectedProducts.length === products.length) {
-      setSelectedProducts([]);
-    } else {
-      setSelectedProducts(products.map(p => p.PRODUCT_ID || p.product_id));
-    }
-  }, [selectedProducts, products]);
+  const handleRefresh = useCallback(() => { refetch(); }, [refetch]);
 
   // ============================================
   // FILTERED & SORTED PRODUCTS
   // ============================================
   const filteredProducts = useMemo(() => {
-    const productsArray = Array.isArray(products) ? products : [];
-    let result = [...productsArray];
+    let result = Array.isArray(products) ? [...products] : [];
 
-    if (filterStatus === 'lowStock') {
-      result = result.filter(p => {
-        const stock = Number(p.QtyInStock || p.qty_instock || 0);
-        const alert = Number(p.QTY_ALERT || p.qty_alert || 10);
-        return stock <= alert;
-      });
-    } else if (filterStatus === 'active') {
-      result = result.filter(p => {
-        const status = p.STATUS || p.status || 'Active';
-        return status === 'Active';
-      });
-    } else if (filterStatus === 'inactive') {
-      result = result.filter(p => {
-        const status = p.STATUS || p.status || 'Active';
-        return status !== 'Active';
-      });
-    }
+    if (filterStatus === 'lowStock') result = result.filter(p => getStock(p) <= getAlert(p));
+    else if (filterStatus === 'active') result = result.filter(p => getStatus(p) === 'Active');
+    else if (filterStatus === 'inactive') result = result.filter(p => getStatus(p) !== 'Active');
+
+    const sortGetters = {
+      NAME_EN: getName,
+      SALEOUT_PRICE: getSalePrice,
+      QtyInStock: getStock,
+      BARCODE: getBarcode,
+    };
+    const getSortVal = sortGetters[sortBy] || getName;
 
     result.sort((a, b) => {
-      let comparison = 0;
-      const aVal = a[sortBy] ?? '';
-      const bVal = b[sortBy] ?? '';
-      
-      if (typeof aVal === 'string' && typeof bVal === 'string') {
-        comparison = aVal.localeCompare(bVal);
-      } else if (typeof aVal === 'number' && typeof bVal === 'number') {
-        comparison = aVal - bVal;
-      } else {
-        comparison = String(aVal).localeCompare(String(bVal));
-      }
-      
+      const aVal = getSortVal(a);
+      const bVal = getSortVal(b);
+      const comparison = typeof aVal === 'number' && typeof bVal === 'number'
+        ? aVal - bVal
+        : String(aVal).localeCompare(String(bVal));
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     return result;
-  }, [products, filterStatus, sortBy, sortOrder]);
+  }, [products, filterStatus, sortBy, sortOrder, getStock]);
 
-  // ============================================
-  // HELPER FUNCTIONS
-  // ============================================
-  const formatPrice = (price) => `$${Number(price || 0).toFixed(2)}`;
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
+  const paginatedProducts = useMemo(() => {
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredProducts, page]);
 
-  const getStatusBadge = (status) => {
-    const isActive = (status || 'Active') === 'Active';
-    return isActive 
-      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
-      : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800';
-  };
+  const pageIds = useMemo(() => paginatedProducts.map(getId), [paginatedProducts]);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every(id => selectedProducts.includes(id));
+  const toggleSelectAll = useCallback(() => {
+    setSelectedProducts(prev => allOnPageSelected
+      ? prev.filter(id => !pageIds.includes(id))
+      : Array.from(new Set([...prev, ...pageIds])));
+  }, [allOnPageSelected, pageIds]);
 
-  const getStockBadge = (stock, alert) => {
-    const qty = Number(stock || 0);
-    const alertLevel = Number(alert || 10);
-    
-    if (qty <= 0) {
-      return { color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800', icon: AlertCircle };
-    }
-    if (qty <= alertLevel) {
-      return { color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800', icon: AlertTriangle };
-    }
-    return { color: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800', icon: CheckCircle };
-  };
+  const getStatIcon = (type) => ({
+    total: <Package className="w-5 h-5 text-indigo-500" />,
+    lowStock: <AlertTriangle className="w-5 h-5 text-amber-500" />,
+    active: <CheckCircle className="w-5 h-5 text-emerald-500" />,
+    totalValue: <DollarSign className="w-5 h-5 text-purple-500" />,
+  }[type] || <Package className="w-5 h-5 text-indigo-500" />);
 
-  const getStatIcon = (type) => {
-    const icons = {
-      total: <Package className="w-5 h-5 text-indigo-500" />,
-      lowStock: <AlertTriangle className="w-5 h-5 text-amber-500" />,
-      active: <CheckCircle className="w-5 h-5 text-emerald-500" />,
-      totalValue: <DollarSign className="w-5 h-5 text-purple-500" />
-    };
-    return icons[type] || icons.total;
-  };
-
-  const getProductIcon = (name) => {
-    const icons = [
-      '📱', '💻', '⌨️', '🖥️', '📷', '🎧', '⌚', '📡', '🔋', '💾',
-      '🖱️', '📀', '💿', '📹', '🎮', '📺', '🔊', '📻', '⏰', '💡'
-    ];
-    let hash = 0;
-    for (let i = 0; i < (name || '').length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return icons[Math.abs(hash) % icons.length];
-  };
-
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-    await fetchProducts();
-  }, [fetchProducts]);
-
-  // ============================================
-  // USE EFFECTS
-  // ============================================
-  useEffect(() => {
-    isMounted.current = true;
-    fetchProducts();
-
-    return () => {
-      isMounted.current = false;
-      if (searchTimeout.current) {
-        clearTimeout(searchTimeout.current);
-      }
-    };
-  }, [fetchProducts]);
-
-  useEffect(() => {
-    if (searchTimeout.current) {
-      clearTimeout(searchTimeout.current);
-    }
-    searchTimeout.current = setTimeout(() => {
-      fetchProducts();
-    }, 500);
-
-    return () => {
-      if (searchTimeout.current) {
-        clearTimeout(searchTimeout.current);
-      }
-    };
-  }, [search, fetchProducts]);
+  const submitting = saveMutation.isPending;
 
   // ============================================
   // RENDER
   // ============================================
   return (
     <div className="space-y-4 p-3 sm:p-4 md:p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 min-h-screen">
-      
+
       {/* ===== MESSAGE TOAST ===== */}
       {message && (
         <div className={`fixed top-4 right-4 z-50 max-w-md w-full p-4 rounded-xl shadow-2xl border transform transition-all duration-500 animate-slideInRight ${
-          messageType === 'success' 
-            ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' 
+          messageType === 'success'
+            ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
             : messageType === 'error'
             ? 'bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
             : messageType === 'warning'
@@ -789,7 +594,7 @@ const Products = () => {
       )}
 
       {/* ===== HEADER WITH STATS ===== */}
-      <div 
+      <div
         ref={headerRef}
         className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-300"
         style={{
@@ -820,7 +625,7 @@ const Products = () => {
               <Clock className="w-4 h-4 text-white/80" />
               {new Date().toLocaleTimeString()}
             </div>
-            <button 
+            <button
               onClick={handleRefresh}
               disabled={isRefreshing}
               className="bg-white/20 backdrop-blur-sm p-2 rounded-xl hover:bg-white/30 transition hover:scale-110 duration-300"
@@ -906,8 +711,8 @@ const Products = () => {
               <button
                 onClick={() => setViewMode('grid')}
                 className={`p-1.5 rounded-lg transition-all duration-300 hover:scale-110 ${
-                  viewMode === 'grid' 
-                    ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600' 
+                  viewMode === 'grid'
+                    ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600'
                     : 'hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300'
                 }`}
                 title="Grid view"
@@ -917,8 +722,8 @@ const Products = () => {
               <button
                 onClick={() => setViewMode('list')}
                 className={`p-1.5 rounded-lg transition-all duration-300 hover:scale-110 ${
-                  viewMode === 'list' 
-                    ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600' 
+                  viewMode === 'list'
+                    ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600'
                     : 'hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300'
                 }`}
                 title="List view"
@@ -973,24 +778,23 @@ const Products = () => {
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredProducts.map((product, index) => {
-            const id = product.PRODUCT_ID || product.product_id || `prod-${index}`;
-            const nameEn = product.NAME_EN || product.name_en || 'Unknown';
-            const nameKh = product.NAME_KH || product.name_kh || '';
-            const barcode = product.BARCODE || product.barcode || '-';
-            const brand = product.BRAND || product.brand || '';
-            const buyPrice = Number(product.BUYIN_PRICE || product.buy_price || 0);
-            const salePrice = Number(product.SALEOUT_PRICE || product.saleout_price || 0);
-            const stock = Number(product.QtyInStock || product.qty_instock || 0);
-            const alertLevel = Number(product.QTY_ALERT || product.qty_alert || 10);
-            const status = product.STATUS || product.status || 'Active';
+          {paginatedProducts.map((product, index) => {
+            const id = getId(product) || `prod-${index}`;
+            const nameEn = getName(product);
+            const nameKh = getNameKh(product);
+            const barcode = getBarcode(product);
+            const brand = getBrand(product);
+            const buyPrice = getBuyPrice(product);
+            const salePrice = getSalePrice(product);
+            const stock = getStock(product);
+            const alertLevel = getAlert(product);
+            const status = getStatus(product);
             const isLow = stock <= alertLevel;
             const stockBadge = getStockBadge(stock, alertLevel);
             const isSelected = selectedProducts.includes(id);
             const productIcon = getProductIcon(nameEn);
-            
-            const rawImage = product.image_url || product.IMAGE_URL || '';
-            const imageUrl = (isValidImage(rawImage) && rawImage) ? rawImage : '';
+            const rawImage = getImage(product);
+            const imageUrl = isValidImage(rawImage) ? rawImage : '';
 
             return (
               <div
@@ -1006,12 +810,11 @@ const Products = () => {
                     <div className="flex items-center gap-3">
                       {imageUrl ? (
                         <div className="w-16 h-16 rounded-2xl overflow-hidden bg-gray-100 dark:bg-gray-700 flex-shrink-0 group-hover:scale-110 transition-transform duration-300">
-                          <img 
-                            src={imageUrl} 
+                          <img
+                            src={imageUrl}
                             alt={nameEn}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              console.log(`❌ Image failed to load for: ${nameEn}`);
                               e.target.style.display = 'none';
                               e.target.parentElement.innerHTML = `<span class="text-2xl">${productIcon}</span>`;
                             }}
@@ -1019,8 +822,8 @@ const Products = () => {
                         </div>
                       ) : (
                         <div className={`p-3 rounded-2xl text-2xl transition-all duration-300 group-hover:scale-110 group-hover:rotate-12 ${
-                          isLow 
-                            ? 'bg-amber-50 dark:bg-amber-900/20' 
+                          isLow
+                            ? 'bg-amber-50 dark:bg-amber-900/20'
                             : 'bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20'
                         }`}>
                           <span>{productIcon}</span>
@@ -1039,20 +842,14 @@ const Products = () => {
                     </div>
                     <div className="flex gap-1">
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditModal(product);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); openEditModal(product); }}
                         className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
                         title="Edit"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(id);
-                        }}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(id); }}
                         className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
                         title="Delete"
                       >
@@ -1120,7 +917,7 @@ const Products = () => {
                   <th className="px-3 py-3 w-10">
                     <input
                       type="checkbox"
-                      checked={selectedProducts.length === products.length && products.length > 0}
+                      checked={allOnPageSelected}
                       onChange={toggleSelectAll}
                       className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
                     />
@@ -1135,26 +932,25 @@ const Products = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                {filteredProducts.map((product, index) => {
-                  const id = product.PRODUCT_ID || product.product_id || `prod-${index}`;
-                  const nameEn = product.NAME_EN || product.name_en || 'Unknown';
-                  const nameKh = product.NAME_KH || product.name_kh || '';
-                  const barcode = product.BARCODE || product.barcode || '-';
-                  const buyPrice = Number(product.BUYIN_PRICE || product.buy_price || 0);
-                  const salePrice = Number(product.SALEOUT_PRICE || product.saleout_price || 0);
-                  const stock = Number(product.QtyInStock || product.qty_instock || 0);
-                  const alertLevel = Number(product.QTY_ALERT || product.qty_alert || 10);
-                  const status = product.STATUS || product.status || 'Active';
+                {paginatedProducts.map((product, index) => {
+                  const id = getId(product) || `prod-${index}`;
+                  const nameEn = getName(product);
+                  const nameKh = getNameKh(product);
+                  const barcode = getBarcode(product);
+                  const buyPrice = getBuyPrice(product);
+                  const salePrice = getSalePrice(product);
+                  const stock = getStock(product);
+                  const alertLevel = getAlert(product);
+                  const status = getStatus(product);
                   const isLow = stock <= alertLevel;
                   const stockBadge = getStockBadge(stock, alertLevel);
                   const isSelected = selectedProducts.includes(id);
-                  
-                  const rawImage = product.image_url || product.IMAGE_URL || '';
-                  const imageUrl = (isValidImage(rawImage) && rawImage) ? rawImage : '';
+                  const rawImage = getImage(product);
+                  const imageUrl = isValidImage(rawImage) ? rawImage : '';
 
                   return (
-                    <tr 
-                      key={id} 
+                    <tr
+                      key={id}
                       className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-all duration-300 group animate-slideIn ${
                         isSelected ? 'bg-indigo-50 dark:bg-indigo-900/10' : ''
                       } ${isLow ? 'hover:bg-amber-50/50 dark:hover:bg-amber-900/5' : ''}`}
@@ -1171,14 +967,11 @@ const Products = () => {
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2">
                           {imageUrl ? (
-                            <img 
-                              src={imageUrl} 
+                            <img
+                              src={imageUrl}
                               alt={nameEn}
                               className="w-10 h-10 rounded-lg object-cover bg-gray-100 dark:bg-gray-700"
-                              onError={(e) => {
-                                console.log(`❌ Image failed to load for: ${nameEn}`);
-                                e.target.style.display = 'none';
-                              }}
+                              onError={(e) => { e.target.style.display = 'none'; }}
                             />
                           ) : (
                             <span className="text-xl">{getProductIcon(nameEn)}</span>
@@ -1205,9 +998,7 @@ const Products = () => {
                           <stockBadge.icon className="w-3 h-3" />
                           {stock}
                         </span>
-                        {isLow && (
-                          <span className="ml-1 text-[10px] text-amber-500 animate-pulse">⚠</span>
-                        )}
+                        {isLow && <span className="ml-1 text-[10px] text-amber-500 animate-pulse">⚠</span>}
                       </td>
                       <td className="px-3 py-3 text-center hidden sm:table-cell">
                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-all duration-300 ${getStatusBadge(status)} group-hover:scale-105`}>
@@ -1241,6 +1032,18 @@ const Products = () => {
         </div>
       )}
 
+      {/* ===== PAGINATION ===== */}
+      {!loading && filteredProducts.length > 0 && (
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          totalItems={filteredProducts.length}
+          itemsPerPage={ITEMS_PER_PAGE}
+          loading={loading}
+        />
+      )}
+
       {/* ===== FOOTER ===== */}
       <div className="text-center text-xs text-gray-400 dark:text-gray-500 py-4 border-t border-gray-200 dark:border-gray-700">
         <p className="flex items-center justify-center gap-4 flex-wrap">
@@ -1256,9 +1059,7 @@ const Products = () => {
         </p>
       </div>
 
-      {/* ============================================ */}
       {/* ===== MODAL WITH IMAGE UPLOAD ===== */}
-      {/* ============================================ */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto animate-slideUp">
@@ -1267,8 +1068,8 @@ const Products = () => {
                 <Package className="w-5 h-5 text-indigo-600 animate-bounce" />
                 {editingProduct ? 'Edit Product' : 'Add New Product'}
               </h2>
-              <button 
-                onClick={() => setShowModal(false)} 
+              <button
+                onClick={closeModal}
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all duration-300 hover:rotate-90"
                 disabled={submitting}
               >
@@ -1278,22 +1079,18 @@ const Products = () => {
 
             <form onSubmit={handleSubmit} className="p-6">
               <div className="space-y-4">
-                
+
                 {/* ===== IMAGE UPLOAD SECTION ===== */}
                 <div className="group">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-2">
                     <ImageIcon className="w-4 h-4 text-indigo-500" />
                     Product Image
                   </label>
-                  
+
                   {imagePreview ? (
                     <div className="relative mb-3">
                       <div className="w-full h-48 rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600">
-                        <img 
-                          src={imagePreview} 
-                          alt="Product preview" 
-                          className="w-full h-full object-cover"
-                        />
+                        <img src={imagePreview} alt="Product preview" className="w-full h-full object-cover" />
                       </div>
                       <button
                         type="button"
@@ -1319,10 +1116,7 @@ const Products = () => {
                         <span>{uploadProgress}%</span>
                       </div>
                       <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300"
-                          style={{ width: `${uploadProgress}%` }}
-                        />
+                        <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                       </div>
                     </div>
                   )}
@@ -1376,7 +1170,7 @@ const Products = () => {
                     type="text"
                     required
                     value={formData.NAME_EN}
-                    onChange={(e) => setFormData({...formData, NAME_EN: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, NAME_EN: e.target.value })}
                     className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                     placeholder="Enter product name in English"
                     disabled={submitting}
@@ -1389,7 +1183,7 @@ const Products = () => {
                   <input
                     type="text"
                     value={formData.NAME_KH}
-                    onChange={(e) => setFormData({...formData, NAME_KH: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, NAME_KH: e.target.value })}
                     className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                     placeholder="Enter product name in Khmer"
                     disabled={submitting}
@@ -1403,7 +1197,7 @@ const Products = () => {
                     <input
                       type="text"
                       value={formData.BARCODE}
-                      onChange={(e) => setFormData({...formData, BARCODE: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, BARCODE: e.target.value })}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                       placeholder="Enter barcode"
                       disabled={submitting}
@@ -1414,7 +1208,7 @@ const Products = () => {
                     <input
                       type="text"
                       value={formData.BRAND}
-                      onChange={(e) => setFormData({...formData, BRAND: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, BRAND: e.target.value })}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                       placeholder="Enter brand name"
                       disabled={submitting}
@@ -1431,7 +1225,7 @@ const Products = () => {
                       step="0.01"
                       min="0"
                       value={formData.BUYIN_PRICE}
-                      onChange={(e) => setFormData({...formData, BUYIN_PRICE: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, BUYIN_PRICE: e.target.value })}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                       placeholder="0.00"
                       disabled={submitting}
@@ -1447,7 +1241,7 @@ const Products = () => {
                       min="0"
                       required
                       value={formData.SALEOUT_PRICE}
-                      onChange={(e) => setFormData({...formData, SALEOUT_PRICE: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, SALEOUT_PRICE: e.target.value })}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                       placeholder="0.00"
                       disabled={submitting}
@@ -1463,7 +1257,7 @@ const Products = () => {
                       type="number"
                       min="0"
                       value={formData.QTY_ALERT}
-                      onChange={(e) => setFormData({...formData, QTY_ALERT: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, QTY_ALERT: e.target.value })}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                       disabled={submitting}
                     />
@@ -1475,27 +1269,32 @@ const Products = () => {
                         type="number"
                         min="0"
                         value={formData.QTY_INSTOCK}
-                        onChange={(e) => setFormData({...formData, QTY_INSTOCK: e.target.value})}
+                        onChange={(e) => setFormData({ ...formData, QTY_INSTOCK: e.target.value })}
                         className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
                         disabled={submitting}
                       />
                     </div>
                   )}
                 </div>
+                {editingProduct && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 -mt-2">
+                    To adjust stock quantity for an existing product, use the Stock page.
+                  </p>
+                )}
               </div>
 
               {/* ===== Actions ===== */}
               <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                <button 
-                  type="button" 
-                  onClick={() => setShowModal(false)} 
+                <button
+                  type="button"
+                  onClick={closeModal}
                   className="px-6 py-2.5 border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-300 dark:text-white font-medium disabled:opacity-50"
                   disabled={submitting}
                 >
                   Cancel
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={submitting || isUploading}
                 >

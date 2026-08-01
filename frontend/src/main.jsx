@@ -4,6 +4,8 @@ import App from './App.jsx'
 import './index.css'
 import { ThemeProvider } from './context/ThemeContext'
 import axios from 'axios'  // ✅ Add this import
+import * as Sentry from '@sentry/react';
+import { BrowserTracing } from '@sentry/tracing';
 
 // ✅ GLOBAL FIX - Auto-adds /api to ALL axios calls
 axios.interceptors.request.use(
@@ -17,6 +19,15 @@ axios.interceptors.request.use(
   },
   error => Promise.reject(error)
 )
+Sentry.init({
+  dsn: import.meta.env.VITE_SENTRY_DSN,
+  integrations: [new BrowserTracing()],
+  tracesSampleRate: 1.0,
+  environment: import.meta.env.MODE,
+});
+
+// Wrap App with Sentry
+Sentry.withProfiler(App)
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ThemeProvider>

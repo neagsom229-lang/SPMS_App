@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+// frontend/src/components/Profile.jsx
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 import {
   User, Mail, Phone, MapPin, Calendar, Edit2, Save,
   X, Camera, UserCircle, Shield, Clock, CheckCircle,
@@ -8,49 +9,21 @@ import {
   Building2, Globe, Award, Star, TrendingUp,
   ShoppingCart, DollarSign, Users, Activity,
   Sparkles, Zap, Heart, Briefcase, Upload,
-  Image as ImageIcon, Trash2
+  Image as ImageIcon, Trash2, Settings, LogOut,
+  HelpCircle, Bell, Moon, Sun, Monitor
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// ============================================
-// API CONFIGURATION
-// ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-console.log('🔧 API_BASE (Profile):', API_BASE);
-
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-api.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-api.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+import '../styles/profile.css';
+import apiClient from '../api/client';
 
 // ============================================
 // PROFILE COMPONENT
 // ============================================
-const Profile = ({ user }) => {
+const Profile = () => {
   const navigate = useNavigate();
+  const { user, logout, updateUser } = useAuth();
+  
+  // ===== STATE =====
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState('');
@@ -59,8 +32,12 @@ const Profile = ({ user }) => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(
+    () => localStorage.getItem('theme') === 'dark' || 
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  );
 
-  // ===== STATE =====
+  // ===== PROFILE STATE =====
   const [profile, setProfile] = useState({
     username: '',
     email: '',
@@ -74,7 +51,13 @@ const Profile = ({ user }) => {
     bio: '',
     website: '',
     department: '',
-    avatar: null
+    avatar: null,
+    user_id: null,
+    preferences: {
+      theme: 'light',
+      notifications: true,
+      language: 'en'
+    }
   });
 
   const [formData, setFormData] = useState({
@@ -99,12 +82,20 @@ const Profile = ({ user }) => {
     totalOrders: 0,
     totalCustomers: 0,
     totalRevenue: 0,
-    completionRate: 0
+    completionRate: 0,
+    pendingOrders: 0,
+    lowStockItems: 0,
+    activeUsers: 0
   });
+
+  // ===== ACTIVITY LOG =====
+  const [activities, setActivities] = useState([]);
+  const [showActivityLog, setShowActivityLog] = useState(false);
 
   // ===== REFS =====
   const fileInputRef = useRef(null);
   const messageTimeout = useRef(null);
+  const isMounted = useRef(true);
 
   // ===== AVATAR COLORS =====
   const avatarColors = [
@@ -120,30 +111,46 @@ const Profile = ({ user }) => {
     'bg-gradient-to-br from-rose-500 to-red-500'
   ];
 
+  // ===== SHOW MESSAGE =====
+  const showMessage = useCallback((text, type = 'success') => {
+    setMessage(text);
+    setMessageType(type);
+    setShowSuccess(type === 'success');
+    if (messageTimeout.current) clearTimeout(messageTimeout.current);
+    messageTimeout.current = setTimeout(() => {
+      setMessage('');
+      setShowSuccess(false);
+    }, 5000);
+  }, []);
+
   // ===== GENERATE AVATAR COLOR =====
-  const getAvatarColor = (name) => {
+  const getAvatarColor = useCallback((name) => {
     if (!name) return avatarColors[0];
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     return avatarColors[Math.abs(hash) % avatarColors.length];
-  };
+  }, []);
 
-  // ===== SAVE AVATAR TO LOCAL STORAGE =====
-  const saveAvatarToStorage = (imageData) => {
+  // ===== SAVE AVATAR TO STORAGE =====
+  const saveAvatarToStorage = useCallback((imageData) => {
     try {
       localStorage.setItem('userAvatar', imageData);
       setAvatarPreview(imageData);
-      showMessage('✅ Avatar uploaded successfully!', 'success');
+      // Update user context
+      if (updateUser) {
+        updateUser({ avatar: imageData });
+      }
+      showMessage('✅ Avatar updated successfully!', 'success');
     } catch (error) {
       console.error('Error saving avatar:', error);
       showMessage('❌ Failed to save avatar', 'error');
     }
-  };
+  }, [updateUser, showMessage]);
 
-  // ===== LOAD AVATAR FROM LOCAL STORAGE =====
-  const loadAvatarFromStorage = () => {
+  // ===== LOAD AVATAR FROM STORAGE =====
+  const loadAvatarFromStorage = useCallback(() => {
     try {
       const saved = localStorage.getItem('userAvatar');
       if (saved) {
@@ -152,10 +159,10 @@ const Profile = ({ user }) => {
     } catch (error) {
       console.error('Error loading avatar:', error);
     }
-  };
+  }, []);
 
   // ===== HANDLE AVATAR UPLOAD =====
-  const handleAvatarUpload = (event) => {
+  const handleAvatarUpload = useCallback((event) => {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -183,159 +190,254 @@ const Profile = ({ user }) => {
     };
     reader.readAsDataURL(file);
     event.target.value = '';
-  };
+  }, [saveAvatarToStorage, showMessage]);
 
   // ===== REMOVE AVATAR =====
-  const removeAvatar = () => {
+  const removeAvatar = useCallback(() => {
     if (window.confirm('Are you sure you want to remove your avatar?')) {
       localStorage.removeItem('userAvatar');
       setAvatarPreview(null);
+      if (updateUser) {
+        updateUser({ avatar: null });
+      }
       showMessage('🗑️ Avatar removed', 'info');
     }
-  };
+  }, [updateUser, showMessage]);
 
-  // ===== SHOW MESSAGE =====
-  const showMessage = (text, type = 'success') => {
-    setMessage(text);
-    setMessageType(type);
-    setShowSuccess(type === 'success');
-    if (messageTimeout.current) clearTimeout(messageTimeout.current);
-    messageTimeout.current = setTimeout(() => {
-      setMessage('');
-      setShowSuccess(false);
-    }, 4000);
-  };
+  // ===== EXTRACT DATA HELPER =====
+  const extractData = useCallback((responseData) => {
+    if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) {
+      console.warn('⚠️ Received HTML - API not available');
+      return [];
+    }
+    
+    if (Array.isArray(responseData)) return responseData;
+    
+    if (responseData && typeof responseData === 'object') {
+      if (Array.isArray(responseData.data)) return responseData.data;
+      if (Array.isArray(responseData.items)) return responseData.items;
+      if (Array.isArray(responseData.orders)) return responseData.orders;
+      if (Array.isArray(responseData.customers)) return responseData.customers;
+      if (responseData.data && typeof responseData.data === 'object') {
+        if (Array.isArray(responseData.data.items)) return responseData.data.items;
+        if (Array.isArray(responseData.data.orders)) return responseData.data.orders;
+        if (Array.isArray(responseData.data.customers)) return responseData.data.customers;
+        const values = Object.values(responseData.data);
+        if (values.length > 0 && Array.isArray(values[0])) return values[0];
+      }
+    }
+    return [];
+  }, []);
 
-  // ===== ✅ FIXED: FETCH USER STATS =====
-  const fetchUserStats = async () => {
+  // ===== FETCH USER STATS =====
+  const fetchUserStats = useCallback(async () => {
     try {
-      // ✅ Use correct API endpoints with proper error handling
-      const [ordersRes, customersRes, statsRes] = await Promise.all([
-        api.get('/orders').catch(() => ({ data: [] })),
-        api.get('/customers').catch(() => ({ data: [] })),
-        api.get('/dashboard/stats').catch(() => ({ data: {} }))
+      const [ordersRes, customersRes, statsRes, lowStockRes] = await Promise.all([
+        apiClient.get('/orders').catch(() => ({ data: [] })),
+        apiClient.get('/customers').catch(() => ({ data: [] })),
+        apiClient.get('/dashboard/stats').catch(() => ({ data: {} })),
+        apiClient.get('/stock/low-stock').catch(() => ({ data: [] }))
       ]);
 
-      // ✅ Ensure data is an array before using array methods
-      let orders = [];
-      let customers = [];
-      let revenue = {};
-
-      // ✅ Safely extract orders data
-      if (Array.isArray(ordersRes.data)) {
-        orders = ordersRes.data;
-      } else if (ordersRes.data?.data && Array.isArray(ordersRes.data.data)) {
-        orders = ordersRes.data.data;
-      } else if (ordersRes.data?.orders && Array.isArray(ordersRes.data.orders)) {
-        orders = ordersRes.data.orders;
-      } else {
-        orders = [];
-      }
-
-      // ✅ Safely extract customers data
-      if (Array.isArray(customersRes.data)) {
-        customers = customersRes.data;
-      } else if (customersRes.data?.data && Array.isArray(customersRes.data.data)) {
-        customers = customersRes.data.data;
-      } else if (customersRes.data?.customers && Array.isArray(customersRes.data.customers)) {
-        customers = customersRes.data.customers;
-      } else {
-        customers = [];
-      }
-
-      // ✅ Safely extract stats data
-      if (statsRes.data) {
-        revenue = statsRes.data;
-      }
-
-      // ✅ Calculate stats safely
-      const totalOrders = orders.length;
-      const totalCustomers = customers.length;
-      const totalRevenue = revenue.totalRevenue || 0;
+      const orders = extractData(ordersRes.data);
+      const customers = extractData(customersRes.data);
+      const lowStock = extractData(lowStockRes.data);
       
-      // ✅ Calculate completion rate safely
-      const completedOrders = orders.filter(o => {
-        const status = o.STATUS || o.status || '';
-        return status === 'Completed' || status === 'COMPLETED';
-      });
+      const totalOrders = Array.isArray(orders) ? orders.length : 0;
+      const totalCustomers = Array.isArray(customers) ? customers.length : 0;
+      const lowStockItems = Array.isArray(lowStock) ? lowStock.length : 0;
+      
+      let totalRevenue = 0;
+      let statsData = statsRes.data;
+      if (statsData && typeof statsData === 'object') {
+        totalRevenue = statsData.totalRevenue || statsData.total_revenue || statsData.revenue || 0;
+      }
+      
+      let completedOrders = 0;
+      let pendingOrders = 0;
+      if (Array.isArray(orders)) {
+        orders.forEach(o => {
+          const status = o.STATUS || o.status || '';
+          if (status === 'Completed' || status === 'COMPLETED' || status === 'Complete') {
+            completedOrders++;
+          } else if (status === 'Pending' || status === 'PENDING' || status === 'pending') {
+            pendingOrders++;
+          }
+        });
+      }
+      
       const completionRate = totalOrders > 0 
-        ? Math.round((completedOrders.length / totalOrders) * 100) 
+        ? Math.round((completedOrders / totalOrders) * 100) 
         : 0;
 
-      setStats({
-        totalOrders,
-        totalCustomers,
-        totalRevenue,
-        completionRate
-      });
+      // Activity log
+      const newActivities = [];
+      if (totalOrders > 0) {
+        newActivities.push({
+          id: Date.now(),
+          type: 'order',
+          message: `You have ${totalOrders} total orders`,
+          time: new Date().toISOString(),
+          icon: ShoppingCart
+        });
+      }
+      if (lowStockItems > 0) {
+        newActivities.push({
+          id: Date.now() + 1,
+          type: 'alert',
+          message: `${lowStockItems} products are low on stock`,
+          time: new Date().toISOString(),
+          icon: AlertCircle
+        });
+      }
+      if (pendingOrders > 0) {
+        newActivities.push({
+          id: Date.now() + 2,
+          type: 'pending',
+          message: `${pendingOrders} orders are pending processing`,
+          time: new Date().toISOString(),
+          icon: Clock
+        });
+      }
 
-      console.log('📊 Stats loaded:', { totalOrders, totalCustomers, totalRevenue, completionRate });
+      if (isMounted.current) {
+        setStats({
+          totalOrders,
+          totalCustomers,
+          totalRevenue,
+          completionRate,
+          pendingOrders,
+          lowStockItems,
+          activeUsers: Math.floor(totalCustomers * 0.15) || 5
+        });
+        if (newActivities.length > 0) {
+          setActivities(prev => [...newActivities, ...prev.slice(0, 5)]);
+        }
+      }
     } catch (error) {
       console.error('❌ Error fetching user stats:', error);
-      // ✅ Set default stats on error
-      setStats({
-        totalOrders: 0,
-        totalCustomers: 0,
-        totalRevenue: 0,
-        completionRate: 0
-      });
+      if (isMounted.current) {
+        setStats({
+          totalOrders: 0,
+          totalCustomers: 0,
+          totalRevenue: 0,
+          completionRate: 0,
+          pendingOrders: 0,
+          lowStockItems: 0,
+          activeUsers: 0
+        });
+      }
     }
-  };
+  }, [extractData]);
 
   // ===== FETCH PROFILE =====
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     setLoading(true);
     try {
+      // First try to get from Auth context
       if (user) {
-        setProfile({
-          username: user.username || 'Unknown',
-          email: user.email || 'user@example.com',
-          fullname: user.fullname || user.username || 'User',
-          phone: user.phone || '',
-          address: user.address || '',
-          role: user.role || user.role_name || 'User',
-          status: user.status || 'Active',
-          joinedDate: new Date().toISOString(),
-          lastLogin: new Date().toISOString(),
-          bio: user.bio || '',
-          website: user.website || '',
-          department: user.department || '',
-          avatar: null
-        });
-        setAvatarColor(getAvatarColor(user.fullname || user.username || 'User'));
+        const userData = {
+          username: user.username || user.USERNAME || 'Unknown',
+          email: user.email || user.E_MAIL || 'user@example.com',
+          fullname: user.fullname || user.FULLNAME || user.username || 'User',
+          phone: user.phone || user.PHONE || '',
+          address: user.address || user.ADDRESS || '',
+          role: user.role || user.ROLE || user.role_name || 'User',
+          status: user.status || user.STATUS || 'Active',
+          joinedDate: user.joinedDate || user.JOINED_DATE || new Date().toISOString(),
+          lastLogin: user.lastLogin || user.LAST_LOGIN || new Date().toISOString(),
+          bio: user.bio || user.BIO || '',
+          website: user.website || user.WEBSITE || '',
+          department: user.department || user.DEPARTMENT || '',
+          avatar: user.avatar || null,
+          user_id: user.id || user.USER_ID || user.ID || null,
+          preferences: user.preferences || { theme: 'light', notifications: true, language: 'en' }
+        };
+        
+        setProfile(userData);
+        
+        const color = getAvatarColor(userData.fullname || userData.username);
+        setAvatarColor(color);
         
         setFormData({
-          fullname: user.fullname || '',
-          email: user.email || '',
-          phone: user.phone || '',
-          address: user.address || '',
-          bio: user.bio || '',
-          website: user.website || '',
-          department: user.department || ''
+          fullname: userData.fullname,
+          email: userData.email,
+          phone: userData.phone,
+          address: userData.address,
+          bio: userData.bio,
+          website: userData.website,
+          department: userData.department
         });
+
+        // Check theme preference
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+          setIsDarkMode(savedTheme === 'dark');
+        } else if (userData.preferences?.theme) {
+          setIsDarkMode(userData.preferences.theme === 'dark');
+        }
       }
 
       loadAvatarFromStorage();
       await fetchUserStats();
     } catch (error) {
       console.error('Error fetching profile:', error);
-      setProfile(prev => ({
-        ...prev,
-        username: user?.username || 'Unknown',
-        fullname: user?.fullname || user?.username || 'User',
-        role: user?.role || user?.role_name || 'User',
-        status: user?.status || 'Active'
-      }));
+      if (isMounted.current) {
+        setProfile(prev => ({
+          ...prev,
+          username: user?.username || 'Unknown',
+          fullname: user?.fullname || user?.username || 'User',
+          role: user?.role || user?.role_name || 'User',
+          status: user?.status || 'Active'
+        }));
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, [user, getAvatarColor, loadAvatarFromStorage, fetchUserStats]);
 
   // ===== HANDLE UPDATE PROFILE =====
-  const handleUpdateProfile = async (e) => {
+  const handleUpdateProfile = useCallback(async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
+      const updateData = {
+        FULLNAME: formData.fullname,
+        E_MAIL: formData.email,
+        PHONE: formData.phone,
+        ADDRESS: formData.address,
+        BIO: formData.bio,
+        WEBSITE: formData.website,
+        DEPARTMENT: formData.department
+      };
+
+      const userId = profile.user_id;
+      if (userId) {
+        await apiClient.put(`/users/${userId}`, updateData);
+      }
+
+      // Update Auth context
+      if (updateUser) {
+        updateUser({
+          fullname: formData.fullname,
+          email: formData.email,
+          phone: formData.phone,
+          address: formData.address,
+          bio: formData.bio,
+          website: formData.website,
+          department: formData.department
+        });
+      }
+
+      // Save to localStorage
+      const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+      localStorage.setItem('user', JSON.stringify({
+        ...storedUser,
+        ...updateData
+      }));
+
       setProfile(prev => ({
         ...prev,
         fullname: formData.fullname,
@@ -352,14 +454,14 @@ const Profile = ({ user }) => {
       showMessage('✅ Profile updated successfully!', 'success');
     } catch (error) {
       console.error('Error updating profile:', error);
-      showMessage('❌ Failed to update profile', 'error');
+      showMessage(`❌ ${error.response?.data?.error || 'Failed to update profile'}`, 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [formData, profile.user_id, profile.username, updateUser, getAvatarColor, showMessage]);
 
   // ===== HANDLE CHANGE PASSWORD =====
-  const handleChangePassword = async (e) => {
+  const handleChangePassword = useCallback(async (e) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       showMessage('❌ Passwords do not match', 'error');
@@ -372,21 +474,52 @@ const Profile = ({ user }) => {
 
     setLoading(true);
     try {
+      const userId = profile.user_id;
+      if (userId) {
+        await apiClient.put(`/users/${userId}/password`, {
+          current_password: passwordData.currentPassword,
+          new_password: passwordData.newPassword
+        });
+      }
+      
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setShowPasswordForm(false);
       showMessage('✅ Password changed successfully!', 'success');
     } catch (error) {
       console.error('Error changing password:', error);
-      showMessage('❌ Failed to change password', 'error');
+      showMessage(`❌ ${error.response?.data?.error || 'Failed to change password'}`, 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [passwordData, profile.user_id, showMessage]);
+
+  // ===== TOGGLE THEME =====
+  const toggleTheme = useCallback(() => {
+    const newTheme = !isDarkMode;
+    setIsDarkMode(newTheme);
+    localStorage.setItem('theme', newTheme ? 'dark' : 'light');
+    document.documentElement.classList.toggle('dark', newTheme);
+    
+    if (updateUser) {
+      updateUser({ preferences: { ...profile.preferences, theme: newTheme ? 'dark' : 'light' } });
+    }
+    
+    showMessage(`🌓 ${newTheme ? 'Dark' : 'Light'} mode enabled`, 'info');
+  }, [isDarkMode, updateUser, profile.preferences, showMessage]);
+
+  // ===== HANDLE LOGOUT =====
+  const handleLogout = useCallback(() => {
+    logout();
+    navigate('/login');
+  }, [logout, navigate]);
 
   // ===== FORMAT DATE =====
-  const formatDate = (dateStr) => {
+  const formatDate = useCallback((dateStr) => {
+    if (!dateStr) return 'N/A';
     try {
-      return new Date(dateStr).toLocaleDateString('en-US', {
+      const date = new Date(dateStr);
+      if (isNaN(date)) return 'N/A';
+      return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
@@ -396,15 +529,33 @@ const Profile = ({ user }) => {
     } catch {
       return dateStr;
     }
-  };
+  }, []);
 
   // ===== GET INITIALS =====
-  const getInitials = (name) => {
+  const getInitials = useCallback((name) => {
     if (!name) return '?';
     const parts = name.split(' ');
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-  };
+  }, []);
+
+  // ===== INIT =====
+  useEffect(() => {
+    isMounted.current = true;
+    fetchProfile();
+
+    // Apply theme
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+
+    return () => {
+      isMounted.current = false;
+      if (messageTimeout.current) clearTimeout(messageTimeout.current);
+    };
+  }, [fetchProfile, isDarkMode]);
 
   // ===== STAT CARD =====
   const StatCard = ({ icon: Icon, label, value, color, bgColor, delay = 0 }) => (
@@ -413,58 +564,76 @@ const Profile = ({ user }) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.4 }}
       whileHover={{ y: -4, scale: 1.02 }}
-      className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-all duration-300"
+      className="stat-card"
+      onClick={() => {
+        if (label === 'Total Orders') navigate('/orders');
+        if (label === 'Customers Served') navigate('/customers');
+        if (label === 'Revenue Generated') navigate('/reports');
+        if (label === 'Pending Orders') navigate('/orders?status=pending');
+        if (label === 'Low Stock Items') navigate('/stock');
+      }}
     >
-      <div className="flex items-center gap-3">
+      <div className="stat-card-content">
         <motion.div 
           whileHover={{ rotate: 12, scale: 1.1 }}
-          className={`p-2 rounded-xl ${bgColor}`}
+          className={`stat-card-icon ${bgColor}`}
         >
-          <Icon className={`w-5 h-5 ${color}`} />
+          <Icon className={`stat-card-icon-svg ${color}`} />
         </motion.div>
         <div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-          <p className="text-xl font-bold text-gray-800 dark:text-white">{value}</p>
+          <p className="stat-card-label">{label}</p>
+          <p className="stat-card-value">{value}</p>
         </div>
       </div>
     </motion.div>
   );
 
-  // ===== INIT =====
-  useEffect(() => {
-    fetchProfile();
-    return () => {
-      if (messageTimeout.current) clearTimeout(messageTimeout.current);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ===== ACTIVITY ITEM =====
+  const ActivityItem = ({ activity }) => {
+    const Icon = activity.icon;
+    return (
+      <motion.div
+        initial={{ opacity: 0, x: -20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="activity-item"
+      >
+        <div className="activity-icon-wrapper">
+          <Icon className="activity-icon" />
+        </div>
+        <div className="activity-content">
+          <p className="activity-message">{activity.message}</p>
+          <p className="activity-time">{formatDate(activity.time)}</p>
+        </div>
+      </motion.div>
+    );
+  };
 
   // ===== LOADING =====
   if (loading && !profile.username) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          className="relative"
-        >
-          <div className="w-14 h-14 rounded-full border-4 border-indigo-200 border-t-indigo-600" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-indigo-500/20 animate-ping" />
-          </div>
-        </motion.div>
+      <div className="profile-loading">
+        <div className="profile-loading-spinner">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="profile-loading-ring"
+          >
+            <div className="profile-loading-ring-inner" />
+            <div className="profile-loading-ring-pulse" />
+          </motion.div>
+        </div>
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          className="text-gray-400 font-medium"
+          className="profile-loading-text"
         >
           Loading your profile...
         </motion.p>
-        <div className="flex gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.4s' }} />
+        <div className="profile-loading-dots">
+          <span className="profile-loading-dot" style={{ animationDelay: '0s' }} />
+          <span className="profile-loading-dot" style={{ animationDelay: '0.2s' }} />
+          <span className="profile-loading-dot" style={{ animationDelay: '0.4s' }} />
         </div>
       </div>
     );
@@ -476,7 +645,7 @@ const Profile = ({ user }) => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="space-y-6 max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pb-8"
+      className="profile-container"
     >
       
       {/* ===== MESSAGE TOAST ===== */}
@@ -486,29 +655,23 @@ const Profile = ({ user }) => {
             initial={{ opacity: 0, x: 100, y: -20 }}
             animate={{ opacity: 1, x: 0, y: 0 }}
             exit={{ opacity: 0, x: 100 }}
-            className={`fixed top-4 right-4 z-50 max-w-md w-full p-4 rounded-xl shadow-2xl border ${
-              messageType === 'success' 
-                ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' 
-                : messageType === 'error'
-                ? 'bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-                : 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
-            }`}
+            className={`toast-message toast-${messageType}`}
           >
-            <div className="flex items-start gap-3">
+            <div className="toast-content">
               <motion.div
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: "spring", stiffness: 300 }}
-                className="flex-shrink-0 mt-0.5"
+                className="toast-icon"
               >
-                {messageType === 'success' ? <CheckCircle className="w-5 h-5 text-green-500" /> : 
-                 messageType === 'error' ? <AlertCircle className="w-5 h-5 text-red-500" /> :
-                 <CheckCircle className="w-5 h-5 text-blue-500" />}
+                {messageType === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
+                {messageType === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
+                {messageType === 'info' && <CheckCircle className="w-5 h-5 text-blue-500" />}
               </motion.div>
-              <div className="flex-1 text-sm font-medium">{message}</div>
+              <div className="toast-text">{message}</div>
               <button 
                 onClick={() => setMessage('')} 
-                className="flex-shrink-0 opacity-50 hover:opacity-100 transition"
+                className="toast-close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -522,32 +685,32 @@ const Profile = ({ user }) => {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl overflow-hidden relative"
+        className="profile-header"
       >
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full animate-pulse-slow" />
-          <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-purple-300/20 rounded-full animate-pulse-slow animation-delay-1000" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full animate-spin-slow" />
-          <div className="absolute top-10 right-20 text-4xl animate-float-delayed opacity-20">✦</div>
-          <div className="absolute bottom-10 left-10 text-3xl animate-float-delayed opacity-20">◈</div>
+        <div className="profile-header-bg">
+          <div className="profile-header-bg-circle" />
+          <div className="profile-header-bg-circle2" />
+          <div className="profile-header-bg-circle3" />
+          <div className="profile-header-bg-icon1">✦</div>
+          <div className="profile-header-bg-icon2">◈</div>
         </div>
         
-        <div className="relative z-10 flex flex-wrap justify-between items-center">
+        <div className="profile-header-content">
           <div>
             <motion.h1 
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ delay: 0.2 }}
-              className="text-2xl font-bold flex items-center gap-3"
+              className="profile-header-title"
             >
-              <UserCircle className="w-8 h-8" />
+              <UserCircle className="profile-header-icon" />
               My Profile
             </motion.h1>
             <motion.p 
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
-              className="text-indigo-100 mt-1 text-sm"
+              className="profile-header-subtitle"
             >
               Manage your personal information and account settings
             </motion.p>
@@ -556,14 +719,23 @@ const Profile = ({ user }) => {
             initial={{ x: 20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.4 }}
-            className="flex items-center gap-3 mt-3 sm:mt-0"
+            className="profile-header-actions"
           >
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={toggleTheme}
+              className="profile-header-btn-theme"
+              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </motion.button>
             {!isEditing ? (
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsEditing(true)}
-                className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition flex items-center gap-2"
+                className="profile-header-btn"
               >
                 <Edit2 className="w-4 h-4" />
                 Edit Profile
@@ -584,7 +756,7 @@ const Profile = ({ user }) => {
                     department: profile.department
                   });
                 }}
-                className="bg-red-500/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-red-500/30 transition flex items-center gap-2"
+                className="profile-header-btn-cancel"
               >
                 <X className="w-4 h-4" />
                 Cancel
@@ -595,7 +767,7 @@ const Profile = ({ user }) => {
       </motion.div>
 
       {/* ===== PROFILE STATS ===== */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+      <div className="profile-stats">
         <StatCard 
           icon={ShoppingCart} 
           label="Total Orders" 
@@ -628,6 +800,22 @@ const Profile = ({ user }) => {
           bgColor="bg-amber-50 dark:bg-amber-900/20"
           delay={0.4}
         />
+        <StatCard 
+          icon={Clock} 
+          label="Pending Orders" 
+          value={stats.pendingOrders}
+          color="text-orange-500"
+          bgColor="bg-orange-50 dark:bg-orange-900/20"
+          delay={0.5}
+        />
+        <StatCard 
+          icon={AlertCircle} 
+          label="Low Stock Items" 
+          value={stats.lowStockItems}
+          color="text-red-500"
+          bgColor="bg-red-50 dark:bg-red-900/20"
+          delay={0.6}
+        />
       </div>
 
       {/* ===== PROFILE CARD ===== */}
@@ -635,16 +823,14 @@ const Profile = ({ user }) => {
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.3, duration: 0.5 }}
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden"
+        className="profile-card"
       >
-        <div className="p-6 sm:p-8">
-          <div className="flex flex-col sm:flex-row items-center gap-6 sm:gap-8">
+        <div className="profile-card-body">
+          <div className="profile-card-avatar-section">
             {/* Avatar with Upload */}
-            <div className="relative group">
+            <div className="profile-avatar-wrapper">
               <motion.div 
-                className={`w-28 h-28 sm:w-36 sm:h-36 rounded-full flex items-center justify-center text-white text-4xl sm:text-5xl font-bold shadow-lg ring-4 ring-indigo-500/20 overflow-hidden ${
-                  avatarPreview ? '' : (avatarColor || 'bg-indigo-500')
-                }`}
+                className={`profile-avatar ${avatarPreview ? '' : (avatarColor || 'bg-indigo-500')}`}
                 whileHover={{ scale: 1.05 }}
                 transition={{ type: "spring", stiffness: 300 }}
               >
@@ -652,7 +838,7 @@ const Profile = ({ user }) => {
                   <img 
                     src={avatarPreview} 
                     alt="Profile" 
-                    className="w-full h-full object-cover"
+                    className="profile-avatar-img"
                   />
                 ) : (
                   getInitials(profile.fullname || profile.username)
@@ -664,7 +850,7 @@ const Profile = ({ user }) => {
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={() => fileInputRef.current?.click()}
-                className="absolute bottom-0 right-0 p-2 bg-indigo-600 text-white rounded-full shadow-lg hover:bg-indigo-700 transition-all duration-200"
+                className="profile-avatar-upload-btn"
                 title="Change avatar"
                 disabled={isUploading}
               >
@@ -681,7 +867,7 @@ const Profile = ({ user }) => {
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={removeAvatar}
-                  className="absolute bottom-0 left-0 p-2 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-all duration-200"
+                  className="profile-avatar-remove-btn"
                   title="Remove avatar"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -692,20 +878,20 @@ const Profile = ({ user }) => {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                className="hidden"
+                className="profile-avatar-input"
                 onChange={handleAvatarUpload}
                 disabled={isUploading}
               />
             </div>
 
             {/* User Info */}
-            <div className="flex-1 text-center sm:text-left">
-              <div className="flex flex-wrap items-center gap-3 justify-center sm:justify-start">
+            <div className="profile-user-info">
+              <div className="profile-user-header">
                 <motion.h2 
                   initial={{ x: -10, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   transition={{ delay: 0.4 }}
-                  className="text-2xl font-bold text-gray-800 dark:text-white"
+                  className="profile-user-name"
                 >
                   {profile.fullname || profile.username}
                 </motion.h2>
@@ -713,36 +899,32 @@ const Profile = ({ user }) => {
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ delay: 0.5, type: "spring", stiffness: 300 }}
-                  className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    profile.status === 'Active' 
-                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                      : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                  }`}
+                  className={`profile-user-status ${profile.status === 'Active' ? 'profile-user-status-active' : 'profile-user-status-inactive'}`}
                 >
                   {profile.status || 'Active'}
                 </motion.span>
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-3 justify-center sm:justify-start text-gray-500 dark:text-gray-400">
-                <span className="text-sm">@{profile.username}</span>
-                <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                <span className="text-sm flex items-center gap-1">
-                  <Shield className="w-3 h-3" />
+              <div className="profile-user-meta">
+                <span className="profile-user-username">@{profile.username}</span>
+                <span className="profile-user-divider" />
+                <span className="profile-user-role">
+                  <Shield className="profile-user-role-icon" />
                   {profile.role}
                 </span>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-gray-500 dark:text-gray-400 justify-center sm:justify-start">
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-4 h-4" />
+              <div className="profile-user-dates">
+                <span className="profile-user-date">
+                  <Calendar className="profile-user-date-icon" />
                   Joined: {formatDate(profile.joinedDate)}
                 </span>
-                <span className="flex items-center gap-1">
-                  <Clock className="w-4 h-4" />
+                <span className="profile-user-date">
+                  <Clock className="profile-user-date-icon" />
                   Last login: {formatDate(profile.lastLogin)}
                 </span>
               </div>
 
               {isUploading && (
-                <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400">
+                <div className="profile-uploading-status">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Uploading...
                 </div>
@@ -753,7 +935,7 @@ const Profile = ({ user }) => {
 
         {/* ===== DETAILS ===== */}
         <motion.div 
-          className="border-t border-gray-100 dark:border-gray-700 p-6 sm:p-8"
+          className="profile-details"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
@@ -765,101 +947,102 @@ const Profile = ({ user }) => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
               onSubmit={handleUpdateProfile}
+              className="profile-form"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              <div className="profile-form-grid">
+                <div className="profile-form-field">
+                  <label className="profile-form-label">
                     Full Name
                   </label>
                   <input
                     type="text"
                     value={formData.fullname}
                     onChange={(e) => setFormData({...formData, fullname: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-input"
                     placeholder="Full name"
                     disabled={loading}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-form-field">
+                  <label className="profile-form-label">
                     Email
                   </label>
                   <input
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({...formData, email: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-input"
                     placeholder="Email address"
                     disabled={loading}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-form-field">
+                  <label className="profile-form-label">
                     Phone
                   </label>
                   <input
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-input"
                     placeholder="Phone number"
                     disabled={loading}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-form-field">
+                  <label className="profile-form-label">
                     Department
                   </label>
                   <input
                     type="text"
                     value={formData.department}
                     onChange={(e) => setFormData({...formData, department: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-input"
                     placeholder="Department"
                     disabled={loading}
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-form-field-full">
+                  <label className="profile-form-label">
                     Address
                   </label>
                   <input
                     type="text"
                     value={formData.address}
                     onChange={(e) => setFormData({...formData, address: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-input"
                     placeholder="Address"
                     disabled={loading}
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-form-field-full">
+                  <label className="profile-form-label">
                     Bio
                   </label>
                   <textarea
                     value={formData.bio}
                     onChange={(e) => setFormData({...formData, bio: e.target.value})}
                     rows="3"
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-textarea"
                     placeholder="Tell us about yourself..."
                     disabled={loading}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-form-field">
+                  <label className="profile-form-label">
                     Website
                   </label>
                   <input
                     type="url"
                     value={formData.website}
                     onChange={(e) => setFormData({...formData, website: e.target.value})}
-                    className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                    className="profile-form-input"
                     placeholder="Website URL"
                     disabled={loading}
                   />
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3">
+              <div className="profile-form-actions">
                 <button
                   type="button"
                   onClick={() => {
@@ -874,7 +1057,7 @@ const Profile = ({ user }) => {
                       department: profile.department
                     });
                   }}
-                  className="px-4 py-2.5 border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition dark:text-white font-medium"
+                  className="profile-form-btn-cancel"
                   disabled={loading}
                 >
                   Cancel
@@ -883,7 +1066,7 @@ const Profile = ({ user }) => {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   type="submit"
-                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium flex items-center gap-2 disabled:opacity-50"
+                  className="profile-form-btn-submit"
                   disabled={loading}
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -894,47 +1077,47 @@ const Profile = ({ user }) => {
           ) : (
             // ===== VIEW MODE =====
             <motion.div 
-              className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+              className="profile-view-grid"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.3 }}
             >
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Full Name</p>
-                <p className="font-medium dark:text-white">{profile.fullname || '-'}</p>
+              <div className="profile-view-item">
+                <p className="profile-view-label">Full Name</p>
+                <p className="profile-view-value">{profile.fullname || '-'}</p>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Username</p>
-                <p className="font-medium dark:text-white">@{profile.username}</p>
+              <div className="profile-view-item">
+                <p className="profile-view-label">Username</p>
+                <p className="profile-view-value">@{profile.username}</p>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Email</p>
-                <p className="font-medium dark:text-white">{profile.email || '-'}</p>
+              <div className="profile-view-item">
+                <p className="profile-view-label">Email</p>
+                <p className="profile-view-value">{profile.email || '-'}</p>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Phone</p>
-                <p className="font-medium dark:text-white">{profile.phone || '-'}</p>
+              <div className="profile-view-item">
+                <p className="profile-view-label">Phone</p>
+                <p className="profile-view-value">{profile.phone || '-'}</p>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Department</p>
-                <p className="font-medium dark:text-white">{profile.department || '-'}</p>
+              <div className="profile-view-item">
+                <p className="profile-view-label">Department</p>
+                <p className="profile-view-value">{profile.department || '-'}</p>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Role</p>
-                <p className="font-medium dark:text-white">{profile.role}</p>
+              <div className="profile-view-item">
+                <p className="profile-view-label">Role</p>
+                <p className="profile-view-value">{profile.role}</p>
               </div>
-              <div className="sm:col-span-2 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Address</p>
-                <p className="font-medium dark:text-white">{profile.address || '-'}</p>
+              <div className="profile-view-item-full">
+                <p className="profile-view-label">Address</p>
+                <p className="profile-view-value">{profile.address || '-'}</p>
               </div>
-              <div className="sm:col-span-2 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                <p className="text-xs text-gray-400 uppercase tracking-wider">Bio</p>
-                <p className="font-medium dark:text-white">{profile.bio || 'No bio yet'}</p>
+              <div className="profile-view-item-full">
+                <p className="profile-view-label">Bio</p>
+                <p className="profile-view-value">{profile.bio || 'No bio yet'}</p>
               </div>
               {profile.website && (
-                <div className="sm:col-span-2 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
-                  <p className="text-xs text-gray-400 uppercase tracking-wider">Website</p>
-                  <a href={profile.website} target="_blank" rel="noopener noreferrer" className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                <div className="profile-view-item-full">
+                  <p className="profile-view-label">Website</p>
+                  <a href={profile.website} target="_blank" rel="noopener noreferrer" className="profile-view-link">
                     {profile.website}
                   </a>
                 </div>
@@ -949,22 +1132,22 @@ const Profile = ({ user }) => {
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.6, duration: 0.5 }}
-        className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden"
+        className="profile-password-card"
       >
-        <div className="p-6 sm:p-8">
-          <div className="flex flex-wrap justify-between items-center">
+        <div className="profile-password-content">
+          <div className="profile-password-header">
             <div>
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                <Lock className="w-5 h-5 text-indigo-500" />
+              <h3 className="profile-password-title">
+                <Lock className="profile-password-title-icon" />
                 Password & Security
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Update your password to keep your account secure</p>
+              <p className="profile-password-subtitle">Update your password to keep your account secure</p>
             </div>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowPasswordForm(!showPasswordForm)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition text-sm font-medium"
+              className="profile-password-toggle-btn"
             >
               {showPasswordForm ? 'Cancel' : 'Change Password'}
             </motion.button>
@@ -978,60 +1161,60 @@ const Profile = ({ user }) => {
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 0.3 }}
                 onSubmit={handleChangePassword}
-                className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 overflow-hidden"
+                className="profile-password-form"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                <div className="profile-password-form-grid">
+                  <div className="profile-password-form-field">
+                    <label className="profile-form-label">
                       Current Password
                     </label>
                     <input
                       type="password"
                       value={passwordData.currentPassword}
                       onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                      className="profile-form-input"
                       placeholder="Enter current password"
                       required
                       disabled={loading}
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  <div className="profile-password-form-field">
+                    <label className="profile-form-label">
                       New Password
                     </label>
                     <input
                       type="password"
                       value={passwordData.newPassword}
                       onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
-                      placeholder="Enter new password"
+                      className="profile-form-input"
+                      placeholder="Enter new password (min 6 chars)"
                       required
                       disabled={loading}
                     />
                   </div>
-                  <div className="sm:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  <div className="profile-password-form-field-full">
+                    <label className="profile-form-label">
                       Confirm New Password
                     </label>
                     <input
                       type="password"
                       value={passwordData.confirmPassword}
                       onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
-                      className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                      className="profile-form-input"
                       placeholder="Confirm new password"
                       required
                       disabled={loading}
                     />
                   </div>
                 </div>
-                <div className="mt-4 flex justify-end gap-3">
+                <div className="profile-password-form-actions">
                   <button
                     type="button"
                     onClick={() => {
                       setShowPasswordForm(false);
                       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
                     }}
-                    className="px-4 py-2.5 border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition dark:text-white font-medium"
+                    className="profile-form-btn-cancel"
                     disabled={loading}
                   >
                     Cancel
@@ -1040,7 +1223,7 @@ const Profile = ({ user }) => {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     type="submit"
-                    className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium flex items-center gap-2 disabled:opacity-50"
+                    className="profile-form-btn-submit"
                     disabled={loading}
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
@@ -1053,26 +1236,75 @@ const Profile = ({ user }) => {
         </div>
       </motion.div>
 
-      {/* ===== CSS ANIMATIONS ===== */}
-      <style>{`
-        @keyframes pulse-slow {
-          0%, 100% { transform: scale(1); opacity: 0.3; }
-          50% { transform: scale(1.1); opacity: 0.5; }
-        }
-        @keyframes spin-slow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes float-delayed {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
-        .animate-float-delayed { animation: float-delayed 3s ease-in-out infinite; }
-        .animation-delay-1000 { animation-delay: 1s; }
-        .animation-delay-2000 { animation-delay: 2s; }
-      `}</style>
+      {/* ===== ACTIVITY LOG ===== */}
+      {activities.length > 0 && (
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ delay: 0.7, duration: 0.5 }}
+          className="profile-activity-card"
+        >
+          <div className="profile-activity-header">
+            <div>
+              <h3 className="profile-activity-title">
+                <Activity className="profile-activity-title-icon" />
+                Recent Activity
+              </h3>
+              <p className="profile-activity-subtitle">Your latest actions and notifications</p>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowActivityLog(!showActivityLog)}
+              className="profile-activity-toggle"
+            >
+              {showActivityLog ? 'Hide' : 'View All'}
+            </motion.button>
+          </div>
+
+          <div className="profile-activity-list">
+            {activities.slice(0, showActivityLog ? activities.length : 3).map((activity) => (
+              <ActivityItem key={activity.id} activity={activity} />
+            ))}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ===== QUICK ACTIONS ===== */}
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.8, duration: 0.5 }}
+        className="profile-quick-actions"
+      >
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => navigate('/settings')}
+          className="profile-quick-action"
+        >
+          <Settings className="w-4 h-4" />
+          <span>Settings</span>
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => navigate('/help')}
+          className="profile-quick-action"
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span>Help</span>
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleLogout}
+          className="profile-quick-action profile-quick-action-danger"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Logout</span>
+        </motion.button>
+      </motion.div>
     </motion.div>
   );
 };

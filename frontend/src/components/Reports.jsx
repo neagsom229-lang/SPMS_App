@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import axios from 'axios';
 import { 
   ClipboardList, Download, Printer, RefreshCw, 
   AlertCircle, CheckCircle, Loader2, Database,
   TrendingUp, Package, Users, ShoppingBag,
-  Calendar, Filter, ChevronDown, X, Eye,  // ← X is here ✅
+  Calendar, Filter, ChevronDown, X, Eye,
   Clock, Award, Star, Zap, Activity, 
   BarChart3, PieChart, LineChart as LineChartIcon,
   ArrowUp, ArrowDown, Grid3x3, List,
@@ -12,18 +11,36 @@ import {
   MapPin, User, Building2, Globe, Shield,
   Search, Save, ChevronRight
 } from 'lucide-react';
+import '../styles/reports.css';
+import apiClient from '../api/client';
 
 // ============================================
-// API CONFIGURATION
+// SHARED DATA HELPERS
 // ============================================
-const API_URL = import.meta.env?.VITE_API_URL || '';
-const api = axios.create({
-  baseURL: API_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
+const extractArrayData = (responseData, extraKeys = []) => {
+  if (
+    typeof responseData === "string" &&
+    responseData.includes("<!DOCTYPE html>")
+  ) {
+    return null;
+  }
+  if (Array.isArray(responseData)) return responseData;
+  if (responseData && typeof responseData === "object") {
+    if (Array.isArray(responseData.data)) return responseData.data;
+    for (const key of extraKeys) {
+      if (Array.isArray(responseData[key])) return responseData[key];
+    }
+    if (responseData.data && typeof responseData.data === "object") {
+      for (const key of extraKeys) {
+        if (Array.isArray(responseData.data[key]))
+          return responseData.data[key];
+      }
+      const values = Object.values(responseData.data);
+      if (values.length > 0 && Array.isArray(values[0])) return values[0];
+    }
+  }
+  return [];
+};
 
 // ============================================
 // MAIN REPORTS COMPONENT
@@ -42,7 +59,7 @@ const Reports = () => {
   const [sortBy, setSortBy] = useState('');
   const [sortOrder, setSortOrder] = useState('asc');
   const [viewMode, setViewMode] = useState('table');
-  const [selectedRows, setSelectedRows] = useState([]);
+  const [selectedRows, setSelectedRows] = useState([]); // now stores row.ID values, not array indices
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -54,24 +71,21 @@ const Reports = () => {
     completed: 0,
     totalValue: 0
   });
-  
-  // ===== ADDED: Track if initial load has happened =====
-  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   // ===== REFS =====
   const isMounted = useRef(true);
-  const searchTimeout = useRef(null);
-  const generationCount = useRef(0);
+  const messageTimeout = useRef(null);
 
   // ===== REPORT OPTIONS =====
   const reportOptions = [
     { 
       value: 'customers', 
       label: '👥 Customer List',
-      description: 'View all active customers with contact details',
+      description: 'View all customers with contact details',
       icon: Users,
       color: 'from-blue-500 to-cyan-500',
-      bgColor: 'bg-blue-50 dark:bg-blue-900/20'
+      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+      endpoint: '/customers'
     },
     { 
       value: 'products', 
@@ -79,7 +93,8 @@ const Reports = () => {
       description: 'View all products with pricing and stock',
       icon: Package,
       color: 'from-emerald-500 to-green-500',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-900/20'
+      bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+      endpoint: '/products'
     },
     { 
       value: 'orders', 
@@ -87,7 +102,8 @@ const Reports = () => {
       description: 'View all orders with status and amounts',
       icon: ShoppingBag,
       color: 'from-purple-500 to-pink-500',
-      bgColor: 'bg-purple-50 dark:bg-purple-900/20'
+      bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+      endpoint: '/orders'
     },
     { 
       value: 'stock', 
@@ -95,87 +111,113 @@ const Reports = () => {
       description: 'View current stock levels and alerts',
       icon: TrendingUp,
       color: 'from-amber-500 to-orange-500',
-      bgColor: 'bg-amber-50 dark:bg-amber-900/20'
+      bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+      endpoint: '/stock'
     },
     { 
-      value: 'sales', 
-      label: '💰 Sales Report',
-      description: 'View sales performance and revenue',
-      icon: BarChart3,
-      color: 'from-red-500 to-rose-500',
-      bgColor: 'bg-red-50 dark:bg-red-900/20'
-    },
-    { 
-      value: 'inventory', 
-      label: '📦 Inventory Report',
-      description: 'View inventory movements and adjustments',
-      icon: Activity,
+      value: 'suppliers', 
+      label: '🚚 Supplier List',
+      description: 'View all suppliers with contact information',
+      icon: Truck,
       color: 'from-indigo-500 to-purple-500',
-      bgColor: 'bg-indigo-50 dark:bg-indigo-900/20'
+      bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+      endpoint: '/suppliers'
     }
   ];
 
-  // ===== GENERATE MOCK DATA =====
-  const generateMockData = useCallback((type) => {
-    const now = new Date();
-    const formatDate = (d) => d.toISOString().split('T')[0];
-    
+  // ===== SHOW MESSAGE =====
+  const showMessage = useCallback((text, type = 'success') => {
+    setError(type === 'error' ? text : '');
+    setSuccess(type === 'success' ? text : '');
+    if (messageTimeout.current) clearTimeout(messageTimeout.current);
+    messageTimeout.current = setTimeout(() => {
+      setError('');
+      setSuccess('');
+    }, 4000);
+  }, []);
+
+  // ===== GET REPORT ENDPOINT =====
+  const getReportEndpoint = useCallback((type) => {
+    const option = reportOptions.find(r => r.value === type);
+    return option?.endpoint || `/${type}`;
+  }, [reportOptions]);
+
+  // ===== NORMALIZE DATA BASED ON REPORT TYPE =====
+  const normalizeReportData = useCallback((type, rawData) => {
+    if (!rawData || !Array.isArray(rawData)) return [];
+
     switch(type) {
       case 'customers':
-        return [
-          { CUS_ID: 1, FIRST_NAME: 'John', LAST_NAME: 'Doe', PHONE: '555-0101', E_MAIL: 'john@example.com', ADDRESS: '123 Main St', STATUS: 'Active', JOIN_DATE: formatDate(new Date(now.getFullYear(), 0, 15)), BALANCE: 150.00 },
-          { CUS_ID: 2, FIRST_NAME: 'Jane', LAST_NAME: 'Smith', PHONE: '555-0102', E_MAIL: 'jane@example.com', ADDRESS: '456 Oak Ave', STATUS: 'Active', JOIN_DATE: formatDate(new Date(now.getFullYear(), 1, 20)), BALANCE: 0.00 },
-          { CUS_ID: 3, FIRST_NAME: 'Robert', LAST_NAME: 'Johnson', PHONE: '555-0103', E_MAIL: 'robert@example.com', ADDRESS: '789 Pine Rd', STATUS: 'Active', JOIN_DATE: formatDate(new Date(now.getFullYear(), 2, 10)), BALANCE: 75.50 },
-          { CUS_ID: 4, FIRST_NAME: 'Mary', LAST_NAME: 'Williams', PHONE: '555-0104', E_MAIL: 'mary@example.com', ADDRESS: '321 Elm St', STATUS: 'Inactive', JOIN_DATE: formatDate(new Date(now.getFullYear(), 3, 5)), BALANCE: 200.00 },
-          { CUS_ID: 5, FIRST_NAME: 'David', LAST_NAME: 'Brown', PHONE: '555-0105', E_MAIL: 'david@example.com', ADDRESS: '654 Maple Dr', STATUS: 'Active', JOIN_DATE: formatDate(new Date(now.getFullYear(), 4, 12)), BALANCE: 0.00 },
-        ];
+        return rawData.map(c => ({
+          ID: c.CUS_ID || c.cus_id || c.ID,
+          NAME: `${c.FIRST_NAME || c.first_name || ''} ${c.LAST_NAME || c.last_name || ''}`.trim() || 'Unknown',
+          PHONE: c.PHONE || c.phone || '',
+          EMAIL: c.E_MAIL || c.e_mail || c.email || '',
+          ADDRESS: c.ADDRESS || c.address || '',
+          STATUS: c.STATUS || c.status || 'Active',
+          BALANCE: Number(c.BALANCE || c.balance || 0),
+          JOIN_DATE: c.JOIN_DATE || c.join_date || c.CREATED_AT || c.created_at || ''
+        }));
+      
       case 'products':
-        return [
-          { PRODUCT_ID: 1, NAME_EN: 'Laptop Pro', NAME_KH: 'កុំព្យូទ័រយួរដៃ Pro', SALEOUT_PRICE: 1299.99, QtyInStock: 15, STATUS: 'Active', CATEGORY: 'Electronics', SKU: 'LP-001' },
-          { PRODUCT_ID: 2, NAME_EN: 'Smartphone X', NAME_KH: 'ទូរស័ព្ទ X', SALEOUT_PRICE: 899.99, QtyInStock: 25, STATUS: 'Active', CATEGORY: 'Electronics', SKU: 'SP-002' },
-          { PRODUCT_ID: 3, NAME_EN: 'Tablet Plus', NAME_KH: 'ថេប្លេត Plus', SALEOUT_PRICE: 499.99, QtyInStock: 10, STATUS: 'Active', CATEGORY: 'Electronics', SKU: 'TB-003' },
-          { PRODUCT_ID: 4, NAME_EN: 'Wireless Mouse', NAME_KH: 'កណ្ដុរឥតខ្សែ', SALEOUT_PRICE: 29.99, QtyInStock: 50, STATUS: 'Active', CATEGORY: 'Accessories', SKU: 'WM-004' },
-          { PRODUCT_ID: 5, NAME_EN: 'Keyboard Pro', NAME_KH: 'ក្ដារចុច Pro', SALEOUT_PRICE: 79.99, QtyInStock: 30, STATUS: 'Active', CATEGORY: 'Accessories', SKU: 'KB-005' },
-        ];
+        return rawData.map(p => ({
+          ID: p.PRODUCT_ID || p.product_id || p.ID,
+          NAME_EN: p.NAME_EN || p.name_en || 'Unknown',
+          NAME_KH: p.NAME_KH || p.name_kh || '',
+          BARCODE: p.BARCODE || p.barcode || '',
+          BRAND: p.BRAND || p.brand || '',
+          BUY_PRICE: Number(p.BUYIN_PRICE || p.buyin_price || p.buy_price || 0),
+          SALE_PRICE: Number(p.SALEOUT_PRICE || p.saleout_price || p.sale_price || 0),
+          STOCK: Number(p.QtyInStock || p.qty_instock || p.stock || 0),
+          ALERT: Number(p.QTY_ALERT || p.qty_alert || p.alert || 10),
+          STATUS: p.STATUS || p.status || 'Active',
+          CATEGORY: p.CATEGORY || p.category || ''
+        }));
+
       case 'orders':
-        return [
-          { ORDER_NO: 'ORD-001', ORDER_DATE: formatDate(new Date(now.getFullYear(), 6, 1)), AMOUNT_US: 149.99, STATUS: 'Completed', PAYMENT_METHOD: 'Card', CUSTOMER: 'John Doe' },
-          { ORDER_NO: 'ORD-002', ORDER_DATE: formatDate(new Date(now.getFullYear(), 6, 5)), AMOUNT_US: 89.50, STATUS: 'Pending', PAYMENT_METHOD: 'Cash', CUSTOMER: 'Jane Smith' },
-          { ORDER_NO: 'ORD-003', ORDER_DATE: formatDate(new Date(now.getFullYear(), 6, 10)), AMOUNT_US: 234.75, STATUS: 'Completed', PAYMENT_METHOD: 'Card', CUSTOMER: 'Robert Johnson' },
-          { ORDER_NO: 'ORD-004', ORDER_DATE: formatDate(new Date(now.getFullYear(), 6, 12)), AMOUNT_US: 567.00, STATUS: 'Processing', PAYMENT_METHOD: 'Bank Transfer', CUSTOMER: 'Mary Williams' },
-          { ORDER_NO: 'ORD-005', ORDER_DATE: formatDate(new Date(now.getFullYear(), 6, 15)), AMOUNT_US: 45.99, STATUS: 'Pending', PAYMENT_METHOD: 'Cash', CUSTOMER: 'David Brown' },
-        ];
+        return rawData.map(o => ({
+          ID: o.OR_ID || o.or_id || o.id || o.ID,
+          ORDER_NO: o.ORDER_NO || o.order_no || `ORD-${o.id || o.ID || ''}`,
+          DATE: o.ORDER_DATE || o.order_date || o.date || '',
+          CUSTOMER: o.customer_name || o.CUSTOMER_NAME || o.customer || 'Unknown',
+          TOTAL: Number(o.AMOUNT_US || o.amount_us || o.total || 0),
+          STATUS: o.STATUS || o.status || 'Pending',
+          PAYMENT: o.PAYMENT_METHOD || o.payment_method || o.PaymentMethod || 'N/A',
+          ITEMS: o.items?.length || o.item_count || 0
+        }));
+
       case 'stock':
-        return [
-          { PRODUCT_ID: 1, NAME_EN: 'Laptop Pro', QtyInStock: 15, QtyAvailable: 12, QTY_ALERT: 10, STATUS: 'OK', LAST_UPDATED: formatDate(new Date(now.getFullYear(), 6, 20)) },
-          { PRODUCT_ID: 2, NAME_EN: 'Smartphone X', QtyInStock: 25, QtyAvailable: 20, QTY_ALERT: 10, STATUS: 'OK', LAST_UPDATED: formatDate(new Date(now.getFullYear(), 6, 19)) },
-          { PRODUCT_ID: 3, NAME_EN: 'Tablet Plus', QtyInStock: 5, QtyAvailable: 3, QTY_ALERT: 10, STATUS: 'LOW STOCK', LAST_UPDATED: formatDate(new Date(now.getFullYear(), 6, 18)) },
-          { PRODUCT_ID: 4, NAME_EN: 'Wireless Mouse', QtyInStock: 50, QtyAvailable: 48, QTY_ALERT: 10, STATUS: 'OK', LAST_UPDATED: formatDate(new Date(now.getFullYear(), 6, 17)) },
-          { PRODUCT_ID: 5, NAME_EN: 'Keyboard Pro', QtyInStock: 30, QtyAvailable: 28, QTY_ALERT: 10, STATUS: 'OK', LAST_UPDATED: formatDate(new Date(now.getFullYear(), 6, 16)) },
-        ];
-      case 'sales':
-        return [
-          { DATE: formatDate(new Date(now.getFullYear(), 6, 1)), REVENUE: 2450.00, ORDERS: 12, CUSTOMERS: 10, AVG_ORDER: 204.17 },
-          { DATE: formatDate(new Date(now.getFullYear(), 6, 2)), REVENUE: 1890.50, ORDERS: 8, CUSTOMERS: 7, AVG_ORDER: 236.31 },
-          { DATE: formatDate(new Date(now.getFullYear(), 6, 3)), REVENUE: 3120.75, ORDERS: 15, CUSTOMERS: 13, AVG_ORDER: 208.05 },
-          { DATE: formatDate(new Date(now.getFullYear(), 6, 4)), REVENUE: 2345.25, ORDERS: 11, CUSTOMERS: 9, AVG_ORDER: 213.20 },
-          { DATE: formatDate(new Date(now.getFullYear(), 6, 5)), REVENUE: 4567.80, ORDERS: 22, CUSTOMERS: 18, AVG_ORDER: 207.63 },
-        ];
-      case 'inventory':
-        return [
-          { PRODUCT_ID: 1, NAME: 'Laptop Pro', TYPE: 'In', QUANTITY: 5, DATE: formatDate(new Date(now.getFullYear(), 6, 1)), REFERENCE: 'PO-001', USER: 'Admin' },
-          { PRODUCT_ID: 2, NAME: 'Smartphone X', TYPE: 'Out', QUANTITY: 3, DATE: formatDate(new Date(now.getFullYear(), 6, 2)), REFERENCE: 'SO-001', USER: 'Admin' },
-          { PRODUCT_ID: 3, NAME: 'Tablet Plus', TYPE: 'In', QUANTITY: 10, DATE: formatDate(new Date(now.getFullYear(), 6, 3)), REFERENCE: 'PO-002', USER: 'Manager' },
-          { PRODUCT_ID: 4, NAME: 'Wireless Mouse', TYPE: 'Out', QUANTITY: 2, DATE: formatDate(new Date(now.getFullYear(), 6, 4)), REFERENCE: 'SO-002', USER: 'Admin' },
-          { PRODUCT_ID: 5, NAME: 'Keyboard Pro', TYPE: 'In', QUANTITY: 15, DATE: formatDate(new Date(now.getFullYear(), 6, 5)), REFERENCE: 'PO-003', USER: 'Manager' },
-        ];
+        return rawData.map(s => ({
+          ID: s.STOCKID || s.stockid || s.PRODUCT_ID || s.product_id || s.ID,
+          PRODUCT: s.NAME_EN || s.name_en || s.PRODUCT_NAME || s.product_name || 'Unknown',
+          IN_STOCK: Number(s.QtyInStock || s.qty_instock || s.in_stock || 0),
+          RESERVED: Number(s.QtyReserved || s.qty_reserved || s.reserved || 0),
+          AVAILABLE: Number(s.QtyAvailable || s.qty_available || s.available || 0),
+          ALERT: Number(s.QTY_ALERT || s.qty_alert || s.alert || 10),
+          STATUS: s.STATUS || s.status || 'OK',
+          PRICE: Number(s.SALEOUT_PRICE || s.saleout_price || s.price || 0)
+        }));
+
+      case 'suppliers':
+        return rawData.map(s => ({
+          ID: s.SUP_ID || s.sup_id || s.ID,
+          NAME: s.SUP_NAME || s.sup_name || s.name || 'Unknown',
+          CONTACT: s.CONTACT_PERSON || s.contact_person || s.contact || '',
+          PHONE: s.PHONE || s.phone || '',
+          EMAIL: s.EMAIL || s.email || '',
+          ADDRESS: s.ADDRESS || s.address || '',
+          STATUS: s.STATUS || s.status || 'Active',
+          WEBSITE: s.WEBSITE || s.website || '',
+          TAX_ID: s.TAX_ID || s.tax_id || ''
+        }));
+
       default:
-        return [];
+        return rawData;
     }
   }, []);
 
   // ===== CALCULATE STATS =====
-  const calculateStats = useCallback((data) => {
+  const calculateStats = useCallback((type, data) => {
     if (!data || data.length === 0) {
       setReportStats({ total: 0, active: 0, pending: 0, completed: 0, totalValue: 0 });
       return;
@@ -191,46 +233,48 @@ const Reports = () => {
 
     data.forEach(item => {
       const status = String(item.STATUS || item.status || '').toLowerCase();
-      if (status.includes('active') || status === 'ok') stats.active++;
-      if (status.includes('pending') || status.includes('low') || status.includes('processing')) stats.pending++;
-      if (status.includes('completed') || status.includes('done')) stats.completed++;
       
-      const amountFields = ['AMOUNT_US', 'amount_us', 'PRICE', 'price', 'REVENUE', 'revenue', 'SALEOUT_PRICE', 'saleout_price', 'BALANCE', 'balance'];
-      let amount = 0;
-      for (const field of amountFields) {
-        if (item[field] !== undefined && item[field] !== null) {
-          amount = Number(item[field]) || 0;
-          break;
-        }
+      // Determine status categories
+      if (status.includes('active') || status === 'ok' || status === 'instock') {
+        stats.active++;
       }
+      if (status.includes('pending') || status.includes('low') || status.includes('processing') || status === 'low stock') {
+        stats.pending++;
+      }
+      if (status.includes('completed') || status.includes('done') || status === 'completed') {
+        stats.completed++;
+      }
+      
+      // Sum up values based on report type
+      let amount = 0;
+      if (type === 'customers' && item.BALANCE) amount = Number(item.BALANCE) || 0;
+      else if (type === 'products' && item.SALE_PRICE) amount = Number(item.SALE_PRICE) * (Number(item.STOCK) || 0);
+      else if (type === 'orders' && item.TOTAL) amount = Number(item.TOTAL) || 0;
+      else if (type === 'stock' && item.PRICE) amount = Number(item.PRICE) * (Number(item.AVAILABLE) || 0);
+      else if (type === 'suppliers') amount = 0;
+      
       stats.totalValue += amount;
     });
 
     setReportStats(stats);
   }, []);
 
-  // ===== GENERATE REPORT - FIXED =====
-  const generateReport = useCallback(async (skipLoading = false) => {
-    // Prevent multiple simultaneous generations
+  // ===== GENERATE REPORT =====
+  const generateReport = useCallback(async () => {
     if (isGenerating) {
       console.log('⚠️ Already generating, skipping...');
       return;
     }
     
     if (!reportType) {
-      setError('Please select a report type');
-      setTimeout(() => setError(''), 3000);
+      showMessage('Please select a report type', 'error');
       return;
     }
     
-    // Increment generation counter for debugging
-    generationCount.current += 1;
-    console.log(`📊 Generating ${reportType} report (attempt ${generationCount.current})...`);
+    console.log(`📊 Generating ${reportType} report...`);
     
     setIsGenerating(true);
-    if (!skipLoading) {
-      setLoading(true);
-    }
+    setLoading(true);
     setError('');
     setSuccess('');
     setData(null);
@@ -238,38 +282,41 @@ const Reports = () => {
     setIsRefreshing(true);
     
     try {
-      // Try to fetch from API with timeout
-      const res = await api.get(`/reports/${reportType}`, {
-        timeout: 8000,
-        params: { search: searchTerm || undefined }
-      });
+      const endpoint = getReportEndpoint(reportType);
+      console.log(`📡 Fetching from: ${endpoint}`);
       
-      const reportData = res.data || [];
+      const res = await apiClient.get(endpoint);
+      console.log(`📥 Response received:`, res.status);
+      
+      // Extract raw data
+      let rawData = extractArrayData(res.data, ['data', 'items', 'results']);
+      if (rawData === null || !Array.isArray(rawData)) {
+        rawData = [];
+      }
+      
+      console.log(`📊 Raw data count: ${rawData.length}`);
+      
+      // Normalize data
+      const normalizedData = normalizeReportData(reportType, rawData);
+      console.log(`📊 Normalized data count: ${normalizedData.length}`);
+      
       if (isMounted.current) {
-        setData(reportData);
-        setTotalRecords(reportData.length);
+        setData(normalizedData);
+        setTotalRecords(normalizedData.length);
         setGeneratedAt(new Date().toLocaleString());
-        calculateStats(reportData);
-        setSuccess(`✅ ${reportOptions.find(r => r.value === reportType)?.label} report generated successfully!`);
-        setTimeout(() => setSuccess(''), 4000);
-        console.log(`📊 ${reportType} report: ${reportData.length} records`);
-        setInitialLoadDone(true);
+        calculateStats(reportType, normalizedData);
+        showMessage(`✅ ${reportOptions.find(r => r.value === reportType)?.label} report generated successfully! (${normalizedData.length} records)`, 'success');
       }
       
     } catch (error) {
       console.error(`❌ Error generating ${reportType} report:`, error.message);
+      console.error('Error details:', error.response?.data || error);
       
       if (isMounted.current) {
-        // Use mock data as fallback
-        const mockData = generateMockData(reportType);
-        setData(mockData);
-        setTotalRecords(mockData.length);
-        setGeneratedAt(new Date().toLocaleString());
-        calculateStats(mockData);
-        setSuccess(`✅ ${reportOptions.find(r => r.value === reportType)?.label} generated with sample data!`);
-        setTimeout(() => setSuccess(''), 4000);
-        console.log(`📊 ${reportType} report (mock): ${mockData.length} records`);
-        setInitialLoadDone(true);
+        showMessage(`❌ Failed to generate report: ${error.response?.data?.error || error.message}`, 'error');
+        setData([]);
+        setTotalRecords(0);
+        calculateStats(reportType, []);
       }
       
     } finally {
@@ -279,67 +326,66 @@ const Reports = () => {
         setIsGenerating(false);
       }
     }
-  }, [reportType, searchTerm, generateMockData, calculateStats, isGenerating]);
+  }, [reportType, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage, reportOptions]);
 
-  // ===== INITIAL LOAD =====
+  // ===== INITIAL MOUNT / CLEANUP =====
   useEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
-      if (searchTimeout.current) {
-        clearTimeout(searchTimeout.current);
+      if (messageTimeout.current) {
+        clearTimeout(messageTimeout.current);
       }
     };
   }, []);
 
-  // ===== SEARCH DEBOUNCE - FIXED =====
+  // ===== AUTO-GENERATE ON REPORT TYPE CHANGE =====
+  // NOTE: this effect intentionally depends only on reportType.
+  // It must NOT depend on `data` or `generateReport` output, or every
+  // successful fetch (which creates a new `data` array reference) would
+  // re-trigger this effect and cause an infinite fetch loop.
   useEffect(() => {
-    // Clear any existing timeout
-    if (searchTimeout.current) {
-      clearTimeout(searchTimeout.current);
+    if (reportType) {
+      console.log(`📊 Report type changed to: ${reportType}, generating...`);
+      generateReport();
     }
-    
-    // Only trigger search if we have data and reportType is set AND not loading
-    if (reportType && data && !loading && !isGenerating) {
-      searchTimeout.current = setTimeout(() => {
-        console.log('🔍 Search debounce triggered');
-        generateReport(true);
-      }, 600);
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportType]);
 
-    return () => {
-      if (searchTimeout.current) {
-        clearTimeout(searchTimeout.current);
-      }
-    };
-  }, [searchTerm]); // ONLY depend on searchTerm
-
-  // ===== FILTERED DATA =====
+  // ===== FILTERED DATA (search, status filter, sort — all client-side) =====
   const filteredData = useMemo(() => {
-    if (!data) return [];
+    if (!data || !Array.isArray(data)) return [];
 
     let result = [...data];
 
-    if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      result = result.filter(row => {
-        return Object.values(row).some(value => {
-          if (value === null || value === undefined) return false;
-          return String(value).toLowerCase().includes(search);
-        });
-      });
+    // Search filter — checks every field on the row
+    const query = searchTerm.trim().toLowerCase();
+    if (query) {
+      result = result.filter(row =>
+        Object.values(row).some(value =>
+          String(value ?? '').toLowerCase().includes(query)
+        )
+      );
     }
 
+    // Status filter
     if (filterStatus !== 'all') {
       result = result.filter(row => {
         const status = String(row.STATUS || row.status || '').toLowerCase();
-        if (filterStatus === 'active') return status.includes('active') || status === 'ok';
-        if (filterStatus === 'pending') return status.includes('pending') || status.includes('low') || status.includes('processing');
-        if (filterStatus === 'completed') return status.includes('completed') || status.includes('done');
+        if (filterStatus === 'active') {
+          return status.includes('active') || status === 'ok' || status === 'instock';
+        }
+        if (filterStatus === 'pending') {
+          return status.includes('pending') || status.includes('low') || status.includes('processing');
+        }
+        if (filterStatus === 'completed') {
+          return status.includes('completed') || status.includes('done');
+        }
         return true;
       });
     }
 
+    // Sorting
     if (sortBy) {
       result.sort((a, b) => {
         let aVal = a[sortBy] ?? '';
@@ -362,8 +408,7 @@ const Reports = () => {
   // ===== EXPORT CSV =====
   const exportCSV = useCallback(() => {
     if (!data || data.length === 0) {
-      setError('❌ No data to export');
-      setTimeout(() => setError(''), 3000);
+      showMessage('❌ No data to export', 'error');
       return;
     }
     
@@ -389,25 +434,22 @@ const Reports = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      setSuccess(`✅ CSV exported successfully!`);
-      setTimeout(() => setSuccess(''), 3000);
+      showMessage(`✅ CSV exported successfully!`, 'success');
       
     } catch (error) {
       console.error('❌ Export error:', error);
-      setError('❌ Failed to export CSV');
-      setTimeout(() => setError(''), 3000);
+      showMessage('❌ Failed to export CSV', 'error');
     }
-  }, [data, reportType]);
+  }, [data, reportType, showMessage]);
 
   // ===== PRINT REPORT =====
   const printReport = useCallback(() => {
     if (!data || data.length === 0) {
-      setError('❌ No data to print');
-      setTimeout(() => setError(''), 3000);
+      showMessage('❌ No data to print', 'error');
       return;
     }
     window.print();
-  }, [data]);
+  }, [data, showMessage]);
 
   // ===== CLEAR REPORT =====
   const clearReport = useCallback(() => {
@@ -423,27 +465,25 @@ const Reports = () => {
     setSortOrder('asc');
     setSelectedRows([]);
     setReportStats({ total: 0, active: 0, pending: 0, completed: 0, totalValue: 0 });
-    setInitialLoadDone(false);
-    generationCount.current = 0;
   }, []);
 
   // ===== GET STATUS COLOR =====
   const getStatusColor = useCallback((status) => {
     const s = String(status || '').toLowerCase();
-    if (s.includes('active') || s.includes('completed') || s === 'ok') 
-      return 'text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800';
-    if (s.includes('pending') || s.includes('low') || s.includes('processing')) 
-      return 'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-800';
+    if (s.includes('active') || s.includes('completed') || s === 'ok' || s === 'instock') 
+      return 'status-active';
+    if (s.includes('pending') || s.includes('low') || s.includes('processing') || s === 'low stock') 
+      return 'status-pending';
     if (s.includes('expired') || s.includes('inactive') || s.includes('cancelled')) 
-      return 'text-red-700 bg-red-100 dark:bg-red-900/30 border-red-200 dark:border-red-800';
-    return 'text-gray-700 bg-gray-100 dark:bg-gray-700 border-gray-200 dark:border-gray-600';
+      return 'status-expired';
+    return 'status-default';
   }, []);
 
   // ===== GET STATUS BADGE =====
   const renderStatusBadge = useCallback((status) => {
     const color = getStatusColor(status);
     return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${color}`}>
+      <span className={`status-badge ${color}`}>
         {status || 'N/A'}
       </span>
     );
@@ -454,7 +494,7 @@ const Reports = () => {
     if (!dateValue) return 'N/A';
     try {
       const date = new Date(dateValue);
-      if (isNaN(date)) return dateValue;
+      if (isNaN(date.getTime())) return dateValue;
       return date.toLocaleDateString('en-US', { 
         year: 'numeric', 
         month: 'short', 
@@ -467,7 +507,7 @@ const Reports = () => {
 
   // ===== FORMAT CURRENCY =====
   const formatCurrency = useCallback((value) => {
-    if (value === undefined || value === null) return 'N/A';
+    if (value === undefined || value === null || isNaN(value)) return 'N/A';
     const num = Number(value);
     if (isNaN(num)) return value;
     return new Intl.NumberFormat('en-US', {
@@ -480,17 +520,17 @@ const Reports = () => {
   // ===== GET REPORT LABEL =====
   const getReportLabel = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.label || 'Report';
-  }, [reportType]);
+  }, [reportType, reportOptions]);
 
   // ===== GET REPORT COLOR =====
   const getReportColor = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.color || 'from-indigo-500 to-purple-500';
-  }, [reportType]);
+  }, [reportType, reportOptions]);
 
   // ===== GET REPORT ICON =====
   const getReportIcon = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.icon || ClipboardList;
-  }, [reportType]);
+  }, [reportType, reportOptions]);
 
   // ===== GET STAT ICON =====
   const getStatIcon = useCallback((type) => {
@@ -498,30 +538,40 @@ const Reports = () => {
       total: <Database className="w-5 h-5 text-indigo-500" />,
       active: <CheckCircle className="w-5 h-5 text-emerald-500" />,
       pending: <Clock className="w-5 h-5 text-yellow-500" />,
-      completed: <Award className="w-5 h-5 text-purple-500" />
+      completed: <Award className="w-5 h-5 text-purple-500" />,
+      totalValue: <DollarSign className="w-5 h-5 text-blue-500" />
     };
     return icons[type] || icons.total;
   }, []);
 
+  // ===== ROW KEY HELPER (falls back to index if ID missing/duplicate-unsafe) =====
+  const getRowKey = useCallback((row, index) => {
+    return row?.ID !== undefined && row?.ID !== null && row?.ID !== ''
+      ? `id-${row.ID}`
+      : `idx-${index}`;
+  }, []);
+
   // ===== TOGGLE SELECT =====
-  const toggleSelect = useCallback((id) => {
+  const toggleSelect = useCallback((rowKey) => {
     setSelectedRows(prev => {
-      if (prev.includes(id)) {
-        return prev.filter(p => p !== id);
+      if (prev.includes(rowKey)) {
+        return prev.filter(k => k !== rowKey);
       } else {
-        return [...prev, id];
+        return [...prev, rowKey];
       }
     });
   }, []);
 
   // ===== TOGGLE SELECT ALL =====
   const toggleSelectAll = useCallback(() => {
-    if (selectedRows.length === filteredData.length) {
+    const allKeys = filteredData.map((row, index) => getRowKey(row, index));
+    const allSelected = allKeys.length > 0 && allKeys.every(k => selectedRows.includes(k));
+    if (allSelected) {
       setSelectedRows([]);
     } else {
-      setSelectedRows(filteredData.map((_, index) => index));
+      setSelectedRows(allKeys);
     }
-  }, [selectedRows, filteredData]);
+  }, [selectedRows, filteredData, getRowKey]);
 
   // ===== VIEW DETAIL =====
   const viewDetail = useCallback((row) => {
@@ -535,23 +585,24 @@ const Reports = () => {
     { label: 'Active/OK', value: reportStats.active, icon: 'active' },
     { label: 'Pending/Low', value: reportStats.pending, icon: 'pending' },
     { label: 'Completed', value: reportStats.completed, icon: 'completed' },
+    { label: 'Total Value', value: formatCurrency(reportStats.totalValue), icon: 'totalValue' }
   ];
 
   // ===== LOADING =====
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <div className="relative">
-          <div className="w-14 h-14 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-indigo-500/20 animate-ping" />
+      <div className="reports-loading">
+        <div className="reports-loading-spinner">
+          <div className="reports-loading-ring">
+            <div className="reports-loading-ring-inner" />
+            <div className="reports-loading-ring-pulse" />
           </div>
         </div>
-        <p className="text-gray-400 font-medium">Generating {getReportLabel()}...</p>
-        <div className="flex gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.4s' }} />
+        <p className="reports-loading-text">Generating {getReportLabel()}...</p>
+        <div className="reports-loading-dots">
+          <span className="reports-loading-dot" style={{ animationDelay: '0s' }} />
+          <span className="reports-loading-dot" style={{ animationDelay: '0.2s' }} />
+          <span className="reports-loading-dot" style={{ animationDelay: '0.4s' }} />
         </div>
       </div>
     );
@@ -559,21 +610,17 @@ const Reports = () => {
 
   // ===== RENDER =====
   return (
-    <div className="space-y-4 p-3 sm:p-4 md:p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 min-h-screen">
+    <div className="reports-container">
       
       {/* ===== MESSAGE TOAST ===== */}
       {(error || success) && (
-        <div className={`fixed top-4 right-4 z-50 max-w-md w-full p-4 rounded-xl shadow-2xl border transform transition-all duration-500 animate-slideInRight ${
-          success 
-            ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' 
-            : 'bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-        }`}>
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5">
+        <div className={`toast-message ${success ? 'toast-success' : 'toast-error'}`}>
+          <div className="toast-content">
+            <div className="toast-icon">
               {success ? <CheckCircle className="w-5 h-5 text-green-500" /> : <AlertCircle className="w-5 h-5 text-red-500" />}
             </div>
-            <div className="flex-1 text-sm font-medium">{success || error}</div>
-            <button onClick={() => { setError(''); setSuccess(''); }} className="flex-shrink-0 opacity-50 hover:opacity-100 transition">
+            <div className="toast-text">{success || error}</div>
+            <button onClick={() => { setError(''); setSuccess(''); }} className="toast-close">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -581,37 +628,37 @@ const Reports = () => {
       )}
 
       {/* ===== HEADER WITH STATS ===== */}
-      <div className={`bg-gradient-to-r ${getReportColor()} rounded-2xl p-6 text-white shadow-xl`}>
-        <div className="flex flex-wrap justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3">
+      <div className={`reports-header bg-gradient-to-r ${getReportColor()}`}>
+        <div className="reports-header-content">
+          <div className="reports-header-left">
+            <h1 className="reports-header-title">
               {reportType ? (
                 <>
-                  {React.createElement(getReportIcon(), { className: "w-8 h-8" })}
+                  {React.createElement(getReportIcon(), { className: "reports-header-icon" })}
                   {getReportLabel()}
                 </>
               ) : (
                 <>
-                  <ClipboardList className="w-8 h-8" />
+                  <ClipboardList className="reports-header-icon" />
                   Reports Dashboard
                 </>
               )}
             </h1>
-            <p className="text-white/80 mt-1 text-sm flex items-center gap-2 flex-wrap">
+            <p className="reports-header-subtitle">
               <Calendar className="w-4 h-4" />
               {new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
               {generatedAt && (
-                <span className="text-white/60 text-xs">
+                <span className="reports-header-generated">
                   • Generated: {generatedAt}
                 </span>
               )}
             </p>
           </div>
-          <div className="flex items-center gap-3 mt-3 sm:mt-0">
-            {data && (
+          <div className="reports-header-actions">
+            {data && data.length > 0 && (
               <button
                 onClick={clearReport}
-                className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition flex items-center gap-2 text-sm"
+                className="reports-header-btn-clear"
               >
                 <X className="w-4 h-4" />
                 Clear Report
@@ -622,14 +669,14 @@ const Reports = () => {
 
         {/* Stats */}
         {data && data.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6">
+          <div className="reports-stats">
             {statsCards.map((stat, index) => (
-              <div key={index} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition animate-slideUp" style={{ animationDelay: `${index * 0.1}s` }}>
-                <div className="flex items-center gap-2">
+              <div key={index} className="reports-stat-card" style={{ animationDelay: `${index * 0.1}s` }}>
+                <div className="reports-stat-header">
                   {getStatIcon(stat.icon)}
-                  <p className="text-xs text-white/70">{stat.label}</p>
+                  <p className="reports-stat-label">{stat.label}</p>
                 </div>
-                <p className="text-2xl font-bold">{stat.value}</p>
+                <p className="reports-stat-value">{stat.value}</p>
               </div>
             ))}
           </div>
@@ -637,19 +684,18 @@ const Reports = () => {
       </div>
 
       {/* ===== CONTROLS ===== */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-        <div className="flex flex-wrap justify-between items-center gap-3">
-          <div className="flex flex-wrap items-center gap-3 flex-1">
+      <div className="reports-controls">
+        <div className="reports-controls-content">
+          <div className="reports-controls-left">
             {/* Report Type */}
-            <div className="flex items-center gap-2">
+            <div className="reports-control-group">
               <select 
                 value={reportType} 
                 onChange={(e) => {
                   const newType = e.target.value;
                   setReportType(newType);
-                  // Don't auto-generate, wait for user to click Generate
                 }}
-                className="px-4 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition min-w-[180px]"
+                className="reports-select"
               >
                 <option value="">📊 Select Report</option>
                 {reportOptions.map(opt => (
@@ -660,9 +706,9 @@ const Reports = () => {
               </select>
               
               <button 
-                onClick={() => generateReport(false)}
+                onClick={() => generateReport()}
                 disabled={!reportType || isRefreshing || isGenerating}
-                className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-medium"
+                className="reports-generate-btn"
               >
                 {isRefreshing || isGenerating ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -675,26 +721,26 @@ const Reports = () => {
 
             {/* Search - Only show when data exists */}
             {data && data.length > 0 && (
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <div className="reports-search">
+                <Search className="reports-search-icon" />
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="🔍 Search in report..."
-                  className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                  className="reports-search-input"
                 />
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="reports-controls-right">
             {/* Filter */}
             {data && data.length > 0 && (
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+                className="reports-filter"
               >
                 <option value="all">All Status</option>
                 <option value="active">Active/OK</option>
@@ -703,19 +749,56 @@ const Reports = () => {
               </select>
             )}
 
+            {/* Sort */}
+            {data && data.length > 0 && (
+              <div className="reports-sort">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="reports-sort-select"
+                >
+                  <option value="">Sort By</option>
+                  {data.length > 0 && Object.keys(data[0]).map(key => (
+                    <option key={key} value={key}>{key.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+                {sortBy && (
+                  <button 
+                    onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                    className="reports-sort-btn"
+                  >
+                    {sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* View Toggle */}
+            {data && data.length > 0 && (
+              <div className="reports-view-toggle">
+                <button 
+                  onClick={() => setViewMode('table')} 
+                  className={`reports-view-btn ${viewMode === 'table' ? 'reports-view-active' : ''}`}
+                  title="Table view"
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {/* Export Buttons */}
             {data && data.length > 0 && (
               <>
                 <button 
                   onClick={exportCSV}
-                  className="px-3 py-2.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition flex items-center gap-2 text-sm"
+                  className="reports-export-btn"
                 >
                   <Download className="w-4 h-4" />
                   CSV
                 </button>
                 <button 
                   onClick={printReport}
-                  className="px-3 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition flex items-center gap-2 text-sm"
+                  className="reports-print-btn"
                 >
                   <Printer className="w-4 h-4" />
                   Print
@@ -728,49 +811,49 @@ const Reports = () => {
 
       {/* ===== REPORT CONTENT ===== */}
       {data && data.length > 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="reports-content">
           {/* Report Info */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700/30 dark:to-gray-800/30 flex flex-wrap justify-between items-center gap-2">
-            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-              <span className="flex items-center gap-1">
+          <div className="reports-info">
+            <div className="reports-info-left">
+              <span className="reports-info-item">
                 <Database className="w-4 h-4" />
-                <span className="font-medium text-gray-700 dark:text-gray-300">{totalRecords}</span> records
+                <span className="reports-info-highlight">{totalRecords}</span> records
               </span>
-              <span className="w-px h-4 bg-gray-300 dark:bg-gray-600"></span>
-              <span className="flex items-center gap-1">
+              <span className="reports-info-divider"></span>
+              <span className="reports-info-item">
                 <Calendar className="w-4 h-4" />
                 Generated: {generatedAt}
               </span>
-              <span className="w-px h-4 bg-gray-300 dark:bg-gray-600"></span>
-              <span className="flex items-center gap-1">
+              <span className="reports-info-divider"></span>
+              <span className="reports-info-item">
                 <ClipboardList className="w-4 h-4" />
-                <span className="font-medium text-gray-700 dark:text-gray-300">{getReportLabel()}</span>
+                <span className="reports-info-highlight">{getReportLabel()}</span>
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400">
+            <div className="reports-info-right">
+              <span className="reports-info-count">
                 {filteredData.length} of {data.length} shown
               </span>
             </div>
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full" id="report-table">
-              <thead className="bg-gray-50 dark:bg-gray-700/50">
+          <div className="reports-table-wrapper">
+            <table className="reports-table" id="report-table">
+              <thead className="reports-thead">
                 <tr>
-                  <th className="px-3 py-3 w-10">
+                  <th className="reports-th w-10">
                     <input
                       type="checkbox"
-                      checked={selectedRows.length === filteredData.length && filteredData.length > 0}
+                      checked={filteredData.length > 0 && filteredData.every((row, index) => selectedRows.includes(getRowKey(row, index)))}
                       onChange={toggleSelectAll}
-                      className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      className="reports-checkbox"
                     />
                   </th>
                   {data.length > 0 && Object.keys(data[0]).map(key => (
                     <th 
                       key={key} 
-                      className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200 transition whitespace-nowrap"
+                      className="reports-th"
                       onClick={() => {
                         if (sortBy === key) {
                           setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -780,7 +863,7 @@ const Reports = () => {
                         }
                       }}
                     >
-                      <div className="flex items-center gap-1">
+                      <div className="reports-th-content">
                         {key.replace(/_/g, ' ')}
                         {sortBy === key && (
                           sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
@@ -788,49 +871,59 @@ const Reports = () => {
                       </div>
                     </th>
                   ))}
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+                  <th className="reports-th text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              <tbody className="reports-tbody">
                 {filteredData.map((row, index) => {
-                  const rowId = row.ID || row.id || index;
+                  const rowKey = getRowKey(row, index);
                   return (
-                    <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group animate-slideIn" style={{ animationDelay: `${index * 0.03}s` }}>
-                      <td className="px-3 py-2">
+                    <tr key={rowKey} className="reports-tr" style={{ animationDelay: `${index * 0.03}s` }}>
+                      <td className="reports-td w-10">
                         <input
                           type="checkbox"
-                          checked={selectedRows.includes(index)}
-                          onChange={() => toggleSelect(index)}
-                          className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                          checked={selectedRows.includes(rowKey)}
+                          onChange={() => toggleSelect(rowKey)}
+                          className="reports-checkbox"
                         />
                       </td>
                       {Object.entries(row).map(([key, value], i) => {
                         let displayValue = value !== null && value !== undefined ? String(value) : '-';
                         
+                        // Special formatting for specific fields
                         if (key.toLowerCase().includes('date') && value) {
                           displayValue = formatDate(value);
                         }
-                        else if ((key.toLowerCase().includes('amount') || key.toLowerCase().includes('price') || key.toLowerCase().includes('revenue') || key.toLowerCase().includes('balance')) && value !== null && value !== undefined) {
+                        else if ((key.toLowerCase().includes('price') || 
+                                  key.toLowerCase().includes('balance') || 
+                                  key.toLowerCase().includes('total') || 
+                                  key.toLowerCase().includes('value')) && 
+                                  value !== null && value !== undefined) {
                           displayValue = formatCurrency(value);
                         }
                         else if (key.toLowerCase().includes('status') || key.toLowerCase().includes('type')) {
                           return (
-                            <td key={i} className="px-4 py-2 text-sm">
+                            <td key={i} className="reports-td">
                               {renderStatusBadge(value)}
                             </td>
                           );
                         }
                         
+                        // Truncate long text
+                        if (typeof displayValue === 'string' && displayValue.length > 50) {
+                          displayValue = displayValue.slice(0, 50) + '...';
+                        }
+                        
                         return (
-                          <td key={i} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 max-w-[200px] truncate" title={displayValue}>
+                          <td key={i} className="reports-td" title={displayValue}>
                             {displayValue}
                           </td>
                         );
                       })}
-                      <td className="px-4 py-2 text-center">
+                      <td className="reports-td text-center">
                         <button
                           onClick={() => viewDetail(row)}
-                          className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition group-hover:scale-110"
+                          className="reports-view-btn"
                           title="View details"
                         >
                           <Eye className="w-4 h-4" />
@@ -844,41 +937,41 @@ const Reports = () => {
           </div>
 
           {/* Footer */}
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-400 dark:text-gray-500 flex flex-wrap justify-between items-center gap-2">
+          <div className="reports-footer">
             <span>Showing {filteredData.length} of {data.length} records</span>
-            <span className="flex items-center gap-4">
+            <span className="reports-footer-right">
               <span>Generated: {generatedAt}</span>
-              <span className="hidden sm:inline">• Total: {totalRecords} records</span>
+              <span className="reports-footer-total">• Total: {totalRecords} records</span>
             </span>
           </div>
         </div>
       ) : data && data.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
-          <Database className="w-20 h-20 mx-auto text-gray-300 dark:text-gray-600 mb-4 animate-float" />
-          <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">No data found</h3>
-          <p className="text-gray-400 dark:text-gray-500 mt-2">Try generating a different report or adjusting your filters</p>
+        <div className="reports-empty">
+          <Database className="reports-empty-icon" />
+          <h3 className="reports-empty-title">No data found</h3>
+          <p className="reports-empty-text">Try generating a different report or adjusting your filters</p>
           <button
             onClick={() => {
               setSearchTerm('');
               setFilterStatus('all');
-              generateReport(false);
+              generateReport();
             }}
-            className="mt-4 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium"
+            className="reports-empty-btn"
           >
             <RefreshCw className="w-4 h-4 inline mr-2" />
             Refresh Report
           </button>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
-          <div className="max-w-2xl mx-auto">
-            <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-r from-indigo-100 to-purple-100 dark:from-indigo-900/30 dark:to-purple-900/30 flex items-center justify-center mb-6 animate-float">
-              <ClipboardList className="w-12 h-12 text-indigo-600 dark:text-indigo-400" />
+        <div className="reports-select-view">
+          <div className="reports-select-content">
+            <div className="reports-select-icon-wrapper">
+              <ClipboardList className="reports-select-icon" />
             </div>
-            <h3 className="text-2xl font-bold text-gray-800 dark:text-white">Select a Report Type</h3>
-            <p className="text-gray-500 dark:text-gray-400 mt-2">Choose a report from the options below and click Generate</p>
+            <h3 className="reports-select-title">Select a Report Type</h3>
+            <p className="reports-select-text">Choose a report from the options below and click Generate</p>
             
-            <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="reports-options-grid">
               {reportOptions.map(opt => {
                 const Icon = opt.icon;
                 return (
@@ -886,17 +979,16 @@ const Reports = () => {
                     key={opt.value}
                     onClick={() => {
                       setReportType(opt.value);
-                      // Don't auto-generate, wait for user to click Generate
                     }}
-                    className={`p-4 rounded-xl border-2 border-gray-200 dark:border-gray-700 hover:border-indigo-400 dark:hover:border-indigo-500 transition-all hover:shadow-lg hover:-translate-y-1 ${opt.bgColor} group`}
+                    className={`reports-option-btn ${opt.bgColor}`}
                   >
-                    <div className="w-12 h-12 mx-auto rounded-xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center group-hover:scale-110 transition">
+                    <div className="reports-option-icon">
                       <Icon className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
                     </div>
-                    <p className="mt-2 font-medium text-gray-800 dark:text-white text-sm">{opt.label}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{opt.description}</p>
-                    <div className="mt-3 text-indigo-600 dark:text-indigo-400 text-xs font-medium opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-1">
-                      Click Generate <ChevronRight className="w-3 h-3" />
+                    <p className="reports-option-label">{opt.label}</p>
+                    <p className="reports-option-description">{opt.description}</p>
+                    <div className="reports-option-cta">
+                      Select <ChevronRight className="w-3 h-3" />
                     </div>
                   </button>
                 );
@@ -908,56 +1000,65 @@ const Reports = () => {
 
       {/* ===== DETAIL MODAL ===== */}
       {showDetailModal && selectedDetail && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-            <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-              <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
+        <div className="reports-modal-overlay">
+          <div className="reports-modal-content">
+            <div className="reports-modal-header">
+              <h2 className="reports-modal-title">
                 <ClipboardList className="w-5 h-5 text-indigo-600" />
                 Record Details
-                <span className="text-sm font-normal text-gray-400 ml-2">
+                <span className="reports-modal-subtitle">
                   {reportType && `• ${getReportLabel()}`}
                 </span>
               </h2>
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition"
+                className="reports-modal-close"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
             
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="reports-modal-body">
+              <div className="reports-modal-grid">
                 {Object.entries(selectedDetail).map(([key, value]) => {
                   let displayValue = value !== null && value !== undefined ? String(value) : 'N/A';
                   
                   if (key.toLowerCase().includes('date') && value) {
                     displayValue = formatDate(value);
-                  } else if ((key.toLowerCase().includes('amount') || key.toLowerCase().includes('price') || key.toLowerCase().includes('revenue') || key.toLowerCase().includes('balance')) && value !== null && value !== undefined) {
+                  } else if ((key.toLowerCase().includes('price') || 
+                              key.toLowerCase().includes('balance') || 
+                              key.toLowerCase().includes('total') || 
+                              key.toLowerCase().includes('value')) && 
+                              value !== null && value !== undefined) {
                     displayValue = formatCurrency(value);
                   } else if (key.toLowerCase().includes('status') || key.toLowerCase().includes('type')) {
                     return (
-                      <div key={key} className="col-span-2 sm:col-span-1 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{key.replace(/_/g, ' ')}</p>
-                        <div className="mt-1">{renderStatusBadge(value)}</div>
+                      <div key={key} className="reports-modal-item col-span-2 sm:col-span-1">
+                        <p className="reports-modal-item-label">{key.replace(/_/g, ' ')}</p>
+                        <div className="reports-modal-item-value">{renderStatusBadge(value)}</div>
                       </div>
                     );
                   }
                   
+                  // Truncate long text in modal
+                  if (typeof displayValue === 'string' && displayValue.length > 200) {
+                    displayValue = displayValue.slice(0, 200) + '...';
+                  }
+                  
                   return (
-                    <div key={key} className="col-span-2 sm:col-span-1 p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">{key.replace(/_/g, ' ')}</p>
-                      <p className="font-medium dark:text-white break-words">{displayValue}</p>
+                    <div key={key} className="reports-modal-item col-span-2 sm:col-span-1">
+                      <p className="reports-modal-item-label">{key.replace(/_/g, ' ')}</p>
+                      <p className="reports-modal-item-value">{displayValue}</p>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <div className="reports-modal-footer">
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium"
+                className="reports-modal-footer-btn"
               >
                 Close
               </button>
@@ -967,8 +1068,8 @@ const Reports = () => {
       )}
 
       {/* ===== FOOTER ===== */}
-      <div className="text-center text-xs text-gray-400 dark:text-gray-500 py-4 border-t border-gray-200 dark:border-gray-700">
-        <p className="flex items-center justify-center gap-4 flex-wrap">
+      <div className="reports-app-footer">
+        <p className="reports-footer-text">
           <span>📊 Reports Dashboard</span>
           <span>•</span>
           <span>📈 {totalRecords} records available</span>
@@ -978,73 +1079,16 @@ const Reports = () => {
           <span>© {new Date().getFullYear()} SPMS</span>
         </p>
       </div>
-
-      {/* ===== CSS ANIMATIONS ===== */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(100px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-
-        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideIn { animation: slideIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideInRight { animation: slideInRight 0.5s ease-out forwards; }
-        .animate-slideUp { animation: slideUp 0.4s ease-out forwards; opacity: 0; }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-
-        @media print {
-          .fixed { display: none !important; }
-          .bg-gradient-to-r { background: #fff !important; color: #000 !important; }
-          button { display: none !important; }
-          .dark\\:bg-gray-800 { background: #fff !important; }
-          .dark\\:text-white { color: #000 !important; }
-          .border { border-color: #ddd !important; }
-          #report-table { border-collapse: collapse; width: 100%; }
-          #report-table th, #report-table td { padding: 8px; border: 1px solid #ddd; }
-          #report-table th { background: #f5f5f5; }
-        }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #c4c4c4;
-          border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #a0a0a0;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-          background: #4b5563;
-        }
-        .dark ::-webkit-scrollbar-thumb:hover {
-          background: #6b7280;
-        }
-      `}</style>
     </div>
   );
 };
 
-export default Reports;
+// ===== ADD MISSING DOLLAR SIGN ICON =====
+const DollarSign = ({ className }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="1" x2="12" y2="23" />
+    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+  </svg>
+);
 
+export default Reports;

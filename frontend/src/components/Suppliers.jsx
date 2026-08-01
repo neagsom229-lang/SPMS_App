@@ -14,8 +14,7 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import axios from 'axios';
-import { 
+import apiClient from '../api/client';import { 
   Search, Plus, Edit2, Trash2, Truck, X, Save, 
   Phone, Mail, MapPin, User, Building2, RefreshCw,
   Filter, ArrowUp, ArrowDown, Grid3x3, List,
@@ -28,40 +27,6 @@ import {
 // ============================================
 // API CONFIGURATION
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-api.interceptors.request.use(
-  config => {
-    if (import.meta.env?.DEV) {
-      console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    }
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-api.interceptors.response.use(
-  response => {
-    if (import.meta.env?.DEV) {
-      console.log('📥 API Response:', response.status, response.config.url);
-    }
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
-
 // ============================================
 // ✅ NORMALIZE — backend already returns frontend-shaped keys.
 // This just guarantees every field exists with a safe default and every
@@ -209,7 +174,7 @@ const Suppliers = () => {
     
     try {
       const url = search ? `/suppliers?search=${encodeURIComponent(search)}` : '/suppliers';
-      const res = await api.get(url);
+      const res = await apiClient.get(url);
       
       if (isMounted.current) {
         let data = [];
@@ -276,7 +241,7 @@ const Suppliers = () => {
 
     try {
       if (editingSupplier) {
-        await api.put(`/suppliers/${editingSupplier.SUP_ID}`, formData);
+        await apiClient.put(`/suppliers/${editingSupplier.SUP_ID}`, formData);
         
         const updatedSuppliers = suppliers.map(s => 
           s.SUP_ID === editingSupplier.SUP_ID ? { ...formData, SUP_ID: editingSupplier.SUP_ID } : s
@@ -285,7 +250,7 @@ const Suppliers = () => {
         calculateStats(updatedSuppliers);
         showMessage('✅ Supplier updated successfully!');
       } else {
-        const response = await api.post('/suppliers', formData);
+        const response = await apiClient.post('/suppliers', formData);
         const newId = response.data?.SUP_ID || generateId();
         const newSupplier = { ...formData, SUP_ID: newId };
         const updatedSuppliers = [...suppliers, newSupplier];
@@ -311,7 +276,7 @@ const Suppliers = () => {
     if (!window.confirm('Are you sure you want to delete this supplier?')) return;
     
     try {
-      await api.delete(`/suppliers/${id}`);
+      await apiClient.delete(`/suppliers/${id}`);
       
       const updatedSuppliers = suppliers.filter(s => s.SUP_ID !== id);
       setSuppliers(updatedSuppliers);
@@ -329,7 +294,7 @@ const Suppliers = () => {
     if (selectedSuppliers.length === 0) return;
     if (!window.confirm(`Delete ${selectedSuppliers.length} selected suppliers?`)) return;
 
-    api.delete('/suppliers/bulk', { data: { ids: selectedSuppliers } })
+    apiClient.delete('/suppliers/bulk', { data: { ids: selectedSuppliers } })
       .then(() => {
         const updatedSuppliers = suppliers.filter(s => !selectedSuppliers.includes(s.SUP_ID));
         setSuppliers(updatedSuppliers);

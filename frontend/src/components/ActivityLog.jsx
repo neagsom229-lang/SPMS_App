@@ -1,5 +1,6 @@
+// frontend/src/pages/ActivityLog.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import axios from 'axios';
+import { toast } from 'react-hot-toast'; // ✅ Add this
 import { 
   Activity, Search, RefreshCw, Filter, X, 
   Clock, User, Eye, Trash2, Download, 
@@ -9,43 +10,39 @@ import {
   Sparkles, Award, Star, Gift, Heart,
   AlertTriangle, Key
 } from 'lucide-react';
+import '../styles/activitylog.css';
+import apiClient from '../api/client';
 
 // ============================================
-// ✅ FIXED: API CONFIGURATION
+// SHARED DATA HELPERS
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-console.log('🔧 API_BASE (ActivityLog):', API_BASE);
-
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-api.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-api.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
+const extractArrayData = (responseData, extraKeys = []) => {
+  if (
+    typeof responseData === "string" &&
+    responseData.includes("<!DOCTYPE html>")
+  ) {
+    return null;
   }
-);
+  if (Array.isArray(responseData)) return responseData;
+  if (responseData && typeof responseData === "object") {
+    if (Array.isArray(responseData.data)) return responseData.data;
+    for (const key of extraKeys) {
+      if (Array.isArray(responseData[key])) return responseData[key];
+    }
+    if (responseData.data && typeof responseData.data === "object") {
+      for (const key of extraKeys) {
+        if (Array.isArray(responseData.data[key]))
+          return responseData.data[key];
+      }
+      const values = Object.values(responseData.data);
+      if (values.length > 0 && Array.isArray(values[0])) return values[0];
+    }
+  }
+  return [];
+};
 
 // ============================================
-// ✅ MAIN ACTIVITYLOG COMPONENT
+// MAIN ACTIVITYLOG COMPONENT
 // ============================================
 const ActivityLog = () => {
   // ===== STATE =====
@@ -71,6 +68,7 @@ const ActivityLog = () => {
   const isMounted = useRef(true);
   const searchTimeout = useRef(null);
   const headerRef = useRef(null);
+  const messageTimeout = useRef(null);
 
   // ===== MOUSE TRACKING =====
   useEffect(() => {
@@ -83,7 +81,12 @@ const ActivityLog = () => {
 
   // ===== GENERATE MOCK LOGS =====
   const generateMockLogs = useCallback(() => {
-    const actions = ['Login', 'Logout', 'Created customer', 'Updated customer', 'Deleted customer', 'Created product', 'Updated product', 'Deleted product', 'Created order', 'Updated order', 'Deleted order', 'Created user', 'Updated user', 'Deleted user'];
+    const actions = [
+      'Login', 'Logout', 'Created customer', 'Updated customer', 
+      'Deleted customer', 'Created product', 'Updated product', 
+      'Deleted product', 'Created order', 'Updated order', 
+      'Deleted order', 'Created user', 'Updated user', 'Deleted user'
+    ];
     const tables = ['tbl_customers', 'tbl_products', 'tbl_orders', 'tbl_users', 'tbl_suppliers'];
     const usernames = ['admin', 'cashier1', 'cashier2', 'manager1'];
     const mockLogs = [];
@@ -107,37 +110,52 @@ const ActivityLog = () => {
     return mockLogs;
   }, []);
 
-  // ===== ✅ FIXED: FETCH ACTIVITY LOGS =====
+  // ===== SHOW MESSAGE =====
+  const showMessage = useCallback((text, type = 'success') => {
+    setMessage(text);
+    setMessageType(type);
+    if (messageTimeout.current) clearTimeout(messageTimeout.current);
+    messageTimeout.current = setTimeout(() => setMessage(''), 5000);
+    // ✅ Also show toast notification
+    if (type === 'success') toast.success(text);
+    else if (type === 'error') toast.error(text);
+    else if (type === 'warning') toast.custom(text);
+    else toast(text);
+  }, []);
+
+  // ===== FETCH ACTIVITY LOGS =====
   const fetchActivityLogs = useCallback(async () => {
     if (!isMounted.current) return;
     setLoading(true);
     setIsRefreshing(true);
     
     try {
-      // ✅ CORRECT: Use '/activity-logs' endpoint
-      const res = await api.get('/activity-logs', {
+      const res = await apiClient.get('/activity-logs', {
         params: { limit: 200 }
       });
       
       if (isMounted.current) {
-        // ✅ Ensure we have an array
-        const data = Array.isArray(res.data) ? res.data : [];
-        console.log(`📋 Activity logs loaded: ${data.length}`);
-        setLogs(data);
+        const data = extractArrayData(res.data, ['logs', 'items', 'data']);
+        if (data === null) throw new Error('API not available');
         
-        if (data.length === 0) {
-          // If no logs from API, use mock data
+        const logsArray = Array.isArray(data) ? data : [];
+        console.log(`📋 Activity logs loaded: ${logsArray.length}`);
+        
+        if (logsArray.length > 0) {
+          setLogs(logsArray);
+          showMessage(`✅ ${logsArray.length} logs loaded`, 'success');
+        } else {
           const mockData = generateMockLogs();
           setLogs(mockData);
+          showMessage('⚠️ Using sample activity data', 'warning');
         }
       }
     } catch (error) {
       console.error('❌ Error fetching activity logs:', error);
       if (isMounted.current) {
-        // ✅ Use mock data as fallback
         const mockData = generateMockLogs();
         setLogs(mockData);
-        showMessage('⚠️ Using sample activity data', 'warning');
+        showMessage('⚠️ Using sample activity data (API unavailable)', 'warning');
       }
     } finally {
       if (isMounted.current) {
@@ -145,15 +163,17 @@ const ActivityLog = () => {
         setIsRefreshing(false);
       }
     }
-  }, [generateMockLogs]);
+  }, [generateMockLogs, showMessage]);
 
-  // ===== ✅ FIXED: FETCH USERS =====
+  // ===== FETCH USERS =====
   const fetchUsers = useCallback(async () => {
     try {
-      const res = await api.get('/users');
+      const res = await apiClient.get('/users');
       if (isMounted.current) {
-        const data = Array.isArray(res.data) ? res.data : [];
-        setUsers(data);
+        const data = extractArrayData(res.data, ['users', 'items', 'data']);
+        const usersArray = Array.isArray(data) ? data : [];
+        setUsers(usersArray);
+        console.log(`👥 Users loaded: ${usersArray.length}`);
       }
     } catch (error) {
       console.error('❌ Error fetching users:', error);
@@ -167,14 +187,6 @@ const ActivityLog = () => {
     }
   }, []);
 
-  // ===== SHOW MESSAGE =====
-  const showMessage = useCallback((text, type = 'success') => {
-    setMessage(text);
-    setMessageType(type);
-    const timer = setTimeout(() => setMessage(''), 5000);
-    return () => clearTimeout(timer);
-  }, []);
-
   // ===== INITIAL LOAD =====
   useEffect(() => {
     isMounted.current = true;
@@ -185,6 +197,9 @@ const ActivityLog = () => {
       isMounted.current = false;
       if (searchTimeout.current) {
         clearTimeout(searchTimeout.current);
+      }
+      if (messageTimeout.current) {
+        clearTimeout(messageTimeout.current);
       }
     };
   }, [fetchActivityLogs, fetchUsers]);
@@ -211,9 +226,8 @@ const ActivityLog = () => {
     };
   }, [searchTerm]);
 
-  // ===== ✅ FIXED: FILTERED & SORTED LOGS =====
+  // ===== FILTERED & SORTED LOGS =====
   const filteredLogs = useMemo(() => {
-    // ✅ Ensure logs is always an array
     if (!Array.isArray(logs)) return [];
     
     let result = [...logs];
@@ -222,49 +236,59 @@ const ActivityLog = () => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(log => {
-        const username = log.username || '';
-        const action = log.action || '';
-        const table = log.table_name || '';
+        const username = log.username || log.USERNAME || '';
+        const action = log.action || log.ACTION || '';
+        const table = log.table_name || log.TABLE_NAME || '';
+        const recordId = String(log.record_id || log.RECORD_ID || '');
         return username.toLowerCase().includes(term) ||
                action.toLowerCase().includes(term) ||
                table.toLowerCase().includes(term) ||
-               String(log.record_id || '').includes(term);
+               recordId.includes(term);
       });
     }
 
     // Action filter
     if (filterAction !== 'all') {
-      result = result.filter(log => log.action === filterAction);
+      result = result.filter(log => (log.action || log.ACTION) === filterAction);
     }
 
     // User filter
     if (filterUser !== 'all') {
-      result = result.filter(log => String(log.user_id) === filterUser);
+      result = result.filter(log => String(log.user_id || log.USER_ID) === filterUser);
     }
 
     // Table filter
     if (filterTable !== 'all') {
-      result = result.filter(log => log.table_name === filterTable);
+      result = result.filter(log => (log.table_name || log.TABLE_NAME) === filterTable);
     }
 
     // Sort
     result.sort((a, b) => {
       let comparison = 0;
+      const aDate = a.action_date || a.ACTION_DATE || a.date;
+      const bDate = b.action_date || b.ACTION_DATE || b.date;
+      const aUser = a.username || a.USERNAME || '';
+      const bUser = b.username || b.USERNAME || '';
+      const aAction = a.action || a.ACTION || '';
+      const bAction = b.action || b.ACTION || '';
+      const aTable = a.table_name || a.TABLE_NAME || '';
+      const bTable = b.table_name || b.TABLE_NAME || '';
+
       switch (sortBy) {
         case 'date':
-          comparison = new Date(a.action_date) - new Date(b.action_date);
+          comparison = new Date(aDate) - new Date(bDate);
           break;
         case 'user':
-          comparison = (a.username || '').localeCompare(b.username || '');
+          comparison = aUser.localeCompare(bUser);
           break;
         case 'action':
-          comparison = (a.action || '').localeCompare(b.action || '');
+          comparison = aAction.localeCompare(bAction);
           break;
         case 'table':
-          comparison = (a.table_name || '').localeCompare(b.table_name || '');
+          comparison = aTable.localeCompare(bTable);
           break;
         default:
-          comparison = new Date(a.action_date) - new Date(b.action_date);
+          comparison = new Date(aDate) - new Date(bDate);
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
@@ -274,7 +298,6 @@ const ActivityLog = () => {
 
   // ===== CALCULATE STATS =====
   const stats = useMemo(() => {
-    // ✅ Ensure logs is always an array
     if (!Array.isArray(logs)) {
       return { total: 0, actionCounts: {}, userCounts: {}, tableCounts: {} };
     }
@@ -285,9 +308,9 @@ const ActivityLog = () => {
     const tableCounts = {};
 
     logs.forEach(log => {
-      const action = log.action || 'Unknown';
-      const user = log.username || 'Unknown';
-      const table = log.table_name || 'Unknown';
+      const action = log.action || log.ACTION || 'Unknown';
+      const user = log.username || log.USERNAME || 'Unknown';
+      const table = log.table_name || log.TABLE_NAME || 'Unknown';
       
       actionCounts[action] = (actionCounts[action] || 0) + 1;
       userCounts[user] = (userCounts[user] || 0) + 1;
@@ -331,26 +354,27 @@ const ActivityLog = () => {
   // ===== GET ACTION BADGE =====
   const getActionBadge = (action) => {
     const colors = {
-      'Login': 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800',
-      'Logout': 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border border-orange-200 dark:border-orange-800',
-      'Created customer': 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
-      'Updated customer': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
-      'Deleted customer': 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800',
-      'Created product': 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
-      'Updated product': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
-      'Deleted product': 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800',
-      'Created order': 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
-      'Updated order': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
-      'Deleted order': 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800',
-      'Created user': 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800',
-      'Updated user': 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800',
-      'Deleted user': 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800',
+      'Login': 'badge badge-login',
+      'Logout': 'badge badge-logout',
+      'Created customer': 'badge badge-created',
+      'Updated customer': 'badge badge-updated',
+      'Deleted customer': 'badge badge-deleted',
+      'Created product': 'badge badge-created',
+      'Updated product': 'badge badge-updated',
+      'Deleted product': 'badge badge-deleted',
+      'Created order': 'badge badge-created',
+      'Updated order': 'badge badge-updated',
+      'Deleted order': 'badge badge-deleted',
+      'Created user': 'badge badge-created',
+      'Updated user': 'badge badge-updated',
+      'Deleted user': 'badge badge-deleted',
     };
-    return colors[action] || 'bg-gray-100 dark:bg-gray-700/30 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700';
+    return colors[action] || 'badge badge-default';
   };
 
   // ===== FORMAT DATE =====
   const formatDate = (dateStr) => {
+    if (!dateStr) return 'N/A';
     try {
       const date = new Date(dateStr);
       if (isNaN(date)) return dateStr;
@@ -369,6 +393,7 @@ const ActivityLog = () => {
 
   // ===== TIME AGO =====
   const timeAgo = (dateStr) => {
+    if (!dateStr) return 'N/A';
     try {
       const date = new Date(dateStr);
       const now = new Date();
@@ -409,7 +434,7 @@ const ActivityLog = () => {
     if (selectedLogs.length === filteredLogs.length) {
       setSelectedLogs([]);
     } else {
-      setSelectedLogs(filteredLogs.map(log => log.log_id));
+      setSelectedLogs(filteredLogs.map(log => log.log_id || log.LOG_ID || log.id));
     }
   };
 
@@ -426,12 +451,12 @@ const ActivityLog = () => {
       
       filteredLogs.forEach(log => {
         const row = [
-          log.log_id || '',
-          `"${log.username || 'Unknown'}"`,
-          `"${log.action || ''}"`,
-          `"${log.table_name || ''}"`,
-          log.record_id || '',
-          `"${formatDate(log.action_date)}"`
+          log.log_id || log.LOG_ID || log.id || '',
+          `"${log.username || log.USERNAME || 'Unknown'}"`,
+          `"${log.action || log.ACTION || ''}"`,
+          `"${log.table_name || log.TABLE_NAME || ''}"`,
+          log.record_id || log.RECORD_ID || '',
+          `"${formatDate(log.action_date || log.ACTION_DATE || log.date)}"`
         ];
         csv += row.join(',') + '\n';
       });
@@ -464,7 +489,8 @@ const ActivityLog = () => {
     if (!Array.isArray(logs)) return [];
     const actions = new Set();
     logs.forEach(log => {
-      if (log.action) actions.add(log.action);
+      const action = log.action || log.ACTION;
+      if (action) actions.add(action);
     });
     return Array.from(actions).sort();
   }, [logs]);
@@ -474,26 +500,33 @@ const ActivityLog = () => {
     if (!Array.isArray(logs)) return [];
     const tables = new Set();
     logs.forEach(log => {
-      if (log.table_name) tables.add(log.table_name);
+      const table = log.table_name || log.TABLE_NAME;
+      if (table) tables.add(table);
     });
     return Array.from(tables).sort();
   }, [logs]);
 
+  // ===== GET USER NAME =====
+  const getUserName = useCallback((userId) => {
+    const user = users.find(u => String(u.user_id || u.USER_ID || u.id) === String(userId));
+    return user?.username || user?.fullname || user?.USERNAME || user?.FULLNAME || `User ${userId}`;
+  }, [users]);
+
   // ===== LOADING =====
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <div className="relative">
-          <div className="w-14 h-14 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full bg-indigo-500/20 animate-ping" />
+      <div className="activitylog-loading">
+        <div className="activitylog-loading-spinner">
+          <div className="activitylog-loading-ring">
+            <div className="activitylog-loading-ring-inner" />
+            <div className="activitylog-loading-ring-pulse" />
           </div>
         </div>
-        <p className="text-gray-400 font-medium">Loading activity logs...</p>
-        <div className="flex gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.4s' }} />
+        <p className="activitylog-loading-text">Loading activity logs...</p>
+        <div className="activitylog-loading-dots">
+          <span className="activitylog-loading-dot" style={{ animationDelay: '0s' }} />
+          <span className="activitylog-loading-dot" style={{ animationDelay: '0.2s' }} />
+          <span className="activitylog-loading-dot" style={{ animationDelay: '0.4s' }} />
         </div>
       </div>
     );
@@ -501,77 +534,68 @@ const ActivityLog = () => {
 
   // ===== RENDER =====
   return (
-    <div className="space-y-4 p-3 sm:p-4 md:p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 min-h-screen">
+    <div className="activitylog-container">
       
       {/* ===== MESSAGE TOAST ===== */}
       {message && (
-        <div className={`fixed top-4 right-4 z-50 max-w-md w-full p-4 rounded-xl shadow-2xl border transform transition-all duration-500 animate-slideInRight ${
-          messageType === 'success' 
-            ? 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
-            : messageType === 'error'
-            ? 'bg-gradient-to-r from-red-50 to-rose-50 dark:from-red-900/30 dark:to-rose-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-            : messageType === 'warning'
-            ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/30 dark:to-amber-900/20 border-yellow-200 dark:border-yellow-800 text-yellow-700 dark:text-yellow-300'
-            : 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/30 dark:to-indigo-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
-        }`}>
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 mt-0.5">
+        <div className={`toast-message toast-${messageType}`}>
+          <div className="toast-content">
+            <div className="toast-icon">
               {messageType === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
               {messageType === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
               {messageType === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
               {messageType === 'info' && <Activity className="w-5 h-5 text-blue-500" />}
             </div>
-            <div className="flex-1 text-sm font-medium">{message}</div>
-            <button onClick={() => setMessage('')} className="flex-shrink-0 opacity-50 hover:opacity-100 transition">
+            <div className="toast-text">{message}</div>
+            <button onClick={() => setMessage('')} className="toast-close">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* ===== HEADER WITH STATS - 3D Tilt ===== */}
+      {/* ===== HEADER WITH STATS ===== */}
       <div 
         ref={headerRef}
-        className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-300"
+        className="activitylog-header"
         style={{
           transform: `perspective(1000px) rotateX(${(mousePosition.y / window.innerHeight - 0.5) * 2}deg) rotateY(${(mousePosition.x / window.innerWidth - 0.5) * 2}deg)`,
           transition: 'transform 0.1s ease-out'
         }}
       >
-        {/* Animated Background */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full animate-pulse-slow" />
-          <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-purple-300/20 rounded-full animate-pulse-slow animation-delay-1000" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full animate-spin-slow" />
+        <div className="activitylog-header-bg">
+          <div className="activitylog-header-bg-circle" />
+          <div className="activitylog-header-bg-circle2" />
+          <div className="activitylog-header-bg-circle3" />
         </div>
 
-        <div className="relative z-10 flex flex-wrap justify-between items-center">
-          <div className="animate-fadeInUp">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-medium text-white/80 tracking-wider uppercase">Audit Trail</span>
+        <div className="activitylog-header-content">
+          <div className="activitylog-header-left">
+            <div className="activitylog-header-badge">
+              <div className="activitylog-header-badge-dot" />
+              <span className="activitylog-header-badge-text">Audit Trail</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
-              <Activity className="w-8 h-8" />
+            <h1 className="activitylog-header-title">
+              <Activity className="activitylog-header-icon" />
               Activity Logs
             </h1>
-            <p className="text-indigo-100 mt-1 text-sm">Monitor all user activities and system events</p>
+            <p className="activitylog-header-subtitle">Monitor all user activities and system events</p>
           </div>
-          <div className="flex items-center gap-3 mt-3 sm:mt-0">
-            <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl text-sm flex items-center gap-2 border border-white/10 animate-pulse-slow">
+          <div className="activitylog-header-actions">
+            <div className="activitylog-header-time">
               <Clock className="w-4 h-4 text-white/80" />
               {new Date().toLocaleTimeString()}
             </div>
             <button 
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="bg-white/20 backdrop-blur-sm p-2 rounded-xl hover:bg-white/30 transition hover:scale-110 duration-300 disabled:opacity-50"
+              className="activitylog-header-btn"
             >
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={exportLogs}
-              className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition hover:scale-105 duration-300 flex items-center gap-2 border border-white/10"
+              className="activitylog-header-btn-primary"
             >
               <Download className="w-4 h-4" />
               Export
@@ -580,47 +604,45 @@ const ActivityLog = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 relative z-10">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 border border-white/5">
-            <p className="text-xs text-indigo-200">Total Activities</p>
-            <p className="text-2xl font-bold">{stats.total}</p>
+        <div className="activitylog-stats">
+          <div className="activitylog-stat-card">
+            <p className="activitylog-stat-label">Total Activities</p>
+            <p className="activitylog-stat-value">{stats.total}</p>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 border border-white/5">
-            <p className="text-xs text-indigo-200">Unique Users</p>
-            <p className="text-2xl font-bold">{Object.keys(stats.userCounts).length}</p>
+          <div className="activitylog-stat-card">
+            <p className="activitylog-stat-label">Unique Users</p>
+            <p className="activitylog-stat-value">{Object.keys(stats.userCounts).length}</p>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 border border-white/5">
-            <p className="text-xs text-indigo-200">Actions</p>
-            <p className="text-2xl font-bold">{Object.keys(stats.actionCounts).length}</p>
+          <div className="activitylog-stat-card">
+            <p className="activitylog-stat-label">Actions</p>
+            <p className="activitylog-stat-value">{Object.keys(stats.actionCounts).length}</p>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 border border-white/5">
-            <p className="text-xs text-indigo-200">Tables</p>
-            <p className="text-2xl font-bold">{Object.keys(stats.tableCounts).length}</p>
+          <div className="activitylog-stat-card">
+            <p className="activitylog-stat-label">Tables</p>
+            <p className="activitylog-stat-value">{Object.keys(stats.tableCounts).length}</p>
           </div>
         </div>
       </div>
 
       {/* ===== CONTROLS ===== */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 hover:shadow-md transition-all duration-300">
-        <div className="flex flex-wrap justify-between items-center gap-3">
-          <div className="flex flex-wrap items-center gap-3 flex-1">
-            {/* Search */}
-            <div className="relative flex-1 min-w-[200px] group">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-indigo-500 transition-colors w-4 h-4" />
+      <div className="activitylog-controls">
+        <div className="activitylog-controls-content">
+          <div className="activitylog-controls-left">
+            <div className="activitylog-search">
+              <Search className="activitylog-search-icon" />
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="🔍 Search by user, action, table..."
-                className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 group-hover:border-indigo-300"
+                className="activitylog-search-input"
               />
             </div>
 
-            {/* Filter Action */}
             <select
               value={filterAction}
               onChange={(e) => setFilterAction(e.target.value)}
-              className="px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
+              className="activitylog-filter"
             >
               <option value="all">All Actions</option>
               {uniqueActions.map(action => (
@@ -628,25 +650,23 @@ const ActivityLog = () => {
               ))}
             </select>
 
-            {/* Filter User */}
             <select
               value={filterUser}
               onChange={(e) => setFilterUser(e.target.value)}
-              className="px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
+              className="activitylog-filter"
             >
               <option value="all">All Users</option>
               {users.map(user => (
-                <option key={user.user_id} value={String(user.user_id)}>
-                  {user.username || user.fullname || `User ${user.user_id}`}
+                <option key={user.user_id || user.USER_ID || user.id} value={String(user.user_id || user.USER_ID || user.id)}>
+                  {user.username || user.USERNAME || user.fullname || user.FULLNAME || `User ${user.user_id}`}
                 </option>
               ))}
             </select>
 
-            {/* Filter Table */}
             <select
               value={filterTable}
               onChange={(e) => setFilterTable(e.target.value)}
-              className="px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
+              className="activitylog-filter"
             >
               <option value="all">All Tables</option>
               {uniqueTables.map(table => (
@@ -655,38 +675,28 @@ const ActivityLog = () => {
             </select>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* View Mode */}
-            <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
+          <div className="activitylog-controls-right">
+            <div className="activitylog-view-toggle">
               <button
                 onClick={() => setViewMode('list')}
-                className={`p-1.5 rounded-lg transition-all duration-300 hover:scale-110 ${
-                  viewMode === 'list' 
-                    ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600' 
-                    : 'hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300'
-                }`}
+                className={`activitylog-view-btn ${viewMode === 'list' ? 'activitylog-view-active' : ''}`}
                 title="List view"
               >
                 <List className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-lg transition-all duration-300 hover:scale-110 ${
-                  viewMode === 'grid' 
-                    ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600' 
-                    : 'hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300'
-                }`}
+                className={`activitylog-view-btn ${viewMode === 'grid' ? 'activitylog-view-active' : ''}`}
                 title="Grid view"
               >
                 <Grid3x3 className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Bulk Actions */}
             {selectedLogs.length > 0 && (
               <button
                 onClick={clearSelected}
-                className="px-3 py-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all duration-300 hover:scale-105 flex items-center gap-2 text-sm shadow-lg shadow-indigo-600/20"
+                className="activitylog-clear-btn"
               >
                 <X className="w-4 h-4" />
                 Clear ({selectedLogs.length})
@@ -698,10 +708,10 @@ const ActivityLog = () => {
 
       {/* ===== LOGS GRID ===== */}
       {filteredLogs.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center hover:shadow-lg transition-all duration-300">
-          <Activity className="w-20 h-20 mx-auto text-gray-300 dark:text-gray-600 mb-4 animate-float" />
-          <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">No activity logs found</h3>
-          <p className="text-gray-400 dark:text-gray-500 mt-2">
+        <div className="activitylog-empty">
+          <Activity className="activitylog-empty-icon" />
+          <h3 className="activitylog-empty-title">No activity logs found</h3>
+          <p className="activitylog-empty-text">
             {searchTerm || filterAction !== 'all' || filterUser !== 'all' || filterTable !== 'all' 
               ? 'Try adjusting your search or filters' 
               : 'Activities will appear here as users interact with the system'}
@@ -709,77 +719,77 @@ const ActivityLog = () => {
         </div>
       ) : viewMode === 'list' ? (
         // ===== LIST VIEW =====
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-lg transition-all duration-300">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700/50 dark:to-gray-800/50">
+        <div className="activitylog-list-view">
+          <div className="activitylog-list-table-wrapper">
+            <table className="activitylog-list-table">
+              <thead className="activitylog-list-thead">
                 <tr>
-                  <th className="px-3 py-3 w-10">
+                  <th className="activitylog-list-th w-10">
                     <input
                       type="checkbox"
                       checked={selectedLogs.length === filteredLogs.length && filteredLogs.length > 0}
                       onChange={toggleSelectAll}
-                      className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                      className="activitylog-list-checkbox"
                     />
                   </th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">User</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Action</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden md:table-cell">Table</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden lg:table-cell">Record ID</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider hidden sm:table-cell">Time</th>
-                  <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
+                  <th className="activitylog-list-th">User</th>
+                  <th className="activitylog-list-th">Action</th>
+                  <th className="activitylog-list-th hidden md:table-cell">Table</th>
+                  <th className="activitylog-list-th hidden lg:table-cell">Record ID</th>
+                  <th className="activitylog-list-th hidden sm:table-cell">Time</th>
+                  <th className="activitylog-list-th text-center">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              <tbody className="activitylog-list-tbody">
                 {filteredLogs.map((log, index) => {
-                  const isSelected = selectedLogs.includes(log.log_id);
-                  const actionEmoji = getActionEmoji(log.action);
+                  const id = log.log_id || log.LOG_ID || log.id;
+                  const isSelected = selectedLogs.includes(id);
+                  const actionEmoji = getActionEmoji(log.action || log.ACTION);
+                  const username = log.username || log.USERNAME || 'Unknown';
 
                   return (
                     <tr 
-                      key={log.log_id} 
-                      className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-all duration-300 group animate-slideIn ${
-                        isSelected ? 'bg-indigo-50 dark:bg-indigo-900/10' : ''
-                      }`}
+                      key={id || index} 
+                      className={`activitylog-list-tr ${isSelected ? 'activitylog-list-tr-selected' : ''}`}
                       style={{ animationDelay: `${index * 0.03}s` }}
                     >
-                      <td className="px-3 py-3">
+                      <td className="activitylog-list-td w-10">
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleSelect(log.log_id)}
-                          className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                          onChange={() => toggleSelect(id)}
+                          className="activitylog-list-checkbox"
                         />
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs bg-indigo-500`}>
-                            {log.username ? log.username.charAt(0).toUpperCase() : '?'}
+                      <td className="activitylog-list-td">
+                        <div className="activitylog-list-user">
+                          <div className="activitylog-list-avatar">
+                            {username.charAt(0).toUpperCase()}
                           </div>
-                          <span className="font-medium text-sm dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                            {log.username || 'Unknown'}
+                          <span className="activitylog-list-username">
+                            {username}
                           </span>
                         </div>
                       </td>
-                      <td className="px-3 py-3">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionBadge(log.action)} transition-all duration-300 group-hover:scale-105`}>
-                          <span className="text-base">{actionEmoji}</span>
-                          {log.action || 'Unknown'}
+                      <td className="activitylog-list-td">
+                        <span className={getActionBadge(log.action || log.ACTION)}>
+                          <span className="activitylog-action-emoji">{actionEmoji}</span>
+                          {log.action || log.ACTION || 'Unknown'}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                        {log.table_name || '-'}
+                      <td className="activitylog-list-td hidden md:table-cell">
+                        {log.table_name || log.TABLE_NAME || '-'}
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400 hidden lg:table-cell">
-                        {log.record_id || '-'}
+                      <td className="activitylog-list-td hidden lg:table-cell">
+                        {log.record_id || log.RECORD_ID || '-'}
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400 hidden sm:table-cell">
-                        {timeAgo(log.action_date)}
+                      <td className="activitylog-list-td hidden sm:table-cell">
+                        {timeAgo(log.action_date || log.ACTION_DATE || log.date)}
                       </td>
-                      <td className="px-3 py-3 text-center">
+                      <td className="activitylog-list-td text-center">
                         <button
                           onClick={() => viewLogDetail(log)}
-                          className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 group-hover:scale-110"
+                          className="activitylog-list-action"
                           title="View details"
                         >
                           <Eye className="w-4 h-4" />
@@ -794,33 +804,32 @@ const ActivityLog = () => {
         </div>
       ) : (
         // ===== GRID VIEW =====
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="activitylog-grid-view">
           {filteredLogs.map((log, index) => {
-            const isSelected = selectedLogs.includes(log.log_id);
-            const actionEmoji = getActionEmoji(log.action);
+            const id = log.log_id || log.LOG_ID || log.id;
+            const isSelected = selectedLogs.includes(id);
+            const actionEmoji = getActionEmoji(log.action || log.ACTION);
+            const username = log.username || log.USERNAME || 'Unknown';
 
             return (
               <div
-                key={log.log_id}
-                className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border-2 transition-all duration-500 hover:shadow-xl hover:-translate-y-2 group animate-fadeIn cursor-pointer ${
-                  isSelected ? 'border-indigo-500 dark:border-indigo-400 ring-2 ring-indigo-500/30' : 'border-gray-100 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700'
-                }`}
+                key={id || index}
+                className={`activitylog-grid-card ${isSelected ? 'activitylog-grid-card-selected' : ''}`}
                 style={{ animationDelay: `${index * 0.04}s` }}
-                onClick={() => toggleSelect(log.log_id)}
+                onClick={() => toggleSelect(id)}
               >
-                <div className="p-5">
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-2xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 transition-all duration-300 group-hover:scale-110`}>
+                <div className="activitylog-grid-card-content">
+                  <div className="activitylog-grid-card-header">
+                    <div className="activitylog-grid-card-user">
+                      <div className="activitylog-grid-card-avatar">
                         {actionEmoji}
                       </div>
                       <div>
-                        <p className="font-semibold text-gray-800 dark:text-white text-sm group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                          {log.username || 'Unknown'}
+                        <p className="activitylog-grid-card-username">
+                          {username}
                         </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500">
-                          {timeAgo(log.action_date)}
+                        <p className="activitylog-grid-card-time">
+                          {timeAgo(log.action_date || log.ACTION_DATE || log.date)}
                         </p>
                       </div>
                     </div>
@@ -829,41 +838,38 @@ const ActivityLog = () => {
                         e.stopPropagation();
                         viewLogDetail(log);
                       }}
-                      className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
+                      className="activitylog-grid-card-action"
                       title="View details"
                     >
                       <Eye className="w-4 h-4" />
                     </button>
                   </div>
 
-                  {/* Action */}
-                  <div className="mb-3">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getActionBadge(log.action)} transition-all duration-300 group-hover:scale-105`}>
-                      {log.action || 'Unknown'}
+                  <div className="activitylog-grid-card-action-badge">
+                    <span className={getActionBadge(log.action || log.ACTION)}>
+                      {log.action || log.ACTION || 'Unknown'}
                     </span>
                   </div>
 
-                  {/* Details */}
-                  <div className="space-y-1.5">
+                  <div className="activitylog-grid-card-details">
                     {log.table_name && (
-                      <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
-                        <span className="text-xs text-gray-400">Table:</span>
-                        <span className="font-medium">{log.table_name}</span>
+                      <p className="activitylog-grid-card-detail">
+                        <span className="activitylog-grid-card-detail-label">Table:</span>
+                        <span className="activitylog-grid-card-detail-value">{log.table_name}</span>
                       </p>
                     )}
                     {log.record_id && (
-                      <p className="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
-                        <span className="text-xs text-gray-400">Record ID:</span>
-                        <span className="font-mono font-medium">{log.record_id}</span>
+                      <p className="activitylog-grid-card-detail">
+                        <span className="activitylog-grid-card-detail-label">Record ID:</span>
+                        <span className="activitylog-grid-card-detail-value font-mono">{log.record_id}</span>
                       </p>
                     )}
                   </div>
 
-                  {/* Footer */}
-                  <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-2">
+                  <div className="activitylog-grid-card-footer">
+                    <p className="activitylog-grid-card-timestamp">
                       <Clock className="w-3 h-3" />
-                      {formatDate(log.action_date)}
+                      {formatDate(log.action_date || log.ACTION_DATE || log.date)}
                     </p>
                   </div>
                 </div>
@@ -874,8 +880,8 @@ const ActivityLog = () => {
       )}
 
       {/* ===== FOOTER ===== */}
-      <div className="text-center text-xs text-gray-400 dark:text-gray-500 py-4 border-t border-gray-200 dark:border-gray-700">
-        <p className="flex items-center justify-center gap-4 flex-wrap">
+      <div className="activitylog-footer">
+        <p className="activitylog-footer-text">
           <span>📋 {filteredLogs.length} logs displayed</span>
           <span>•</span>
           <span>💾 {stats.total} total logs</span>
@@ -890,70 +896,79 @@ const ActivityLog = () => {
 
       {/* ===== LOG DETAIL MODAL ===== */}
       {showDetailModal && selectedLogDetail && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-            <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-              <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
+        <div className="activitylog-modal-overlay">
+          <div className="activitylog-modal-content">
+            <div className="activitylog-modal-header">
+              <h2 className="activitylog-modal-title">
                 <Activity className="w-5 h-5 text-indigo-600" />
                 Log Details
               </h2>
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all duration-300 hover:rotate-90"
+                className="activitylog-modal-close"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
             
-            <div className="p-6">
-              {/* User Info */}
-              <div className="flex items-center gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-2xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg`}>
-                  {selectedLogDetail.username ? selectedLogDetail.username.charAt(0).toUpperCase() : '?'}
+            <div className="activitylog-modal-body">
+              <div className="activitylog-modal-user">
+                <div className="activitylog-modal-avatar">
+                  {(selectedLogDetail.username || selectedLogDetail.USERNAME || '?').charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-lg font-bold dark:text-white">{selectedLogDetail.username || 'Unknown'}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">User ID: {selectedLogDetail.user_id || 'N/A'}</p>
+                  <p className="activitylog-modal-username">
+                    {selectedLogDetail.username || selectedLogDetail.USERNAME || 'Unknown'}
+                  </p>
+                  <p className="activitylog-modal-userid">
+                    User ID: {selectedLogDetail.user_id || selectedLogDetail.USER_ID || 'N/A'}
+                  </p>
                 </div>
               </div>
 
-              {/* Action Details */}
-              <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+              <h3 className="activitylog-modal-section-title">
                 <Zap className="w-4 h-4 text-amber-500" />
                 Action Details
               </h3>
-              <div className="space-y-3 mb-6">
-                <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                  <span className="text-base">{getActionEmoji(selectedLogDetail.action)}</span>
-                  <span className={`font-medium ${getActionColor(selectedLogDetail.action)}`}>
-                    {selectedLogDetail.action || 'Unknown'}
+              <div className="activitylog-modal-action-details">
+                <div className="activitylog-modal-action-item">
+                  <span className="activitylog-modal-action-emoji">
+                    {getActionEmoji(selectedLogDetail.action || selectedLogDetail.ACTION)}
+                  </span>
+                  <span className={`activitylog-modal-action-text ${getActionColor(selectedLogDetail.action || selectedLogDetail.ACTION)}`}>
+                    {selectedLogDetail.action || selectedLogDetail.ACTION || 'Unknown'}
                   </span>
                 </div>
-                {selectedLogDetail.table_name && (
-                  <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                {(selectedLogDetail.table_name || selectedLogDetail.TABLE_NAME) && (
+                  <div className="activitylog-modal-action-item">
                     <ClipboardList className="w-4 h-4 text-purple-500" />
-                    <span className="dark:text-white">Table: <span className="font-medium">{selectedLogDetail.table_name}</span></span>
+                    <span className="activitylog-modal-action-text">
+                      Table: <span className="font-medium">{selectedLogDetail.table_name || selectedLogDetail.TABLE_NAME}</span>
+                    </span>
                   </div>
                 )}
-                {selectedLogDetail.record_id && (
-                  <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                {(selectedLogDetail.record_id || selectedLogDetail.RECORD_ID) && (
+                  <div className="activitylog-modal-action-item">
                     <Key className="w-4 h-4 text-amber-500" />
-                    <span className="dark:text-white">Record ID: <span className="font-mono font-medium">{selectedLogDetail.record_id}</span></span>
+                    <span className="activitylog-modal-action-text">
+                      Record ID: <span className="font-mono font-medium">{selectedLogDetail.record_id || selectedLogDetail.RECORD_ID}</span>
+                    </span>
                   </div>
                 )}
               </div>
 
-              {/* Timestamp */}
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                <p className="text-xs text-gray-400">Timestamp</p>
-                <p className="text-sm font-medium dark:text-white">{formatDate(selectedLogDetail.action_date)}</p>
+              <div className="activitylog-modal-timestamp">
+                <p className="activitylog-modal-timestamp-label">Timestamp</p>
+                <p className="activitylog-modal-timestamp-value">
+                  {formatDate(selectedLogDetail.action_date || selectedLogDetail.ACTION_DATE || selectedLogDetail.date)}
+                </p>
               </div>
             </div>
 
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <div className="activitylog-modal-footer">
               <button 
                 onClick={() => setShowDetailModal(false)}
-                className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105 font-medium flex items-center gap-2"
+                className="activitylog-modal-footer-btn"
               >
                 <X className="w-4 h-4" />
                 Close
@@ -962,70 +977,6 @@ const ActivityLog = () => {
           </div>
         </div>
       )}
-
-      {/* ===== CSS ANIMATIONS ===== */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(100px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 0.2; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(1.1); }
-        }
-        @keyframes spin-slow {
-          0% { transform: translate(-50%, -50%) rotate(0deg); }
-          100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-
-        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideIn { animation: slideIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideInRight { animation: slideInRight 0.5s ease-out forwards; }
-        .animate-slideUp { animation: slideUp 0.4s ease-out forwards; opacity: 0; }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-        .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
-        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
-        .animate-bounce { animation: bounce 1s ease-in-out infinite; }
-        .animation-delay-1000 { animation-delay: 1s; }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #c4c4c4;
-          border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #a0a0a0;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-          background: #4b5563;
-        }
-        .dark ::-webkit-scrollbar-thumb:hover {
-          background: #6b7280;
-        }
-      `}</style>
     </div>
   );
 };

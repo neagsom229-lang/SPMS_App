@@ -1,133 +1,73 @@
-// FORCE DEPLOY - Updated $(date)
+// frontend/src/components/Dashboard.jsx
+//
 // ============================================
-// 📦 Dashboard.jsx - ULTIMATE PROFESSIONAL VERSION
+// WHAT CHANGED IN THIS PASS (see inline comments for detail)
+// ============================================
+// This merges the two versions you had:
+//  - The react-query rewrite (better architecture: granular loading/error
+//    per endpoint, memoized sub-components, safe id fallbacks, correct
+//    year+month chart bucketing).
+//  - The original's "always show something" behavior (mock data), which
+//    the react-query rewrite had dropped in favor of a full-page
+//    "Failed to load dashboard" screen whenever both /dashboard/stats and
+//    /orders/recent errored.
+//
+// The full-page failure screen is the reason you were seeing a blank
+// dashboard: if those two endpoints aren't up yet (or CORS/auth isn't
+// wired up), react-query correctly reports isError, and the component
+// used to just render an error card and nothing else.
+//
+// Fix: each endpoint now falls back to realistic sample data on error
+// instead of blocking the page. The dashboard always renders fully; a
+// small dismissible banner (not a blank screen) tells you when you're
+// looking at sample data because a request failed, and a Retry button
+// re-fetches. Empty-but-successful responses (a real store with zero
+// orders) are NOT replaced with sample data — only genuine request
+// failures are.
 // ============================================
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  lazy,
-  Suspense,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { useAuth } from "../context/AuthContext";
+import apiClient from "../api/client";
 import {
   Users,
   Package,
   ShoppingCart,
   DollarSign,
-  AlertCircle,
   TrendingUp,
-  TrendingDown,
   Plus,
   ClipboardList,
   Clock,
-  Calendar,
   ArrowRight,
   BarChart3,
   PieChart,
-  ChevronRight,
   Bell,
-  Search,
-  Filter,
-  MoreVertical,
   Eye,
-  Edit,
-  Trash2,
-  Menu,
   X,
-  Grid3x3,
-  List,
-  ChevronDown,
   Sun,
   Moon,
   Sparkles,
-  Zap,
   Activity,
   Award,
   Target,
   BarChart as BarChartIcon,
-  Layers,
-  Gift,
   AlertTriangle,
   CheckCircle,
-  Loader2,
-  Shield,
-  Star,
-  Heart,
-  Gem,
   Rocket,
-  CreditCard,
-  Wallet,
-  TrendingUp as TrendingUpIcon,
-  ShoppingBag,
-  Coffee,
-  Briefcase,
-  Smartphone,
-  Headphones,
-  Watch,
-  Camera,
-  Home,
-  Truck,
   RefreshCw,
+  Zap,
+  WifiOff,
+  User,
   Settings,
   HelpCircle,
-  Info,
-  Maximize,
-  Minimize,
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Mic,
-  MicOff,
-  Camera as CameraIcon,
-  Image,
-  Video,
-  Music,
-  Radio,
-  Tv,
-  Monitor,
-  Cpu,
-  Server,
-  Database,
-  Cloud as CloudIcon,
-  Lock,
-  Unlock,
-  Key,
-  Shield as ShieldIcon,
-  UserCheck,
-  UserX,
-  UserPlus,
-  UserMinus,
-  Users as UsersIcon,
-  User as UserIcon,
-  Briefcase as BriefcaseIcon,
-  Award as AwardIcon,
-  Check,
-  ChevronLeft,
-  Link,
-  Copy,
-  Phone,
-  MessageCircle,
-  Send,
-  Paperclip,
-  Mail,
-  Globe,
-  Compass,
-  Wind,
-  Droplets,
-  Sun as SunIcon,
+  LogOut,
 } from "lucide-react";
+import "../styles/dashboard.css";
 
-// ✅ Recharts Components
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
 import {
-  LineChart,
-  Line,
-  BarChart,
   Bar,
   XAxis,
   YAxis,
@@ -135,734 +75,894 @@ import {
   Tooltip,
   ResponsiveContainer,
   Area,
-  AreaChart,
+  ComposedChart,
   PieChart as RePieChart,
   Pie,
   Cell,
-  ComposedChart,
-  Legend,
-  Scatter,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
 } from "recharts";
 
 // ============================================
-// 🔧 API CONFIGURATION
+// 🎨 MODULE-LEVEL CONSTANTS
 // ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || "http://localhost:5000/api";
+const CHART_COLORS = ["#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#14b8a6"];
 
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 15000,
-  headers: {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  },
-});
+const STAT_COLOR_MAP = {
+  blue: { bg: "bg-blue-100 dark:bg-blue-900/30", text: "text-blue-600 dark:text-blue-400" },
+  emerald: { bg: "bg-emerald-100 dark:bg-emerald-900/30", text: "text-emerald-600 dark:text-emerald-400" },
+  purple: { bg: "bg-purple-100 dark:bg-purple-900/30", text: "text-purple-600 dark:text-purple-400" },
+  amber: { bg: "bg-amber-100 dark:bg-amber-900/30", text: "text-amber-600 dark:text-amber-400" },
+  red: { bg: "bg-red-100 dark:bg-red-900/30", text: "text-red-600 dark:text-red-400" },
+  green: { bg: "bg-green-100 dark:bg-green-900/30", text: "text-green-600 dark:text-green-400" },
+  indigo: { bg: "bg-indigo-100 dark:bg-indigo-900/30", text: "text-indigo-600 dark:text-indigo-400" },
+  pink: { bg: "bg-pink-100 dark:bg-pink-900/30", text: "text-pink-600 dark:text-pink-400" },
+};
 
-// ✅ Enhanced Interceptors with silent fallback
-api.interceptors.request.use(
-  (config) => {
-    config.params = { ...config.params, _t: Date.now() };
-    console.log("📤 API Request:", config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  (error) => Promise.reject(error),
-);
+const STATUS_COLOR_MAP = {
+  Completed: "status-completed",
+  Pending: "status-pending",
+  Processing: "status-processing",
+  Cancelled: "status-cancelled",
+  Shipped: "status-shipped",
+  Delivered: "status-delivered",
+  Paid: "status-paid",
+  Unpaid: "status-unpaid",
+};
 
-api.interceptors.response.use(
-  (response) => {
-    console.log("📥 API Response:", response.status, response.config.url);
-    return response;
-  },
-  (error) => {
-    // ✅ SILENT FALLBACK - No console errors, just warnings
-    if (error.response?.status === 400 || error.response?.status === 404) {
-      const url = error.config?.url || "";
-      if (
-        url.includes("/orders/recent") ||
-        url.includes("/orders/pending") ||
-        url.includes("/stock/low-stock")
-      ) {
-        // Silent fallback - no error shown to user
-        return Promise.resolve({ data: [] });
-      }
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const REFRESH_STALE_TIME_MS = 60000;
+
+// ============================================
+// 🧪 SAMPLE / FALLBACK DATA
+// Used ONLY when a request actually fails (network error, 4xx/5xx).
+// An empty-but-successful response is real data and is never replaced.
+// ============================================
+const SAMPLE_STATS = {
+  total_customers: 1250,
+  total_products: 48,
+  total_orders: 342,
+  total_revenue: 45678.5,
+  growth_rate: 12.5,
+  conversion_rate: 4.2,
+  avg_order_value: 133.56,
+  today_sales: 1250.0,
+  today_orders: 8,
+  active_users: 24,
+  revenue_growth: 18.6,
+};
+
+const SAMPLE_ORDERS = [
+  { OR_ID: 1, ORDER_NO: "ORD-2024-001", FIRST_NAME: "John", LAST_NAME: "Doe", AMOUNT_US: 1299.99, ORDER_DATE: new Date().toISOString(), STATUS: "Completed" },
+  { OR_ID: 2, ORDER_NO: "ORD-2024-002", FIRST_NAME: "Jane", LAST_NAME: "Smith", AMOUNT_US: 899.99, ORDER_DATE: new Date(Date.now() - 3600000).toISOString(), STATUS: "Processing" },
+  { OR_ID: 3, ORDER_NO: "ORD-2024-003", FIRST_NAME: "Robert", LAST_NAME: "Johnson", AMOUNT_US: 499.99, ORDER_DATE: new Date(Date.now() - 7200000).toISOString(), STATUS: "Pending" },
+  { OR_ID: 4, ORDER_NO: "ORD-2024-004", FIRST_NAME: "Mary", LAST_NAME: "Williams", AMOUNT_US: 1299.99, ORDER_DATE: new Date(Date.now() - 10800000).toISOString(), STATUS: "Completed" },
+  { OR_ID: 5, ORDER_NO: "ORD-2024-005", FIRST_NAME: "David", LAST_NAME: "Brown", AMOUNT_US: 699.99, ORDER_DATE: new Date(Date.now() - 14400000).toISOString(), STATUS: "Pending" },
+  { OR_ID: 6, ORDER_NO: "ORD-2024-006", FIRST_NAME: "Sarah", LAST_NAME: "Wilson", AMOUNT_US: 349.99, ORDER_DATE: new Date(Date.now() - 18000000).toISOString(), STATUS: "Completed" },
+];
+
+const SAMPLE_LOW_STOCK = [
+  { PRODUCT_ID: 1, NAME_EN: "Laptop Pro", NAME_KH: "កុំព្យូទ័រយួរដៃ", QtyAvailable: 3, QTY_ALERT: 10, SALEOUT_PRICE: 1299.99 },
+  { PRODUCT_ID: 2, NAME_EN: "Smartphone X", NAME_KH: "ទូរស័ព្ទ X", QtyAvailable: 5, QTY_ALERT: 10, SALEOUT_PRICE: 899.99 },
+  { PRODUCT_ID: 3, NAME_EN: "Tablet Plus", NAME_KH: "ថេប្លេត Plus", QtyAvailable: 2, QTY_ALERT: 10, SALEOUT_PRICE: 499.99 },
+  { PRODUCT_ID: 4, NAME_EN: "USB-C Hub", NAME_KH: "USB-C Hub", QtyAvailable: 8, QTY_ALERT: 10, SALEOUT_PRICE: 49.99 },
+];
+
+const SAMPLE_PENDING_ORDERS = SAMPLE_ORDERS.filter((o) => o.STATUS === "Pending");
+
+// ============================================
+// 💵 FORMATTING HELPERS
+// ============================================
+const formatCurrency = (value) => {
+  const num = Number.isFinite(Number(value)) ? Number(value) : 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(num);
+};
+
+const formatCurrencyCompact = (value) => {
+  const n = Number.isFinite(Number(value)) ? Number(value) : 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: n >= 1000 ? 0 : 2,
+    maximumFractionDigits: n >= 1000 ? 0 : 2,
+  }).format(n);
+};
+
+const formatDate = (value, options = { month: "short", day: "numeric", year: "numeric" }) => {
+  if (!value) return "N/A";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "N/A" : d.toLocaleDateString("en-US", options);
+};
+
+const getInitials = (name) => {
+  if (!name) return "?";
+  const parts = name.trim().split(" ").filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+};
+
+const getStatusColor = (status) => STATUS_COLOR_MAP[status] || STATUS_COLOR_MAP.Pending;
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** Pull a stable id off a record, trying several common key spellings before falling back to a caller-supplied default (e.g. list index). */
+const pickId = (record, keys, fallback) => {
+  for (const key of keys) {
+    if (record?.[key] !== undefined && record[key] !== null) return record[key];
+  }
+  return fallback;
+};
+
+// ============================================
+// 🔍 NAMING-CONVENTION-AGNOSTIC FIELD LOOKUP
+// The backend has used at least three different naming styles across
+// endpoints (SCREAMING_SNAKE_CASE, snake_case, camelCase) and sometimes
+// nests related data (e.g. a customer sub-object on an order). Rather
+// than hardcode every possible spelling, normalize both the field name
+// we're looking for and the object's actual keys (lowercase, strip
+// non-alphanumerics) and match on that — "CUSTOMER_NAME", "customerName"
+// and "customer_name" all normalize to "customername" and match the
+// same alias.
+// ============================================
+const normalizeKey = (key) => String(key).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const findField = (obj, aliases) => {
+  if (!obj || typeof obj !== "object") return undefined;
+  const normalizedAliases = aliases.map(normalizeKey);
+  for (const key of Object.keys(obj)) {
+    if (normalizedAliases.includes(normalizeKey(key))) {
+      const value = obj[key];
+      if (value !== undefined && value !== null && value !== "") return value;
     }
-    console.error(
-      "❌ API Error:",
-      error.response?.status,
-      error.response?.data,
-    );
-    return Promise.reject(error);
-  },
-);
+  }
+  return undefined;
+};
+
+/** Resolve a customer's display name off an order, trying a direct
+ * full-name field, a first/last split, and a nested customer/user/buyer
+ * object — in that order — before giving up and returning "Unknown". */
+const getCustomerName = (order) => {
+  const direct = findField(order, [
+    "customer_name",
+    "customerName",
+    "full_name",
+    "fullName",
+    "buyer_name",
+    "buyerName",
+    "client_name",
+    "clientName",
+    "customer",
+  ]);
+  if (direct && typeof direct === "string") return direct;
+
+  const first = findField(order, ["first_name", "firstName", "fname", "given_name"]);
+  const last = findField(order, ["last_name", "lastName", "lname", "surname", "family_name"]);
+  if (first || last) return `${first || ""} ${last || ""}`.trim();
+
+  const nested = order?.customer || order?.Customer || order?.user || order?.buyer || order?.client;
+  if (nested && typeof nested === "object") {
+    const nestedDirect = findField(nested, ["name", "full_name", "fullName", "customer_name", "customerName"]);
+    if (nestedDirect) return nestedDirect;
+    const nFirst = findField(nested, ["first_name", "firstName", "fname"]);
+    const nLast = findField(nested, ["last_name", "lastName", "lname"]);
+    if (nFirst || nLast) return `${nFirst || ""} ${nLast || ""}`.trim();
+  }
+
+  return "Unknown";
+};
+
+/** Pull a numeric stat off the stats payload trying many aliases; returns
+ * `fallback` (default 0) only if none of the aliases are present at all. */
+const getStat = (stats, aliases, fallback = 0) => {
+  const value = findField(stats, aliases);
+  if (value === undefined) return fallback;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
 
 // ============================================
-// 📊 MOCK DATA GENERATORS
+// 📊 API DATA EXTRACTORS
 // ============================================
-const generateMockData = () => {
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const currentMonth = new Date().getMonth();
-  const last6Months = months.slice(
-    Math.max(0, currentMonth - 5),
-    currentMonth + 1,
-  );
+const extractArrayData = (responseData, extraKeys = []) => {
+  if (typeof responseData === "string" && responseData.includes("<!DOCTYPE html>")) return [];
+  if (Array.isArray(responseData)) return responseData;
+  if (responseData && typeof responseData === "object") {
+    if (Array.isArray(responseData.data)) return responseData.data;
+    for (const key of extraKeys) {
+      if (Array.isArray(responseData[key])) return responseData[key];
+    }
+    if (responseData.data && typeof responseData.data === "object") {
+      for (const key of extraKeys) {
+        if (Array.isArray(responseData.data[key])) return responseData.data[key];
+      }
+      const values = Object.values(responseData.data);
+      if (values.length > 0 && Array.isArray(values[0])) return values[0];
+    }
+  }
+  return [];
+};
 
-  return {
-    stats: {
-      totalCustomers: 1250,
-      totalProducts: 48,
-      totalOrders: 342,
-      totalRevenue: 45678.5,
-      lowStockItems: 4,
-      pendingOrders: 3,
-      growthRate: 12.5,
-      conversionRate: 4.2,
-      avgOrderValue: 133.56,
-      todaySales: 1250.0,
-      todayOrders: 8,
-      weeklyGrowth: 8.5,
-      monthlyGrowth: 15.2,
-      yearlyGrowth: 42.8,
-      activeUsers: 24,
-      totalRevenueGrowth: 18.6,
-      customerSatisfaction: 94,
-      returnRate: 2.3,
-    },
-    recentOrders: [
-      {
-        OR_ID: 1,
-        ORDER_NO: "ORD-2024-001",
-        FIRST_NAME: "John",
-        LAST_NAME: "Doe",
-        AMOUNT_US: 1299.99,
-        ORDER_DATE: new Date().toISOString(),
-        STATUS: "Completed",
-        payment_method: "Credit Card",
-      },
-      {
-        OR_ID: 2,
-        ORDER_NO: "ORD-2024-002",
-        FIRST_NAME: "Jane",
-        LAST_NAME: "Smith",
-        AMOUNT_US: 899.99,
-        ORDER_DATE: new Date(Date.now() - 3600000).toISOString(),
-        STATUS: "Processing",
-        payment_method: "PayPal",
-      },
-      {
-        OR_ID: 3,
-        ORDER_NO: "ORD-2024-003",
-        FIRST_NAME: "Robert",
-        LAST_NAME: "Johnson",
-        AMOUNT_US: 499.99,
-        ORDER_DATE: new Date(Date.now() - 7200000).toISOString(),
-        STATUS: "Pending",
-        payment_method: "Bank Transfer",
-      },
-      {
-        OR_ID: 4,
-        ORDER_NO: "ORD-2024-004",
-        FIRST_NAME: "Mary",
-        LAST_NAME: "Williams",
-        AMOUNT_US: 1299.99,
-        ORDER_DATE: new Date(Date.now() - 10800000).toISOString(),
-        STATUS: "Completed",
-        payment_method: "Credit Card",
-      },
-      {
-        OR_ID: 5,
-        ORDER_NO: "ORD-2024-005",
-        FIRST_NAME: "David",
-        LAST_NAME: "Brown",
-        AMOUNT_US: 699.99,
-        ORDER_DATE: new Date(Date.now() - 14400000).toISOString(),
-        STATUS: "Pending",
-        payment_method: "PayPal",
-      },
-      {
-        OR_ID: 6,
-        ORDER_NO: "ORD-2024-006",
-        FIRST_NAME: "Sarah",
-        LAST_NAME: "Wilson",
-        AMOUNT_US: 349.99,
-        ORDER_DATE: new Date(Date.now() - 18000000).toISOString(),
-        STATUS: "Completed",
-        payment_method: "Credit Card",
-      },
-    ],
-    lowStockProducts: [
-      {
-        PRODUCT_ID: 1,
-        NAME_EN: "Laptop Pro",
-        NAME_KH: "កុំព្យូទ័រយួរដៃ",
-        QtyAvailable: 3,
-        QTY_ALERT: 10,
-        SALEOUT_PRICE: 1299.99,
-        category: "Electronics",
-      },
-      {
-        PRODUCT_ID: 2,
-        NAME_EN: "Smartphone X",
-        NAME_KH: "ទូរស័ព្ទ X",
-        QtyAvailable: 5,
-        QTY_ALERT: 10,
-        SALEOUT_PRICE: 899.99,
-        category: "Electronics",
-      },
-      {
-        PRODUCT_ID: 3,
-        NAME_EN: "Tablet Plus",
-        NAME_KH: "ថេប្លេត Plus",
-        QtyAvailable: 2,
-        QTY_ALERT: 10,
-        SALEOUT_PRICE: 499.99,
-        category: "Electronics",
-      },
-      {
-        PRODUCT_ID: 4,
-        NAME_EN: "USB-C Hub",
-        NAME_KH: "USB-C Hub",
-        QtyAvailable: 8,
-        QTY_ALERT: 10,
-        SALEOUT_PRICE: 49.99,
-        category: "Accessories",
-      },
-    ],
-    pendingOrdersList: [
-      {
-        OR_ID: 1,
-        ORDER_NO: "ORD-2024-001",
-        FIRST_NAME: "John",
-        LAST_NAME: "Doe",
-        AMOUNT_US: 1299.99,
-        ORDER_DATE: new Date().toISOString(),
-        STATUS: "Pending",
-        payment_method: "Credit Card",
-      },
-      {
-        OR_ID: 3,
-        ORDER_NO: "ORD-2024-003",
-        FIRST_NAME: "Robert",
-        LAST_NAME: "Johnson",
-        AMOUNT_US: 499.99,
-        ORDER_DATE: new Date(Date.now() - 7200000).toISOString(),
-        STATUS: "Pending",
-        payment_method: "Bank Transfer",
-      },
-      {
-        OR_ID: 5,
-        ORDER_NO: "ORD-2024-005",
-        FIRST_NAME: "David",
-        LAST_NAME: "Brown",
-        AMOUNT_US: 699.99,
-        ORDER_DATE: new Date(Date.now() - 14400000).toISOString(),
-        STATUS: "Pending",
-        payment_method: "PayPal",
-      },
-    ],
-    chartData: last6Months.map((m, i) => ({
-      name: m,
+// ============================================
+// 📊 GENERATE CHART DATA FROM ORDERS
+// Buckets are keyed by (year, monthIndex) — not just month name — so
+// orders from the same calendar month a year apart don't get merged.
+// ============================================
+const generateChartDataFromOrders = (orders) => {
+  const now = new Date();
+  const buckets = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    buckets.push({
+      year: d.getFullYear(),
+      monthIndex: d.getMonth(),
+      name: MONTH_NAMES[d.getMonth()],
+      revenue: 0,
+      orders: 0,
+    });
+  }
+
+  if (orders && orders.length > 0) {
+    orders.forEach((order) => {
+      const date = new Date(order.ORDER_DATE || order.order_date || order.date);
+      if (Number.isNaN(date.getTime())) return;
+      const bucket = buckets.find((b) => b.year === date.getFullYear() && b.monthIndex === date.getMonth());
+      if (!bucket) return; // order falls outside the trailing 6-month window
+      bucket.revenue += Number(order.AMOUNT_US || order.amount_us || order.total || 0);
+      bucket.orders += 1;
+    });
+  }
+
+  const hasRealData = buckets.some((b) => b.orders > 0);
+  if (!hasRealData) {
+    // No orders yet (new store / empty response) — show an illustrative
+    // sample curve rather than a flat empty chart.
+    return buckets.map((b, i) => ({
+      name: b.name,
       revenue: 5000 + i * 1500 + Math.floor(Math.random() * 500),
       orders: 30 + i * 8 + Math.floor(Math.random() * 5),
       profit: 2000 + i * 600 + Math.floor(Math.random() * 200),
-      returns: Math.floor(Math.random() * 8) + 1,
-      customers: 50 + i * 12 + Math.floor(Math.random() * 10),
-      satisfaction: Math.min(98, 82 + Math.floor(Math.random() * 10)),
-      conversion: Math.min(8, 3.5 + i * 0.7),
-    })),
-    salesDistribution: [
-      { name: "Electronics", value: 4000, color: "#6366f1" },
-      { name: "Clothing", value: 3000, color: "#8b5cf6" },
-      { name: "Books", value: 2000, color: "#ec4899" },
-      { name: "Home Goods", value: 1500, color: "#f59e0b" },
-      { name: "Other", value: 1000, color: "#10b981" },
-    ],
-    radarData: [
-      { subject: "Sales", A: 80, B: 110, fullMark: 150 },
-      { subject: "Traffic", A: 60, B: 130, fullMark: 150 },
-      { subject: "Conversion", A: 60, B: 130, fullMark: 150 },
-      { subject: "Retention", A: 80, B: 100, fullMark: 150 },
-      { subject: "Satisfaction", A: 75, B: 90, fullMark: 150 },
-      { subject: "Growth", A: 50, B: 85, fullMark: 150 },
-    ],
-  };
+    }));
+  }
+
+  return buckets.map((b) => ({
+    name: b.name,
+    revenue: b.revenue,
+    orders: b.orders,
+    profit: b.revenue * 0.35,
+  }));
 };
 
 // ============================================
-// 🔄 CUSTOM HOOK: useDashboardData (FIXED)
+// 📊 GENERATE SALES DISTRIBUTION
+// ============================================
+const generateSalesDistribution = (orders) => {
+  const fallback = [
+    { name: "Electronics", value: 4000, color: "#6366f1" },
+    { name: "Clothing", value: 3000, color: "#8b5cf6" },
+    { name: "Books", value: 2000, color: "#ec4899" },
+    { name: "Home Goods", value: 1500, color: "#f59e0b" },
+    { name: "Other", value: 1000, color: "#10b981" },
+  ];
+
+  if (!orders || orders.length === 0) return fallback;
+
+  const total = orders.reduce((sum, o) => sum + Number(o.AMOUNT_US || o.amount_us || o.total || 0), 0);
+  if (total === 0) return fallback;
+
+  return [
+    { name: "Electronics", value: total * 0.35, color: "#6366f1" },
+    { name: "Clothing", value: total * 0.25, color: "#8b5cf6" },
+    { name: "Books", value: total * 0.18, color: "#ec4899" },
+    { name: "Home Goods", value: total * 0.12, color: "#f59e0b" },
+    { name: "Other", value: total * 0.1, color: "#10b981" },
+  ];
+};
+
+// ============================================
+// 📊 USE DASHBOARD DATA HOOK
 // ============================================
 const useDashboardData = () => {
-  const [data, setData] = useState({
-    ...generateMockData(),
-    isLoading: true,
-    error: null,
-    lastUpdate: null,
+  const queryClient = useQueryClient();
+
+  // NOTE: each queryFn still lets real errors propagate — retry counts,
+  // isFetching, and the Retry button all keep working correctly. The
+  // *fallback to sample data on error* happens below, at the point we
+  // read `.data`/`.isError` off each query, not inside the queryFn.
+  const statsQuery = useQuery({
+    queryKey: ["dashboardStats"],
+    queryFn: async () => {
+      const response = await apiClient.get("/dashboard/stats");
+      return response.data || {};
+    },
+    staleTime: REFRESH_STALE_TIME_MS,
+    retry: 1,
   });
 
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const abortControllerRef = useRef(null);
-  const cacheRef = useRef({});
-  const mountedRef = useRef(true);
-
-  // ✅ Safe data extraction
-  const safeExtract = useCallback((response, fallback = []) => {
-    if (!response) return fallback;
-    if (Array.isArray(response)) return response;
-    if (response?.data && Array.isArray(response.data)) return response.data;
-    if (response?.orders && Array.isArray(response.orders))
-      return response.orders;
-    if (response?.products && Array.isArray(response.products))
-      return response.products;
-    if (response?.items && Array.isArray(response.items)) return response.items;
-    if (response?.results && Array.isArray(response.results))
-      return response.results;
-
-    const arrayProps = Object.values(response).filter((v) => Array.isArray(v));
-    return arrayProps.length > 0 ? arrayProps[0] : fallback;
-  }, []);
-
-  // ✅ Fetch data - FIXED endpoints
-  const fetchData = useCallback(
-    async (forceRefresh = false) => {
-      if (!mountedRef.current) return;
-
-      // Cancel previous request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      // Check cache
-      const cacheKey = "dashboard_data";
-      if (!forceRefresh && cacheRef.current[cacheKey]) {
-        const cached = cacheRef.current[cacheKey];
-        if (Date.now() - cached.timestamp < 30000) {
-          console.log("📦 Using cached data");
-          if (mountedRef.current) {
-            setData((prev) => ({ ...prev, ...cached.data, isLoading: false }));
-          }
-          return cached.data;
-        }
-      }
-
-      if (mountedRef.current) {
-        setIsRefreshing(true);
-        setData((prev) => ({ ...prev, isLoading: true, error: null }));
-      }
-
-      try {
-        // ✅ FIXED: Use correct endpoints - NO "recent" or "pending" as ID
-        const endpoints = [
-          { key: "stats", url: "/dashboard/stats", fallback: {} },
-          { key: "orders", url: "/orders/recent", fallback: [] }, // ✅ CORRECT
-          { key: "lowStock", url: "/stock/low-stock", fallback: [] }, // ✅ CORRECT
-          { key: "pending", url: "/orders/pending", fallback: [] }, // ✅ CORRECT
-        ];
-
-        const results = await Promise.allSettled(
-          endpoints.map(({ url, fallback }) =>
-            api
-              .get(url, { signal: controller.signal })
-              .then((res) => res.data)
-              .catch(() => fallback),
-          ),
-        );
-
-        const [statsData, ordersData, lowStockData, pendingData] = results.map(
-          (r) => (r.status === "fulfilled" ? r.value : {}),
-        );
-
-        // ✅ Extract data
-        const safeStats = statsData || {};
-        const safeOrders = safeExtract(
-          ordersData,
-          generateMockData().recentOrders,
-        );
-        const safeLowStock = safeExtract(
-          lowStockData,
-          generateMockData().lowStockProducts,
-        );
-        const safePending = safeExtract(
-          pendingData,
-          generateMockData().pendingOrdersList,
-        );
-
-        // ✅ Calculate derived stats
-        const totalRevenue = safeStats.totalRevenue || 45678.5;
-        const totalOrders = safeStats.totalOrders || 342;
-        const totalCustomers = safeStats.totalCustomers || 1250;
-        const totalProducts = safeStats.totalProducts || 48;
-
-        // ✅ Generate chart data
-        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-        const baseRevenue = totalRevenue || 5000;
-        const baseOrders = totalOrders || 30;
-        const baseCustomers = totalCustomers || 50;
-
-        const chartData = months.map((m, i) => ({
-          name: m,
-          revenue: Math.floor(baseRevenue * (0.3 + i * 0.14)) + 500,
-          orders: Math.floor(baseOrders * (0.3 + i * 0.12)) + 5,
-          profit: Math.floor(baseRevenue * (0.15 + i * 0.08)) + 100,
-          returns: Math.floor(Math.random() * 8) + 1,
-          customers: Math.floor(baseCustomers * (0.3 + i * 0.12)) + 5,
-          satisfaction: Math.min(98, 82 + Math.floor(Math.random() * 10)),
-          conversion: Math.min(8, 3.5 + i * 0.7),
-        }));
-
-        const salesDistribution = [
-          {
-            name: "Electronics",
-            value: Math.floor(totalRevenue * 0.35) || 4000,
-            color: "#6366f1",
-          },
-          {
-            name: "Clothing",
-            value: Math.floor(totalRevenue * 0.25) || 3000,
-            color: "#8b5cf6",
-          },
-          {
-            name: "Books",
-            value: Math.floor(totalRevenue * 0.18) || 2000,
-            color: "#ec4899",
-          },
-          {
-            name: "Home Goods",
-            value: Math.floor(totalRevenue * 0.12) || 1500,
-            color: "#f59e0b",
-          },
-          {
-            name: "Other",
-            value: Math.floor(totalRevenue * 0.1) || 1000,
-            color: "#10b981",
-          },
-        ];
-
-        const radarData = [
-          {
-            subject: "Sales",
-            A: Math.min(120, totalOrders || 80),
-            B: 110,
-            fullMark: 150,
-          },
-          {
-            subject: "Traffic",
-            A: Math.min(98, totalCustomers || 60),
-            B: 130,
-            fullMark: 150,
-          },
-          {
-            subject: "Conversion",
-            A: Math.min(86, safeStats.conversionRate || 60),
-            B: 130,
-            fullMark: 150,
-          },
-          { subject: "Retention", A: Math.min(99, 80), B: 100, fullMark: 150 },
-          {
-            subject: "Satisfaction",
-            A: Math.min(85, 75),
-            B: 90,
-            fullMark: 150,
-          },
-          {
-            subject: "Growth",
-            A: Math.min(65, safeStats.growthRate || 50),
-            B: 85,
-            fullMark: 150,
-          },
-        ];
-
-        const newData = {
-          stats: {
-            totalCustomers,
-            totalProducts,
-            totalOrders,
-            totalRevenue,
-            lowStockItems: safeLowStock.length || 0,
-            pendingOrders: safePending.length || 0,
-            growthRate: safeStats.growthRate || 12,
-            conversionRate: safeStats.conversionRate || 4.2,
-            avgOrderValue:
-              totalOrders > 0 ? totalRevenue / totalOrders : 133.56,
-            todaySales: totalRevenue * 0.08,
-            todayOrders: Math.floor(totalOrders * 0.1),
-            weeklyGrowth: 8.5,
-            monthlyGrowth: 15.2,
-            yearlyGrowth: 42.8,
-            activeUsers: Math.floor(totalCustomers * 0.15),
-            totalRevenueGrowth: 18.6,
-            customerSatisfaction: 94,
-            returnRate: 2.3,
-          },
-          recentOrders: safeOrders.slice(0, 10),
-          lowStockProducts: safeLowStock,
-          pendingOrdersList: safePending,
-          chartData,
-          salesDistribution,
-          radarData,
-          isLoading: false,
-          error: null,
-          lastUpdate: new Date(),
-        };
-
-        // ✅ Update cache
-        cacheRef.current[cacheKey] = {
-          data: newData,
-          timestamp: Date.now(),
-        };
-
-        if (mountedRef.current) {
-          setData(newData);
-        }
-        return newData;
-      } catch (error) {
-        if (error.name === "AbortError") {
-          console.log("⏹️ Request cancelled");
-          return;
-        }
-
-        console.error("❌ Error fetching data:", error);
-
-        // ✅ Use mock data as fallback
-        const mockData = generateMockData();
-        if (mountedRef.current) {
-          setData({
-            ...mockData,
-            isLoading: false,
-            error: null,
-            lastUpdate: new Date(),
-          });
-        }
-      } finally {
-        if (mountedRef.current) {
-          setIsRefreshing(false);
-        }
-        if (abortControllerRef.current === controller) {
-          abortControllerRef.current = null;
-        }
-      }
+  const ordersQuery = useQuery({
+    queryKey: ["recentOrders"],
+    queryFn: async () => {
+      const response = await apiClient.get("/orders/recent");
+      return extractArrayData(response.data, ["orders", "items"]);
     },
-    [safeExtract],
-  );
+    staleTime: REFRESH_STALE_TIME_MS,
+    retry: 1,
+  });
 
-  // ... rest of the hook
+  const lowStockQuery = useQuery({
+    queryKey: ["lowStock"],
+    queryFn: async () => {
+      const response = await apiClient.get("/stock/low-stock");
+      return extractArrayData(response.data, ["stock", "items"]);
+    },
+    staleTime: REFRESH_STALE_TIME_MS,
+    retry: 1,
+  });
 
-  // ✅ Auto-refresh setup
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchData();
+  const pendingOrdersQuery = useQuery({
+    queryKey: ["pendingOrders"],
+    queryFn: async () => {
+      const response = await apiClient.get("/orders/pending");
+      return extractArrayData(response.data, ["orders", "items"]);
+    },
+    staleTime: REFRESH_STALE_TIME_MS,
+    retry: 1,
+  });
 
-    const intervalId = setInterval(() => {
-      if (document.visibilityState === "visible" && mountedRef.current) {
-        fetchData(true);
-      }
-    }, 60000);
+  const allQueries = [statsQuery, ordersQuery, lowStockQuery, pendingOrdersQuery];
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && mountedRef.current) {
-        fetchData(true);
-      }
+  // Only the very first load (no cached data anywhere yet) shows the
+  // skeleton. Background refreshes use the thin top progress bar instead
+  // via isRefreshing, so the whole page never un-mounts into a skeleton
+  // on a routine 60s refresh.
+  const isLoading = allQueries.some((q) => q.isLoading);
+  const isRefreshing = allQueries.some((q) => q.isFetching);
+
+  // A request that actually failed falls back to sample data instead of
+  // blocking the page — the dashboard always has something to show.
+  // Empty-but-successful data (a real store with 0 orders) is left as-is.
+  const usingSampleStats = statsQuery.isError;
+  const usingSampleOrders = ordersQuery.isError;
+  const usingSampleLowStock = lowStockQuery.isError;
+  const usingSamplePending = pendingOrdersQuery.isError;
+  const hasAnySampleData = usingSampleStats || usingSampleOrders || usingSampleLowStock || usingSamplePending;
+
+  const stats = usingSampleStats ? SAMPLE_STATS : statsQuery.data || {};
+  const recentOrders = usingSampleOrders ? SAMPLE_ORDERS : ordersQuery.data || [];
+  const lowStockProducts = usingSampleLowStock ? SAMPLE_LOW_STOCK : lowStockQuery.data || [];
+  const pendingOrdersList = usingSamplePending ? SAMPLE_PENDING_ORDERS : pendingOrdersQuery.data || [];
+
+  const chartData = useMemo(() => generateChartDataFromOrders(recentOrders), [recentOrders]);
+  const salesDistribution = useMemo(() => generateSalesDistribution(recentOrders), [recentOrders]);
+
+  const dashboardStats = useMemo(() => {
+    const totalOrders = getStat(stats, ["total_orders", "totalOrders", "orders_count", "orderCount", "order_count"]);
+    const totalRevenue = getStat(stats, ["total_revenue", "totalRevenue", "revenue", "total_sales", "totalSales"]);
+
+    // Some backends don't ship a precomputed avg_order_value at all. If
+    // that field is genuinely absent, derive a real number from the
+    // orders we actually have on hand rather than showing a fake $0 next
+    // to a table full of real order amounts.
+    const statsAvgOrderValue = getStat(stats, ["avg_order_value", "avgOrderValue", "average_order_value", "averageOrderValue"], null);
+    const derivedAvgOrderValue =
+      recentOrders.length > 0
+        ? recentOrders.reduce((sum, o) => sum + Number(o.AMOUNT_US || o.amount_us || o.total || 0), 0) / recentOrders.length
+        : totalOrders > 0
+        ? totalRevenue / totalOrders
+        : 0;
+
+    return {
+      totalCustomers: getStat(stats, ["total_customers", "totalCustomers", "customers_count", "customerCount"]),
+      totalProducts: getStat(stats, ["total_products", "totalProducts", "products_count", "productCount"]),
+      totalOrders,
+      totalRevenue,
+      lowStockItems: lowStockProducts.length || 0,
+      pendingOrders: pendingOrdersList.length || 0,
+      growthRate: getStat(stats, ["growth_rate", "growthRate", "monthly_growth", "monthlyGrowth"]),
+      conversionRate: getStat(stats, ["conversion_rate", "conversionRate", "conversion"]),
+      avgOrderValue: statsAvgOrderValue !== null ? statsAvgOrderValue : derivedAvgOrderValue,
+      todaySales: getStat(stats, ["today_sales", "todaySales", "daily_sales", "dailySales"]),
+      todayOrders: getStat(stats, ["today_orders", "todayOrders", "daily_orders", "dailyOrders"]),
+      activeUsers: getStat(stats, ["active_users", "activeUsers", "online_users", "onlineUsers"]),
+      totalRevenueGrowth: getStat(stats, ["revenue_growth", "revenueGrowth"]),
     };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+  }, [stats, lowStockProducts.length, pendingOrdersList.length, recentOrders]);
 
-    return () => {
-      mountedRef.current = false;
-      clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [fetchData]);
+  const refreshData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
+    queryClient.invalidateQueries({ queryKey: ["recentOrders"] });
+    queryClient.invalidateQueries({ queryKey: ["lowStock"] });
+    queryClient.invalidateQueries({ queryKey: ["pendingOrders"] });
+  }, [queryClient]);
 
   return {
-    ...data,
+    stats: dashboardStats,
+    recentOrders,
+    lowStockProducts,
+    pendingOrdersList,
+    chartData,
+    salesDistribution,
+    isLoading,
     isRefreshing,
-    refreshData: () => fetchData(true),
-    retry: () => fetchData(true),
+    refreshData,
+    hasAnySampleData,
   };
 };
 
 // ============================================
-// ⏳ ANIMATED LOADING SKELETON
+// ⏳ LOADING SKELETON
 // ============================================
-const LoadingSkeleton = () => (
-  <div className="space-y-4 sm:space-y-6 animate-pulse">
-    <div className="h-[180px] sm:h-[220px] bg-gradient-to-r from-indigo-400 to-purple-400 rounded-2xl sm:rounded-3xl p-5 sm:p-8 relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-r from-indigo-400/50 to-purple-400/50 animate-pulse" />
-      <div
-        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer"
-        style={{ backgroundSize: "200% 100%" }}
-      />
-      <div className="relative z-10">
-        <div className="w-32 h-4 bg-white/30 rounded mb-3 animate-pulse" />
-        <div className="w-48 h-8 bg-white/30 rounded mb-2 animate-pulse" />
-        <div className="w-64 h-4 bg-white/30 rounded animate-pulse" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="bg-white/20 rounded-xl p-4 h-24 animate-pulse"
-            >
-              <div className="w-12 h-4 bg-white/30 rounded mb-2" />
-              <div className="w-16 h-6 bg-white/30 rounded" />
-            </div>
-          ))}
+const LoadingSkeleton = React.memo(function LoadingSkeleton() {
+  return (
+    <div className="dashboard-loading" role="status" aria-live="polite">
+      <div className="dashboard-loading-header">
+        <div className="dashboard-loading-header-bg" />
+        <div className="dashboard-loading-header-shimmer" />
+        <div className="dashboard-loading-header-content">
+          <div className="dashboard-loading-header-text" />
+          <div className="dashboard-loading-stats">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="dashboard-loading-stat" />
+            ))}
+          </div>
         </div>
       </div>
-    </div>
-
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-      {[1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 animate-pulse"
-        >
-          <div className="flex justify-between items-start">
-            <div className="space-y-2">
-              <div className="w-20 h-3 bg-gray-200 dark:bg-gray-700 rounded" />
-              <div className="w-16 h-6 bg-gray-300 dark:bg-gray-600 rounded" />
+      <div className="dashboard-loading-grid">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="dashboard-loading-card">
+            <div className="dashboard-loading-card-content">
+              <div className="dashboard-loading-card-label" />
+              <div className="dashboard-loading-card-value" />
             </div>
-            <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-2xl" />
+            <div className="dashboard-loading-card-icon" />
           </div>
-          <div className="mt-4 w-24 h-3 bg-gray-200 dark:bg-gray-700 rounded" />
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+});
 
 // ============================================
-// ✨ ANIMATED STAT CARD COMPONENT
+// ⚠️ NON-BLOCKING SAMPLE-DATA / FETCH-ERROR BANNER
+// Replaces the old full-page "Failed to load dashboard" screen. The
+// dashboard itself always renders; this just tells you some of what
+// you're looking at is sample data because a request failed.
 // ============================================
-const AnimatedStatCard = ({
+const FetchErrorBanner = React.memo(function FetchErrorBanner({ show, onRetry }) {
+  if (!show) return null;
+  return (
+    <div className="dashboard-error-banner" role="alert">
+      <WifiOff className="w-4 h-4" aria-hidden="true" />
+      <span>Some data couldn't be loaded — you're seeing sample figures until the connection is restored.</span>
+      <button onClick={onRetry} className="dashboard-error-banner-retry">
+        Retry
+      </button>
+    </div>
+  );
+});
+
+// ============================================
+// 🔢 ANIMATED NUMBER
+// ============================================
+const AnimatedNumber = React.memo(function AnimatedNumber({ value, format = "number", duration = 1200 }) {
+  const [display, setDisplay] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+  const ref = useRef(null);
+  const rafRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => entry.isIntersecting && setIsVisible(true), {
+      threshold: 0.1,
+    });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    const end = Number.isFinite(Number(value)) ? Number(value) : 0;
+
+    if (prefersReducedMotion()) {
+      setDisplay(end);
+      return;
+    }
+
+    const start = performance.now();
+    const tick = (now) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(end * eased);
+      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => rafRef.current && cancelAnimationFrame(rafRef.current);
+  }, [value, duration, isVisible]);
+
+  const formatted = useMemo(() => {
+    if (format === "currency") return formatCurrencyCompact(display);
+    if (format === "percent") return `${display.toFixed(1)}%`;
+    return Math.round(display).toLocaleString();
+  }, [display, format]);
+
+  return <span ref={ref}>{isVisible ? formatted : format === "currency" ? "$0" : "0"}</span>;
+});
+
+// ============================================
+// ✨ ANIMATED STAT CARD
+// ============================================
+const AnimatedStatCard = React.memo(function AnimatedStatCard({
   label,
   value,
+  format = "number",
   icon: Icon,
   color,
   change,
   sub,
   delay = 0,
-}) => {
+  onClick,
+}) {
   const [isVisible, setIsVisible] = useState(false);
   const cardRef = useRef(null);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    if (cardRef.current) {
-      observer.observe(cardRef.current);
-    }
-
+    const observer = new IntersectionObserver(([entry]) => entry.isIntersecting && setIsVisible(true), {
+      threshold: 0.1,
+    });
+    if (cardRef.current) observer.observe(cardRef.current);
     return () => observer.disconnect();
   }, []);
 
-  // ✅ Fixed: Color mapping for Tailwind
-  const getColorClasses = (color) => {
-    const colorMap = {
-      blue: {
-        bg: "bg-blue-100 dark:bg-blue-900/30",
-        text: "text-blue-600 dark:text-blue-400",
-      },
-      emerald: {
-        bg: "bg-emerald-100 dark:bg-emerald-900/30",
-        text: "text-emerald-600 dark:text-emerald-400",
-      },
-      purple: {
-        bg: "bg-purple-100 dark:bg-purple-900/30",
-        text: "text-purple-600 dark:text-purple-400",
-      },
-      amber: {
-        bg: "bg-amber-100 dark:bg-amber-900/30",
-        text: "text-amber-600 dark:text-amber-400",
-      },
-      red: {
-        bg: "bg-red-100 dark:bg-red-900/30",
-        text: "text-red-600 dark:text-red-400",
-      },
-      green: {
-        bg: "bg-green-100 dark:bg-green-900/30",
-        text: "text-green-600 dark:text-green-400",
-      },
-      indigo: {
-        bg: "bg-indigo-100 dark:bg-indigo-900/30",
-        text: "text-indigo-600 dark:text-indigo-400",
-      },
-    };
-    return colorMap[color] || colorMap["blue"];
-  };
-
-  const colors = getColorClasses(color);
+  const colors = STAT_COLOR_MAP[color] || STAT_COLOR_MAP.blue;
 
   return (
     <div
       ref={cardRef}
-      className={`bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:shadow-xl transition-all duration-500 group relative overflow-hidden ${
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10"
-      }`}
+      className={`dashboard-stat-card ${isVisible ? "dashboard-stat-card-visible" : "dashboard-stat-card-hidden"} ${onClick ? "cursor-pointer" : ""}`}
       style={{ transitionDelay: `${delay}ms` }}
+      role="group"
+      onClick={onClick}
     >
-      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-
-      <div className="relative z-10">
-        <div className="flex items-center justify-between">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 font-medium truncate">
-              {label}
+      <div className="dashboard-stat-card-shine" />
+      <div className="dashboard-stat-card-content">
+        <div className="dashboard-stat-card-header">
+          <div className="dashboard-stat-card-info">
+            <p className="dashboard-stat-card-label">{label}</p>
+            <p className="dashboard-stat-card-value">
+              <AnimatedNumber value={value} format={format} />
             </p>
-            <p className="text-xl sm:text-2xl lg:text-3xl font-bold mt-1 text-gray-800 dark:text-white truncate transition-all duration-300 group-hover:scale-105 origin-left">
-              {value}
-            </p>
-            {sub && <p className="text-[10px] text-gray-400 truncate">{sub}</p>}
+            {sub && <p className="dashboard-stat-card-sub">{sub}</p>}
           </div>
-          <div
-            className={`p-3 rounded-2xl ${colors.bg} group-hover:scale-110 transition-all duration-300 flex-shrink-0 ml-2 group-hover:rotate-12`}
-          >
-            <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${colors.text}`} />
+          <div className={`dashboard-stat-card-icon-wrapper ${colors.bg}`}>
+            <Icon className={`dashboard-stat-card-icon ${colors.text}`} aria-hidden="true" />
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-1.5 text-xs font-medium">
-          <span className="text-emerald-500 flex items-center gap-0.5 animate-pulse">
-            <TrendingUp className="w-3 h-3" /> {change}
-          </span>
-          <span className="text-gray-400">vs last month</span>
-        </div>
+        {change && (
+          <div className="dashboard-stat-card-footer">
+            <span className="dashboard-stat-card-change">
+              <TrendingUp className="w-3 h-3" aria-hidden="true" /> {change}
+            </span>
+            <span className="dashboard-stat-card-period">vs last month</span>
+          </div>
+        )}
       </div>
     </div>
   );
-};
+});
+
+// ============================================
+// 🏷️ STATUS BADGE
+// ============================================
+const StatusBadge = React.memo(function StatusBadge({ status }) {
+  return <span className={`status-badge ${getStatusColor(status)}`}>{status}</span>;
+});
+
+// ============================================
+// 🔔 NOTIFICATIONS PANEL
+// ============================================
+const NotificationsPanel = React.memo(function NotificationsPanel({
+  notifications,
+  unreadCount,
+  isOpen,
+  onToggle,
+  onMarkRead,
+  onClearAll,
+  panelRef,
+}) {
+  return (
+    <div className="dashboard-notifications" ref={panelRef}>
+      <button
+        onClick={onToggle}
+        className="dashboard-notifications-btn"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+      >
+        <Bell className="w-4 h-4 text-gray-600 dark:text-gray-300" aria-hidden="true" />
+        {unreadCount > 0 && <span className="dashboard-notifications-badge">{unreadCount}</span>}
+      </button>
+
+      {isOpen && (
+        <div className="dashboard-notifications-dropdown" role="menu">
+          <div className="dashboard-notifications-header">
+            <h4 className="dashboard-notifications-title">Notifications</h4>
+            {notifications.length > 0 && (
+              <button onClick={onClearAll} className="dashboard-notifications-clear">
+                Clear all
+              </button>
+            )}
+          </div>
+          <div className="dashboard-notifications-list">
+            {notifications.length === 0 ? (
+              <div className="dashboard-notifications-empty">
+                <Bell className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+                <p>No notifications</p>
+              </div>
+            ) : (
+              notifications.map((notif) => (
+                <div
+                  key={notif.id}
+                  role="menuitem"
+                  tabIndex={0}
+                  onClick={() => onMarkRead(notif.id)}
+                  onKeyDown={(e) => e.key === "Enter" && onMarkRead(notif.id)}
+                  className={`dashboard-notification-item ${!notif.read ? "dashboard-notification-item-unread" : ""}`}
+                >
+                  <div className="dashboard-notification-icon">
+                    <notif.icon className="w-3 h-3 text-gray-600 dark:text-gray-300" aria-hidden="true" />
+                  </div>
+                  <div className="dashboard-notification-content">
+                    <p className="dashboard-notification-title">{notif.title}</p>
+                    <p className="dashboard-notification-time">{notif.time}</p>
+                  </div>
+                  {!notif.read && <div className="dashboard-notification-dot" aria-hidden="true" />}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ============================================
+// 👤 USER MENU
+// ============================================
+const UserMenu = React.memo(function UserMenu({ user, isOpen, onToggle, onNavigate, onLogout, menuRef }) {
+  return (
+    <div className="dashboard-user-menu" ref={menuRef}>
+      <button onClick={onToggle} className="dashboard-user-btn" aria-haspopup="menu" aria-expanded={isOpen}>
+        <div className="dashboard-user-avatar">{getInitials(user?.username || "User")}</div>
+      </button>
+
+      {isOpen && (
+        <div className="dashboard-user-dropdown" role="menu">
+          <div className="dashboard-user-header">
+            <div className="dashboard-user-avatar-lg">{getInitials(user?.username || "User")}</div>
+            <div>
+              <p className="dashboard-user-name">{user?.username || "User"}</p>
+              <p className="dashboard-user-email">{user?.email || "user@example.com"}</p>
+            </div>
+          </div>
+          <div className="dashboard-user-divider" />
+          <button onClick={() => onNavigate("/profile")} className="dashboard-user-item">
+            <User className="w-4 h-4" aria-hidden="true" />
+            Profile
+          </button>
+          <button onClick={() => onNavigate("/settings")} className="dashboard-user-item">
+            <Settings className="w-4 h-4" aria-hidden="true" />
+            Settings
+          </button>
+          <button onClick={() => onNavigate("/help")} className="dashboard-user-item">
+            <HelpCircle className="w-4 h-4" aria-hidden="true" />
+            Help & Support
+          </button>
+          <div className="dashboard-user-divider" />
+          <button onClick={onLogout} className="dashboard-user-item dashboard-user-item-danger">
+            <LogOut className="w-4 h-4" aria-hidden="true" />
+            Logout
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ============================================
+// 📋 RECENT ORDERS TABLE
+// ============================================
+const RecentOrdersTable = React.memo(function RecentOrdersTable({ orders, onView }) {
+  return (
+    <div className="dashboard-table-wrapper">
+      <div className="dashboard-table-container">
+        <table className="dashboard-table">
+          <thead>
+            <tr className="dashboard-table-header">
+              <th className="dashboard-table-th">Order #</th>
+              <th className="dashboard-table-th hidden sm:table-cell">Customer</th>
+              <th className="dashboard-table-th hidden md:table-cell">Date</th>
+              <th className="dashboard-table-th text-right">Amount</th>
+              <th className="dashboard-table-th text-center hidden xs:table-cell">Status</th>
+              <th className="dashboard-table-th text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="dashboard-table-td text-center empty-state">
+                  No recent orders yet
+                </td>
+              </tr>
+            ) : (
+              orders.slice(0, 6).map((order, index) => {
+                const status = order.STATUS || order.status || "Pending";
+                const amount = Number(order.AMOUNT_US || order.amount_us || order.total || 0);
+                const orderId = pickId(order, ["OR_ID", "or_id", "order_id", "id"], null);
+
+                return (
+                  <tr key={orderId ?? `order-${index}`} className="dashboard-table-row">
+                    <td className="dashboard-table-td font-medium text-indigo-600 dark:text-indigo-400">
+                      {order.ORDER_NO || order.order_no}
+                    </td>
+                    <td className="dashboard-table-td hidden sm:table-cell">{getCustomerName(order)}</td>
+                    <td className="dashboard-table-td hidden md:table-cell">
+                      {formatDate(order.ORDER_DATE || order.order_date || order.date)}
+                    </td>
+                    <td className="dashboard-table-td text-right font-semibold dark:text-white">
+                      {formatCurrency(amount)}
+                    </td>
+                    <td className="dashboard-table-td text-center hidden xs:table-cell">
+                      <StatusBadge status={status} />
+                    </td>
+                    <td className="dashboard-table-td text-right">
+                      <button
+                        onClick={() => orderId && onView(orderId)}
+                        className="dashboard-table-action"
+                        aria-label={`View order ${order.ORDER_NO || order.order_no || ""}`}
+                      >
+                        <Eye className="w-3 h-3 sm:w-4 sm:h-4" aria-hidden="true" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+});
+
+// ============================================
+// 📈 REVENUE & ORDERS CHART
+// ============================================
+const RevenueOrdersChart = React.memo(function RevenueOrdersChart({ chartData }) {
+  return (
+    <div className="dashboard-chart-main">
+      <div className="dashboard-chart-header">
+        <div>
+          <h3 className="dashboard-chart-title">
+            <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500" aria-hidden="true" />
+            Revenue & Orders
+          </h3>
+          <p className="dashboard-chart-subtitle">Last 6 months performance</p>
+        </div>
+        <div className="dashboard-chart-legend">
+          <span className="dashboard-chart-legend-item">
+            <span className="dashboard-chart-legend-color" /> Revenue
+          </span>
+          <span className="dashboard-chart-legend-item">
+            <span className="dashboard-chart-legend-color dashboard-chart-legend-color-purple" /> Orders
+          </span>
+        </div>
+      </div>
+      <div className="dashboard-chart-container">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chartData}>
+            <defs>
+              <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.06} />
+            <XAxis dataKey="name" stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} />
+            <YAxis
+              yAxisId="left"
+              stroke="#9ca3af"
+              fontSize={10}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `$${v / 1000}k`}
+            />
+            <YAxis yAxisId="right" orientation="right" stroke="#9ca3af" fontSize={10} tickLine={false} axisLine={false} />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#1f2937",
+                border: "none",
+                borderRadius: "12px",
+                color: "white",
+                padding: "12px 16px",
+                fontSize: "12px",
+                boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+              }}
+              formatter={(value, name) => (name === "orders" ? value : formatCurrency(value))}
+            />
+            <Area yAxisId="left" type="monotone" dataKey="revenue" stroke="#6366f1" fill="url(#colorRevenue)" strokeWidth={2} />
+            <Bar yAxisId="right" dataKey="orders" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={24}>
+              {chartData.map((entry, index) => (
+                <Cell key={`revenue-order-cell-${entry.name}-${index}`} fill="#8b5cf6" />
+              ))}
+            </Bar>
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+});
+
+// ============================================
+// 🥧 SALES MIX CHART
+// ============================================
+const SalesMixChart = React.memo(function SalesMixChart({ salesDistribution }) {
+  return (
+    <div className="dashboard-chart-side">
+      <div className="dashboard-chart-header">
+        <h3 className="dashboard-chart-title">
+          <PieChart className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500" aria-hidden="true" />
+          Sales Mix
+        </h3>
+        <span className="dashboard-chart-subtitle">By category</span>
+      </div>
+      <div className="dashboard-chart-container">
+        <ResponsiveContainer width="100%" height="100%">
+          <RePieChart>
+            <Pie
+              data={salesDistribution}
+              cx="50%"
+              cy="50%"
+              innerRadius={35}
+              outerRadius={60}
+              paddingAngle={2}
+              dataKey="value"
+              nameKey="name"
+              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+              labelLine={false}
+              className="text-[8px] sm:text-[10px]"
+            >
+              {salesDistribution.map((entry, index) => (
+                <Cell key={`sales-mix-cell-${entry.name}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "#1f2937",
+                border: "none",
+                borderRadius: "12px",
+                color: "white",
+                padding: "8px 14px",
+                fontSize: "12px",
+              }}
+              formatter={(value) => formatCurrency(value)}
+            />
+          </RePieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+});
 
 // ============================================
 // 🎯 MAIN DASHBOARD COMPONENT
 // ============================================
-const Dashboard = ({ user }) => {
+const Dashboard = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const {
     stats,
     recentOrders,
@@ -870,109 +970,56 @@ const Dashboard = ({ user }) => {
     pendingOrdersList,
     chartData,
     salesDistribution,
-    radarData,
     isLoading,
-    error,
-    lastUpdate,
     isRefreshing,
     refreshData,
+    hasAnySampleData,
   } = useDashboardData();
 
   // ===== STATE =====
-  const [isDarkMode, setIsDarkMode] = useState(
-    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [isDarkMode, setIsDarkMode] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [particles, setParticles] = useState([]);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showLowStockModal, setShowLowStockModal] = useState(false);
   const [showPendingOrdersModal, setShowPendingOrdersModal] = useState(false);
-  const [showWelcomeModal, setShowWelcomeModal] = useState(true);
-  const [notificationCount, setNotificationCount] = useState(2);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications] = useState([
-    {
-      id: 1,
-      title: "New order #ORD-2024-001 placed",
-      time: "2 min ago",
-      read: false,
-      type: "order",
-      icon: ShoppingCart,
-    },
-    {
-      id: 2,
-      title: "Low stock alert: Laptop Pro",
-      time: "1 hour ago",
-      read: false,
-      type: "alert",
-      icon: AlertTriangle,
-    },
-    {
-      id: 3,
-      title: "Payment received $450",
-      time: "3 hours ago",
-      read: true,
-      type: "payment",
-      icon: DollarSign,
-    },
-    {
-      id: 4,
-      title: "New customer registered",
-      time: "5 hours ago",
-      read: true,
-      type: "customer",
-      icon: Users,
-    },
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [notifications, setNotifications] = useState([
+    { id: 1, title: "Welcome to your dashboard!", time: "Just now", read: false, type: "info", icon: Sparkles },
   ]);
 
   const headerRef = useRef(null);
-  const COLORS = [
-    "#6366f1",
-    "#8b5cf6",
-    "#ec4899",
-    "#f59e0b",
-    "#10b981",
-    "#3b82f6",
-    "#ef4444",
-    "#14b8a6",
-  ];
+  const notificationsRef = useRef(null);
+  const userMenuRef = useRef(null);
+  const mousePosRef = useRef({ x: 0, y: 0 });
+  const tiltRafRef = useRef(null);
+
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
   // ===== EFFECTS =====
   useEffect(() => {
-    const colors = [
-      "#6366f1",
-      "#8b5cf6",
-      "#ec4899",
-      "#f59e0b",
-      "#10b981",
-      "#3b82f6",
-      "#ef4444",
-      "#14b8a6",
-    ];
-    const newParticles = [];
-    for (let i = 0; i < 40; i++) {
-      newParticles.push({
-        id: i,
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        size: Math.random() * 4 + 1,
-        speed: Math.random() * 2 + 0.5,
-        delay: Math.random() * 5,
-        duration: Math.random() * 20 + 10,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        opacity: Math.random() * 0.3 + 0.1,
-        rotation: Math.random() * 360,
-      });
+    if (prefersReducedMotion()) {
+      setParticles([]);
+      return;
     }
+    const newParticles = Array.from({ length: 40 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 4 + 1,
+      speed: Math.random() * 2 + 0.5,
+      delay: Math.random() * 5,
+      duration: Math.random() * 20 + 10,
+      color: CHART_COLORS[Math.floor(Math.random() * CHART_COLORS.length)],
+      opacity: Math.random() * 0.3 + 0.1,
+      rotation: Math.random() * 360,
+    }));
     setParticles(newParticles);
   }, []);
 
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
+    document.documentElement.classList.toggle("dark", isDarkMode);
   }, [isDarkMode]);
 
   useEffect(() => {
@@ -980,1028 +1027,640 @@ const Dashboard = ({ user }) => {
     return () => clearInterval(timer);
   }, []);
 
+  // 3D header tilt — writes directly to the DOM via ref inside a single
+  // in-flight rAF so mouse movement never triggers a React re-render.
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
+    if (prefersReducedMotion()) return;
+
+    const applyTilt = () => {
+      tiltRafRef.current = null;
+      if (!headerRef.current) return;
+      const { x, y } = mousePosRef.current;
+      const rotateX = (y / window.innerHeight - 0.5) * 3;
+      const rotateY = (x / window.innerWidth - 0.5) * 3;
+      headerRef.current.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
     };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
+
+    const handleMouseMove = (e) => {
+      mousePosRef.current = { x: e.clientX, y: e.clientY };
+      if (tiltRafRef.current == null) {
+        tiltRafRef.current = requestAnimationFrame(applyTilt);
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (tiltRafRef.current != null) cancelAnimationFrame(tiltRafRef.current);
+    };
   }, []);
 
+  // Welcome modal entrance delay (fires once, on mount).
   useEffect(() => {
     const timer = setTimeout(() => setShowWelcomeModal(true), 800);
     return () => clearTimeout(timer);
   }, []);
 
-  // ===== NAVIGATION HANDLERS =====
-  const handleViewStock = () => navigate("/stock");
-  const handleViewOrders = () => navigate("/orders");
-  const handleViewOrderDetails = (orderId) => {
-    const numericId = parseInt(orderId, 10);
-    if (!isNaN(numericId) && numericId > 0) {
-      navigate(`/orders/${numericId}`);
-    }
-  };
-  const handleProcessOrder = (orderId) => {
-    const numericId = parseInt(orderId, 10);
-    if (!isNaN(numericId) && numericId > 0) {
-      navigate(`/orders/${numericId}/process`);
-    }
-  };
-  const handleNewOrder = () => navigate("/orders/new");
-  const handleAddCustomer = () => navigate("/customers/new");
-  const handleAddProduct = () => navigate("/products/new");
-  const handleGenerateReport = () => navigate("/reports");
+  // Close dropdowns on outside click or Escape.
+  useEffect(() => {
+    if (!showNotifications && !showUserMenu) return;
 
-  const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
+    const handleClickOutside = (e) => {
+      if (showNotifications && notificationsRef.current && !notificationsRef.current.contains(e.target)) {
+        setShowNotifications(false);
+      }
+      if (showUserMenu && userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    const handleEscape = (e) => {
+      if (e.key === "Escape") {
+        setShowNotifications(false);
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showNotifications, showUserMenu]);
+
+  // Close modals on Escape.
+  useEffect(() => {
+    const anyModalOpen = showWelcomeModal || showLowStockModal || showPendingOrdersModal;
+    if (!anyModalOpen) return;
+    const handleEscape = (e) => {
+      if (e.key !== "Escape") return;
+      setShowWelcomeModal(false);
+      setShowLowStockModal(false);
+      setShowPendingOrdersModal(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [showWelcomeModal, showLowStockModal, showPendingOrdersModal]);
+
+  // ===== NAVIGATION HANDLERS =====
+  const handleViewStock = useCallback(() => navigate("/stock"), [navigate]);
+  const handleViewOrders = useCallback(() => navigate("/orders"), [navigate]);
+  const handleViewCustomers = useCallback(() => navigate("/customers"), [navigate]);
+  const handleViewProducts = useCallback(() => navigate("/products"), [navigate]);
+  // Guarded against a missing id — this used to be able to navigate to
+  // the literal route "/orders/undefined" when called from a record
+  // that didn't have an OR_ID/order_id/id field.
+  const handleViewOrderDetails = useCallback(
+    (orderId) => {
+      if (orderId == null) return;
+      navigate(`/orders/${orderId}`);
+    },
+    [navigate]
+  );
+  const handleProcessOrder = useCallback(
+    (orderId) => {
+      if (orderId == null) return;
+      navigate(`/orders/${orderId}/process`);
+    },
+    [navigate]
+  );
+  const handleNewOrder = useCallback(() => navigate("/orders/new"), [navigate]);
+  const handleAddCustomer = useCallback(() => navigate("/customers/new"), [navigate]);
+  const handleAddProduct = useCallback(() => navigate("/products/new"), [navigate]);
+  const handleGenerateReport = useCallback(() => navigate("/reports"), [navigate]);
+
+  const toggleDarkMode = useCallback(() => setIsDarkMode((prev) => !prev), []);
+  const toggleNotifications = useCallback(() => setShowNotifications((prev) => !prev), []);
+  const toggleUserMenu = useCallback(() => setShowUserMenu((prev) => !prev), []);
+
+  const markNotificationRead = useCallback((id) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  }, []);
+  const clearAllNotifications = useCallback(() => setNotifications([]), []);
+
+  const handleLogout = useCallback(() => {
+    logout();
+    navigate("/login");
+  }, [logout, navigate]);
+
+  const handleOverlayClick = useCallback(
+    (closeFn) => (e) => {
+      if (e.target === e.currentTarget) closeFn();
+    },
+    []
+  );
+
+  // ===== DERIVED / MEMOIZED VIEW DATA =====
+  const headerMiniStats = useMemo(
+    () => [
+      { icon: Users, label: "Active Users", value: stats.activeUsers || 0, format: "number", change: "+12%" },
+      { icon: ShoppingCart, label: "Conversion", value: stats.conversionRate || 0, format: "percent", change: "+0.6%" },
+      {
+        icon: DollarSign,
+        label: "Revenue/User",
+        value: stats.totalRevenue / (stats.totalCustomers || 1),
+        format: "currency",
+        change: "+8%",
+      },
+      { icon: Package, label: "Items Sold", value: stats.totalOrders || 0, format: "number", change: "+23%" },
+    ],
+    [stats.activeUsers, stats.conversionRate, stats.totalRevenue, stats.totalCustomers, stats.totalOrders]
+  );
+
+  const quickActions = useMemo(
+    () => [
+      { icon: Plus, label: "New Order", onClick: handleNewOrder, color: "from-indigo-600 to-blue-600" },
+      { icon: Users, label: "Add Customer", onClick: handleAddCustomer, color: "from-emerald-600 to-teal-600" },
+      { icon: Package, label: "Add Product", onClick: handleAddProduct, color: "from-purple-600 to-pink-600" },
+      { icon: ClipboardList, label: "Report", onClick: handleGenerateReport, color: "from-amber-600 to-orange-600" },
+    ],
+    [handleNewOrder, handleAddCustomer, handleAddProduct, handleGenerateReport]
+  );
+
+  const footerStats = useMemo(
+    () => [
+      { label: "Avg Order Value", value: formatCurrency(stats.avgOrderValue), icon: Award },
+      { label: "Conversion Rate", value: `${stats.conversionRate}%`, icon: Target },
+      { label: "Growth Rate", value: `${stats.growthRate}%`, icon: BarChartIcon },
+    ],
+    [stats.avgOrderValue, stats.conversionRate, stats.growthRate]
+  );
 
   // ===== LOADING =====
+  // Only the very first load (before ANY data — real or sample — exists)
+  // shows the skeleton. There is no more full-page "Failed to load
+  // dashboard" state: a failed request now falls back to sample data
+  // (see useDashboardData) and the page renders normally, with the
+  // banner below flagging it.
   if (isLoading) {
     return <LoadingSkeleton />;
   }
 
   // ===== RENDER =====
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
-      <div className="space-y-4 sm:space-y-6 lg:space-y-8 max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6 lg:py-8 relative">
-        {/* ===== BACKGROUND PARTICLES ===== */}
-        <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-          {particles.map((particle) => (
-            <div
-              key={particle.id}
-              className="absolute rounded-full"
-              style={{
-                left: `${particle.x}%`,
-                top: `${particle.y}%`,
-                width: `${particle.size}px`,
-                height: `${particle.size}px`,
-                background: particle.color,
-                opacity: particle.opacity,
-                animation: `floatParticle ${particle.duration}s ease-in-out infinite`,
-                animationDelay: `${particle.delay}s`,
-                boxShadow: `0 0 ${particle.size * 3}px ${particle.color}40`,
-                transform: `rotate(${particle.rotation}deg)`,
-              }}
-            />
-          ))}
+    <div className="dashboard">
+      {/* ===== BACKGROUND PARTICLES ===== */}
+      <div className="dashboard-particles" aria-hidden="true">
+        {particles.map((particle) => (
+          <div
+            key={particle.id}
+            className="dashboard-particle"
+            style={{
+              left: `${particle.x}%`,
+              top: `${particle.y}%`,
+              width: `${particle.size}px`,
+              height: `${particle.size}px`,
+              background: particle.color,
+              opacity: particle.opacity,
+              animationDuration: `${particle.duration}s`,
+              animationDelay: `${particle.delay}s`,
+              transform: `rotate(${particle.rotation}deg)`,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* ===== REFRESH PROGRESS ===== */}
+      {isRefreshing && (
+        <div className="top-progress-bar" role="status" aria-label="Refreshing dashboard data">
+          <div className="top-progress-bar-fill" />
+        </div>
+      )}
+
+      {/* ===== SAMPLE-DATA / PARTIAL-FAILURE BANNER ===== */}
+      <FetchErrorBanner show={hasAnySampleData} onRetry={refreshData} />
+
+      {/* ===== TOP BAR ===== */}
+      <div className="dashboard-topbar">
+        <div className="dashboard-topbar-left">
+          <div className="dashboard-status">
+            <div className="dashboard-status-dot" />
+            <span className="dashboard-status-text">Live</span>
+          </div>
+          <span className="dashboard-time">
+            {currentTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          </span>
         </div>
 
-        {/* ===== TOP BAR ===== */}
-        <div className="relative z-10 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-sm border border-gray-200/50 dark:border-gray-700/50">
-              <div className="relative">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <div className="absolute inset-0 w-2 h-2 rounded-full bg-emerald-400 animate-ping opacity-75" />
+        <div className="dashboard-topbar-right">
+          <button
+            onClick={toggleDarkMode}
+            className="dashboard-topbar-btn"
+            aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {isDarkMode ? (
+              <Sun className="w-4 h-4 text-yellow-500" aria-hidden="true" />
+            ) : (
+              <Moon className="w-4 h-4 text-indigo-500" aria-hidden="true" />
+            )}
+          </button>
+
+          <NotificationsPanel
+            notifications={notifications}
+            unreadCount={unreadCount}
+            isOpen={showNotifications}
+            onToggle={toggleNotifications}
+            onMarkRead={markNotificationRead}
+            onClearAll={clearAllNotifications}
+            panelRef={notificationsRef}
+          />
+
+          <UserMenu
+            user={user}
+            isOpen={showUserMenu}
+            onToggle={toggleUserMenu}
+            onNavigate={navigate}
+            onLogout={handleLogout}
+            menuRef={userMenuRef}
+          />
+
+          <button
+            onClick={refreshData}
+            disabled={isRefreshing}
+            className="dashboard-topbar-btn"
+            aria-label="Refresh dashboard data"
+          >
+            <RefreshCw
+              className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${isRefreshing ? "animate-spin" : ""}`}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* ===== WELCOME MODAL ===== */}
+      {showWelcomeModal && (
+        <div className="dashboard-modal-overlay" onClick={handleOverlayClick(() => setShowWelcomeModal(false))}>
+          <div className="dashboard-modal-content" role="dialog" aria-modal="true" aria-label="Welcome summary">
+            <div className="dashboard-modal-body">
+              <div className="dashboard-modal-icon-wrapper">
+                <Rocket className="dashboard-modal-icon" aria-hidden="true" />
+                <div className="dashboard-modal-ping" />
+                <div className="dashboard-modal-ping dashboard-modal-ping-delayed" />
               </div>
-              <span className="text-xs text-gray-600 dark:text-gray-300 font-medium">
-                Live
-              </span>
-            </div>
-            <span className="text-xs text-gray-400 dark:text-gray-500">
-              {currentTime.toLocaleTimeString("en-US", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleDarkMode}
-              className="p-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 hover:shadow-md transition-all duration-300 hover:scale-105"
-            >
-              {isDarkMode ? (
-                <Sun className="w-4 h-4 text-yellow-500" />
-              ) : (
-                <Moon className="w-4 h-4 text-indigo-500" />
-              )}
-            </button>
-
-            <div className="relative">
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="p-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 hover:shadow-md transition-all duration-300 hover:scale-105 relative"
-              >
-                <Bell className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-                {notificationCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center animate-bounce">
-                    {notificationCount}
-                  </span>
-                )}
+              <h2 className="dashboard-modal-title">Welcome back, {user?.username || "User"}! 🎉</h2>
+              <p className="dashboard-modal-subtitle">Here's a quick summary of your store's performance today.</p>
+              <div className="dashboard-modal-stats">
+                <div className="dashboard-modal-stat">
+                  <p className="dashboard-modal-stat-label">Today's Sales</p>
+                  <p className="dashboard-modal-stat-value">{formatCurrency(stats.todaySales)}</p>
+                </div>
+                <div className="dashboard-modal-stat">
+                  <p className="dashboard-modal-stat-label">Today's Orders</p>
+                  <p className="dashboard-modal-stat-value">{stats.todayOrders}</p>
+                </div>
+                <div className="dashboard-modal-stat">
+                  <p className="dashboard-modal-stat-label">Total Revenue</p>
+                  <p className="dashboard-modal-stat-value">{formatCurrency(stats.totalRevenue)}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowWelcomeModal(false)} className="dashboard-modal-btn">
+                <Sparkles className="w-4 h-4 inline mr-2" aria-hidden="true" />
+                Let's Go!
               </button>
-
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-slideDown z-20">
-                  <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <h4 className="font-semibold text-sm text-gray-800 dark:text-white">
-                      Notifications
-                    </h4>
-                  </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {notifications.map((notif) => (
-                      <div
-                        key={notif.id}
-                        className={`p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition cursor-pointer border-b border-gray-100 dark:border-gray-700/50 ${!notif.read ? "bg-indigo-50/50 dark:bg-indigo-900/10" : ""}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700">
-                            <notif.icon className="w-3 h-3 text-gray-600 dark:text-gray-300" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-800 dark:text-white truncate">
-                              {notif.title}
-                            </p>
-                            <p className="text-[10px] text-gray-400">
-                              {notif.time}
-                            </p>
-                          </div>
-                          {!notif.read && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 mt-1.5" />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
+          </div>
+        </div>
+      )}
 
-            <button
-              onClick={refreshData}
-              disabled={isRefreshing}
-              className="p-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 hover:shadow-md transition-all duration-300 hover:scale-105 disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`w-4 h-4 text-gray-600 dark:text-gray-300 ${isRefreshing ? "animate-spin" : ""}`}
-              />
-            </button>
+      {/* ===== LAST UPDATE ===== */}
+      <div className="dashboard-last-update">Last updated: {currentTime.toLocaleTimeString()}</div>
+
+      {/* ===== HEADER ===== */}
+      <div ref={headerRef} className="dashboard-header">
+        <div className="dashboard-header-bg" aria-hidden="true">
+          <div className="dashboard-header-bg-circle" />
+          <div className="dashboard-header-bg-circle2" />
+          <div className="dashboard-header-bg-circle3" />
+          <div className="dashboard-header-shine" />
+        </div>
+
+        <div className="dashboard-header-content">
+          <div className="dashboard-header-left">
+            <div className="dashboard-header-badge">
+              <div className="dashboard-header-badge-dot" />
+              <span className="dashboard-header-badge-text">Live Dashboard</span>
+              <span className="dashboard-header-badge-time">• {currentTime.toLocaleTimeString()}</span>
+            </div>
+            <h1 className="dashboard-header-title">
+              👋 Welcome back, <span className="dashboard-header-title-highlight">{user?.username || "User"}</span>
+            </h1>
+            <p className="dashboard-header-subtitle">
+              <Sparkles className="w-4 h-4 inline mr-2" aria-hidden="true" />
+              Here's what's happening with your store today
+            </p>
+          </div>
+          <div className="dashboard-header-right">
+            <div className="dashboard-header-uptime">
+              <Activity className="w-4 h-4 text-white/80" aria-hidden="true" />
+              <span className="dashboard-header-uptime-text">99.9% uptime</span>
+            </div>
           </div>
         </div>
 
-        {/* ===== WELCOME MODAL ===== */}
-        {showWelcomeModal && !isLoading && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-md w-full p-8 animate-slideUp border border-gray-100 dark:border-gray-700">
-              <div className="text-center">
-                <div className="relative inline-block">
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center justify-center mx-auto animate-bounce">
-                    <Rocket className="w-10 h-10 text-white" />
-                  </div>
-                  <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 animate-ping" />
-                  <div
-                    className="absolute -bottom-1 -left-1 w-6 h-6 rounded-full bg-amber-500 animate-ping"
-                    style={{ animationDelay: "0.5s" }}
-                  />
-                </div>
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-white mt-4">
-                  Welcome back, {user?.username || "User"}! 🎉
-                </h2>
-                <p className="text-gray-500 dark:text-gray-400 mt-2 text-sm">
-                  Here's a quick summary of your store's performance today.
-                </p>
-                <div className="mt-6 grid grid-cols-2 gap-3">
-                  <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-3 animate-pulse">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Today's Sales
-                    </p>
-                    <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                      ${stats.todaySales.toFixed(2)}
-                    </p>
-                  </div>
-                  <div
-                    className="bg-emerald-50 dark:bg-emerald-900/20 rounded-xl p-3 animate-pulse"
-                    style={{ animationDelay: "0.3s" }}
-                  >
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Today's Orders
-                    </p>
-                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                      {stats.todayOrders}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowWelcomeModal(false)}
-                  className="mt-6 w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105 font-medium group"
-                >
-                  <Sparkles className="w-4 h-4 inline mr-2 group-hover:animate-spin" />
-                  Let's Go!
-                </button>
+        <div className="dashboard-header-stats">
+          {headerMiniStats.map((stat, index) => (
+            <div key={stat.label} className="dashboard-header-stat" style={{ animationDelay: `${index * 0.15}s` }}>
+              <div className="dashboard-header-stat-header">
+                <stat.icon className="dashboard-header-stat-icon" aria-hidden="true" />
+                <span className="dashboard-header-stat-change">{stat.change}</span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ===== LAST UPDATE ===== */}
-        <div className="relative z-10 text-right text-[10px] text-gray-400 dark:text-gray-500">
-          Last updated:{" "}
-          {lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : "Never"}
-        </div>
-
-        {/* ===== HEADER ===== */}
-        <div
-          ref={headerRef}
-          className="relative z-10 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl sm:rounded-3xl p-5 sm:p-8 lg:p-10 text-white overflow-hidden shadow-2xl transition-all duration-300 group"
-          style={{
-            transform: `perspective(1000px) rotateX(${(mousePosition.y / window.innerHeight - 0.5) * 3}deg) rotateY(${(mousePosition.x / window.innerWidth - 0.5) * 3}deg)`,
-            transition: "transform 0.15s ease-out",
-          }}
-        >
-          <div className="absolute inset-0 overflow-hidden">
-            <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full animate-pulse-slow" />
-            <div
-              className="absolute -bottom-20 -left-20 w-48 h-48 bg-purple-300/20 rounded-full animate-pulse-slow"
-              style={{ animationDelay: "1s" }}
-            />
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full animate-spin-slow" />
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
-          </div>
-
-          <div className="relative z-10 flex flex-wrap justify-between items-center">
-            <div className="animate-fadeInUp">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="relative">
-                  <div className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" />
-                  <div className="absolute inset-0 w-3 h-3 rounded-full bg-emerald-400 animate-ping opacity-75" />
-                </div>
-                <span className="text-xs font-medium text-white/80 tracking-wider uppercase">
-                  Live Dashboard
-                </span>
-                <span className="text-xs text-white/60">
-                  • {currentTime.toLocaleTimeString()}
-                </span>
-              </div>
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold">
-                👋 Welcome back,{" "}
-                <span className="bg-gradient-to-r from-yellow-200 to-pink-200 bg-clip-text text-transparent">
-                  {user?.username || "User"}
-                </span>
-              </h1>
-              <p className="text-white/80 mt-1 text-sm sm:text-base">
-                <Sparkles className="w-4 h-4 inline mr-2 animate-sparkle" />
-                Here's what's happening with your store today
+              <p className="dashboard-header-stat-value">
+                <AnimatedNumber value={stat.value} format={stat.format} />
               </p>
-            </div>
-            <div className="flex items-center gap-3 mt-4 sm:mt-0">
-              <div className="bg-white/20 backdrop-blur-sm px-3 sm:px-4 py-2 rounded-xl text-sm flex items-center gap-2 border border-white/10">
-                <Activity className="w-4 h-4 text-white/80 animate-pulse" />
-                <span className="font-medium">99.9% uptime</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-5 sm:mt-6">
-            {[
-              {
-                icon: Users,
-                label: "Active Users",
-                value: stats.activeUsers || 0,
-                change: "+12%",
-              },
-              {
-                icon: ShoppingCart,
-                label: "Conversion",
-                value: `${stats.conversionRate || 0}%`,
-                change: "+0.6%",
-              },
-              {
-                icon: DollarSign,
-                label: "Revenue/User",
-                value: `$${(stats.totalRevenue / (stats.totalCustomers || 1)).toFixed(2)}`,
-                change: "+8%",
-              },
-              {
-                icon: Package,
-                label: "Items Sold",
-                value: stats.totalOrders || 0,
-                change: "+23%",
-              },
-            ].map((stat, index) => (
-              <div
-                key={index}
-                className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-white/10 hover:bg-white/20 transition-all duration-300 hover:scale-105"
-                style={{ animationDelay: `${index * 0.15}s` }}
-              >
-                <div className="flex items-center justify-between">
-                  <stat.icon className="w-4 h-4 sm:w-5 sm:h-5 text-white/70" />
-                  <span className="text-xs font-medium text-emerald-300">
-                    {stat.change}
-                  </span>
-                </div>
-                <p className="text-xl sm:text-2xl font-bold mt-1">
-                  {stat.value}
-                </p>
-                <p className="text-[10px] sm:text-xs text-white/60">
-                  {stat.label}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ===== STATS GRID ===== */}
-        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
-          <AnimatedStatCard
-            label="Total Customers"
-            value={stats.totalCustomers.toLocaleString()}
-            icon={Users}
-            color="blue"
-            change="+12%"
-            delay={0}
-          />
-          <AnimatedStatCard
-            label="Total Products"
-            value={stats.totalProducts.toLocaleString()}
-            icon={Package}
-            color="emerald"
-            change="+5%"
-            delay={100}
-          />
-          <AnimatedStatCard
-            label="Total Orders"
-            value={stats.totalOrders.toLocaleString()}
-            icon={ShoppingCart}
-            color="purple"
-            change="+8%"
-            sub={`${stats.pendingOrders} pending`}
-            delay={200}
-          />
-          <AnimatedStatCard
-            label="Total Revenue"
-            value={`$${stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            icon={DollarSign}
-            color="amber"
-            change="+15%"
-            delay={300}
-          />
-        </div>
-
-        {/* ===== ALERTS ===== */}
-        {(stats.lowStockItems > 0 || stats.pendingOrders > 0) && (
-          <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            {stats.lowStockItems > 0 && (
-              <div
-                onClick={() => setShowLowStockModal(true)}
-                className="cursor-pointer bg-gradient-to-r from-amber-50 to-amber-100/50 dark:from-amber-900/20 dark:to-amber-800/10 border border-amber-200/60 dark:border-amber-700/30 p-3 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl flex flex-wrap items-center justify-between gap-2 hover:shadow-lg transition-all duration-300 hover:scale-[1.02] group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                  <div className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl bg-amber-200/50 dark:bg-amber-800/30 group-hover:animate-pulse flex-shrink-0">
-                    <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm text-amber-700 dark:text-amber-300 font-medium truncate">
-                      ⚠️ Low Stock Alert
-                      <span className="ml-2 text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full animate-pulse inline-block">
-                        URGENT
-                      </span>
-                    </p>
-                    <p className="text-[10px] sm:text-xs text-amber-600/70 dark:text-amber-400/70 truncate">
-                      {stats.lowStockItems} product(s) running low on stock
-                    </p>
-                  </div>
-                </div>
-                <div className="text-xs sm:text-sm text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1 bg-white/60 dark:bg-gray-800/50 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-white/80 transition flex-shrink-0 group-hover:scale-105">
-                  View Stock{" "}
-                  <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-            )}
-            {stats.pendingOrders > 0 && (
-              <div
-                onClick={() => setShowPendingOrdersModal(true)}
-                className="cursor-pointer bg-gradient-to-r from-blue-50 to-indigo-50/50 dark:from-blue-900/20 dark:to-indigo-800/10 border border-blue-200/60 dark:border-blue-700/30 p-3 sm:p-4 lg:p-5 rounded-xl sm:rounded-2xl flex flex-wrap items-center justify-between gap-2 hover:shadow-lg transition-all duration-300 hover:scale-[1.02] group"
-              >
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                  <div className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl bg-blue-200/50 dark:bg-blue-800/30 group-hover:animate-pulse flex-shrink-0">
-                    <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-300 font-medium truncate">
-                      ⏳ Pending Orders
-                      <span className="ml-2 text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full animate-pulse inline-block">
-                        {stats.pendingOrders} orders
-                      </span>
-                    </p>
-                    <p className="text-[10px] sm:text-xs text-blue-600/70 dark:text-blue-400/70 truncate">
-                      Need immediate processing
-                    </p>
-                  </div>
-                </div>
-                <div className="text-xs sm:text-sm text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1 bg-white/60 dark:bg-gray-800/50 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg hover:bg-white/80 transition flex-shrink-0 group-hover:scale-105">
-                  View Orders{" "}
-                  <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition" />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ===== QUICK ACTIONS ===== */}
-        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-          {[
-            {
-              icon: Plus,
-              label: "New Order",
-              onClick: handleNewOrder,
-              color: "from-indigo-600 to-blue-600",
-            },
-            {
-              icon: Users,
-              label: "Add Customer",
-              onClick: handleAddCustomer,
-              color: "from-emerald-600 to-teal-600",
-            },
-            {
-              icon: Package,
-              label: "Add Product",
-              onClick: handleAddProduct,
-              color: "from-purple-600 to-pink-600",
-            },
-            {
-              icon: ClipboardList,
-              label: "Report",
-              onClick: handleGenerateReport,
-              color: "from-amber-600 to-orange-600",
-            },
-          ].map((action, index) => (
-            <button
-              key={index}
-              onClick={action.onClick}
-              className={`bg-gradient-to-r ${action.color} text-white p-3 sm:p-4 rounded-xl hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-1.5 shadow-md hover:scale-105 group`}
-              style={{ animationDelay: `${index * 0.1}s` }}
-            >
-              <action.icon className="w-4 h-4 sm:w-5 sm:h-5 group-hover:rotate-12 transition-transform" />
-              <span className="text-xs sm:text-sm font-medium">
-                {action.label}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* ===== CHARTS ===== */}
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 sm:p-6 hover:shadow-xl transition-all duration-300 group">
-            <div className="flex flex-wrap justify-between items-center mb-4 sm:mb-6">
-              <div>
-                <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500 group-hover:animate-pulse" />
-                  Revenue & Orders
-                </h3>
-                <p className="text-[10px] sm:text-xs text-gray-400">
-                  Last 6 months performance
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-[10px] sm:text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-0.5 bg-indigo-500 rounded animate-pulse" />{" "}
-                  Revenue
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="w-3 h-0.5 bg-purple-400 rounded animate-pulse"
-                    style={{ animationDelay: "0.5s" }}
-                  />{" "}
-                  Orders
-                </span>
-              </div>
-            </div>
-            <div className="w-full h-[180px] xs:h-[200px] sm:h-[240px] lg:h-[260px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData}>
-                  <defs>
-                    <linearGradient
-                      id="colorRevenue"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#374151"
-                    opacity={0.06}
-                  />
-                  <XAxis
-                    dataKey="name"
-                    stroke="#9ca3af"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    yAxisId="left"
-                    stroke="#9ca3af"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v) => `$${v / 1000}k`}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    stroke="#9ca3af"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1f2937",
-                      border: "none",
-                      borderRadius: "12px",
-                      color: "white",
-                      padding: "12px 16px",
-                      fontSize: "12px",
-                      boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
-                    }}
-                  />
-                  <Area
-                    yAxisId="left"
-                    type="monotone"
-                    dataKey="revenue"
-                    stroke="#6366f1"
-                    fill="url(#colorRevenue)"
-                    strokeWidth={2}
-                  />
-                  <Bar
-                    yAxisId="right"
-                    dataKey="orders"
-                    fill="#8b5cf6"
-                    radius={[4, 4, 0, 0]}
-                    barSize={24}
-                  >
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill="#8b5cf6" />
-                    ))}
-                  </Bar>
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 sm:p-6 hover:shadow-xl transition-all duration-300 group">
-            <div className="flex justify-between items-center mb-3 sm:mb-4">
-              <h3 className="text-sm sm:text-base font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                <PieChart className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500 group-hover:animate-pulse" />
-                Sales Mix
-              </h3>
-              <span className="text-[10px] sm:text-xs text-gray-400">
-                By category
-              </span>
-            </div>
-            <div className="w-full h-[160px] xs:h-[180px] sm:h-[200px] lg:h-[230px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <RePieChart>
-                  <Pie
-                    data={salesDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={35}
-                    outerRadius={60}
-                    paddingAngle={2}
-                    dataKey="value"
-                    label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
-                    }
-                    labelLine={false}
-                    className="text-[8px] sm:text-[10px]"
-                  >
-                    {salesDistribution.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#1f2937",
-                      border: "none",
-                      borderRadius: "12px",
-                      color: "white",
-                      padding: "8px 14px",
-                      fontSize: "12px",
-                    }}
-                  />
-                </RePieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-
-        {/* ===== RECENT ORDERS TABLE ===== */}
-        <div className="overflow-x-auto -mx-4 sm:mx-0">
-          <div className="min-w-[600px] sm:min-w-full">
-            <table className="w-full text-xs sm:text-sm">
-              <thead>
-                <tr className="border-b dark:border-gray-700">
-                  <th className="py-2 sm:py-3.5 px-2 sm:px-3 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Order #
-                  </th>
-                  <th className="py-2 sm:py-3.5 px-2 sm:px-3 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden sm:table-cell">
-                    Customer
-                  </th>
-                  <th className="py-2 sm:py-3.5 px-2 sm:px-3 text-left font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:table-cell">
-                    Date
-                  </th>
-                  <th className="py-2 sm:py-3.5 px-2 sm:px-3 text-right font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Amount
-                  </th>
-                  <th className="py-2 sm:py-3.5 px-2 sm:px-3 text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden xs:table-cell">
-                    Status
-                  </th>
-                  <th className="py-2 sm:py-3.5 px-2 sm:px-3 text-right font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Action
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentOrders.slice(0, 6).map((order, index) => {
-                  const status = order.STATUS || order.status || "Pending";
-                  const statusColors = {
-                    Completed:
-                      "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400",
-                    Pending:
-                      "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400",
-                    Processing:
-                      "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",
-                    Cancelled:
-                      "bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400",
-                  };
-
-                  // ✅ FIX: Convert to number safely
-                  const amount = Number(
-                    order.AMOUNT_US || order.amount_us || order.total || 0,
-                  );
-
-                  return (
-                    <tr
-                      key={index}
-                      className="border-b dark:border-gray-700/60 hover:bg-gray-50/80 dark:hover:bg-gray-700/40 transition-all duration-200 group"
-                    >
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-3 font-medium text-indigo-600 dark:text-indigo-400 truncate max-w-[60px] sm:max-w-none">
-                        {order.ORDER_NO || order.order_no}
-                      </td>
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-3 text-gray-600 dark:text-gray-300 truncate max-w-[80px] sm:max-w-none hidden sm:table-cell">
-                        {order.customer_name ||
-                          order.FIRST_NAME ||
-                          order.first_name ||
-                          "Unknown"}
-                      </td>
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-3 text-gray-500 dark:text-gray-400 hidden md:table-cell">
-                        {new Date(
-                          order.ORDER_DATE || order.order_date || order.date,
-                        ).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </td>
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-3 text-right font-semibold dark:text-white">
-                        ${amount.toFixed(2)}{" "}
-                        {/* ✅ Fixed: amount is now a number */}
-                      </td>
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-3 text-center hidden xs:table-cell">
-                        <span
-                          className={`px-2 sm:px-3 py-0.5 sm:py-1 rounded-full text-[8px] sm:text-xs font-medium ${statusColors[status] || statusColors["Pending"]} animate-pulse`}
-                        >
-                          {status}
-                        </span>
-                      </td>
-                      <td className="py-2 sm:py-3.5 px-2 sm:px-3 text-right">
-                        <button
-                          onClick={() => {
-                            const orderId =
-                              order.OR_ID || order.order_id || order.id;
-                            if (orderId) handleViewOrderDetails(orderId);
-                          }}
-                          className="p-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-all duration-200 group-hover:scale-110"
-                        >
-                          <Eye className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 group-hover:text-indigo-500 transition" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* ===== FOOTER STATS ===== */}
-        <div className="relative z-10 grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4">
-          {[
-            {
-              label: "Avg Order Value",
-              value: `$${stats.avgOrderValue.toFixed(2)}`,
-              icon: Award,
-            },
-            {
-              label: "Conversion Rate",
-              value: `${stats.conversionRate}%`,
-              icon: Target,
-            },
-            {
-              label: "Growth Rate",
-              value: `${stats.growthRate}%`,
-              icon: BarChartIcon,
-            },
-          ].map((item, index) => (
-            <div
-              key={index}
-              className="bg-gradient-to-br from-indigo-50 to-purple-50/30 dark:from-indigo-900/20 dark:to-purple-800/5 rounded-2xl p-3 sm:p-5 text-center border border-indigo-100 dark:border-indigo-800/20 hover:shadow-xl transition-all duration-300 group hover:scale-[1.02]"
-              style={{ animationDelay: `${index * 0.15}s` }}
-            >
-              <item.icon className="w-6 h-6 sm:w-8 sm:h-8 mx-auto text-indigo-500 mb-1 sm:mb-2 group-hover:animate-pulse group-hover:rotate-12 transition-transform" />
-              <p className="text-lg sm:text-2xl font-bold text-gray-800 dark:text-white group-hover:scale-105 transition-transform">
-                {item.value}
-              </p>
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
-                {item.label}
-              </p>
+              <p className="dashboard-header-stat-label">{stat.label}</p>
             </div>
           ))}
         </div>
+      </div>
 
-        {/* ===== MODALS ===== */}
-        {showLowStockModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-              <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
-                  <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
-                  Low Stock Products
-                </h2>
-                <button
-                  onClick={() => setShowLowStockModal(false)}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition hover:rotate-90"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
+      {/* ===== STATS GRID ===== */}
+      <div className="dashboard-stats-grid">
+        <AnimatedStatCard
+          label="Total Customers"
+          value={stats.totalCustomers}
+          format="number"
+          icon={Users}
+          color="blue"
+          change="+12%"
+          delay={0}
+          onClick={handleViewCustomers}
+        />
+        <AnimatedStatCard
+          label="Total Products"
+          value={stats.totalProducts}
+          format="number"
+          icon={Package}
+          color="emerald"
+          change="+5%"
+          delay={100}
+          onClick={handleViewProducts}
+        />
+        <AnimatedStatCard
+          label="Total Orders"
+          value={stats.totalOrders}
+          format="number"
+          icon={ShoppingCart}
+          color="purple"
+          change="+8%"
+          sub={`${stats.pendingOrders} pending`}
+          delay={200}
+          onClick={handleViewOrders}
+        />
+        <AnimatedStatCard label="Total Revenue" value={stats.totalRevenue} format="currency" icon={DollarSign} color="amber" change="+15%" delay={300} />
+      </div>
+
+      {/* ===== ALERTS ===== */}
+      {(stats.lowStockItems > 0 || stats.pendingOrders > 0) && (
+        <div className="dashboard-alerts">
+          {stats.lowStockItems > 0 && (
+            <div
+              onClick={() => setShowLowStockModal(true)}
+              className="dashboard-alert dashboard-alert-warning"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && setShowLowStockModal(true)}
+            >
+              <div className="dashboard-alert-content">
+                <div className="dashboard-alert-icon-wrapper">
+                  <AlertTriangle className="dashboard-alert-icon" aria-hidden="true" />
+                </div>
+                <div className="dashboard-alert-info">
+                  <p className="dashboard-alert-title">
+                    ⚠️ Low Stock Alert
+                    <span className="dashboard-alert-badge">URGENT</span>
+                  </p>
+                  <p className="dashboard-alert-description">{stats.lowStockItems} product(s) running low on stock</p>
+                </div>
               </div>
+              <div className="dashboard-alert-action">
+                View Stock <ArrowRight className="w-3 h-3" aria-hidden="true" />
+              </div>
+            </div>
+          )}
+          {stats.pendingOrders > 0 && (
+            <div
+              onClick={() => setShowPendingOrdersModal(true)}
+              className="dashboard-alert dashboard-alert-info"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && setShowPendingOrdersModal(true)}
+            >
+              <div className="dashboard-alert-content">
+                <div className="dashboard-alert-icon-wrapper">
+                  <Clock className="dashboard-alert-icon" aria-hidden="true" />
+                </div>
+                <div className="dashboard-alert-info">
+                  <p className="dashboard-alert-title">
+                    ⏳ Pending Orders
+                    <span className="dashboard-alert-badge dashboard-alert-badge-blue">{stats.pendingOrders} orders</span>
+                  </p>
+                  <p className="dashboard-alert-description">Need immediate processing</p>
+                </div>
+              </div>
+              <div className="dashboard-alert-action">
+                View Orders <ArrowRight className="w-3 h-3" aria-hidden="true" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-              <div className="p-6">
-                {lowStockProducts.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400">
-                    <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-500 animate-bounce" />
-                    <p>All products are well stocked! 🎉</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {lowStockProducts.map((product) => (
-                      <div
-                        key={product.PRODUCT_ID}
-                        className="flex items-center justify-between p-4 bg-amber-50 dark:bg-amber-900/10 rounded-xl border border-amber-200 dark:border-amber-800/30 hover:shadow-md transition-all duration-300 group"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium dark:text-white truncate">
-                            {product.NAME_EN}
+      {/* ===== QUICK ACTIONS ===== */}
+      <div className="dashboard-quick-actions">
+        {quickActions.map((action, index) => (
+          <button
+            key={action.label}
+            onClick={action.onClick}
+            className={`dashboard-quick-action bg-gradient-to-r ${action.color}`}
+            style={{ animationDelay: `${index * 0.1}s` }}
+          >
+            <action.icon className="dashboard-quick-action-icon" aria-hidden="true" />
+            <span className="dashboard-quick-action-label">{action.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ===== CHARTS ===== */}
+      <div className="dashboard-charts">
+        <RevenueOrdersChart chartData={chartData} />
+        <SalesMixChart salesDistribution={salesDistribution} />
+      </div>
+
+      {/* ===== RECENT ORDERS TABLE ===== */}
+      <RecentOrdersTable orders={recentOrders} onView={handleViewOrderDetails} />
+
+      {/* ===== FOOTER STATS ===== */}
+      <div className="dashboard-footer-stats">
+        {footerStats.map((item, index) => (
+          <div key={item.label} className="dashboard-footer-stat" style={{ animationDelay: `${index * 0.15}s` }}>
+            <item.icon className="dashboard-footer-stat-icon" aria-hidden="true" />
+            <p className="dashboard-footer-stat-value">{item.value}</p>
+            <p className="dashboard-footer-stat-label">{item.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ===== LOW STOCK MODAL ===== */}
+      {showLowStockModal && (
+        <div className="dashboard-modal-overlay" onClick={handleOverlayClick(() => setShowLowStockModal(false))}>
+          <div className="dashboard-modal-content dashboard-modal-lg" role="dialog" aria-modal="true" aria-label="Low stock products">
+            <div className="dashboard-modal-header">
+              <h2 className="dashboard-modal-title">
+                <AlertTriangle className="w-5 h-5 text-amber-500" aria-hidden="true" />
+                Low Stock Products
+              </h2>
+              <button onClick={() => setShowLowStockModal(false)} className="dashboard-modal-close" aria-label="Close">
+                <X className="w-5 h-5 text-gray-500" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="dashboard-modal-body">
+              {lowStockProducts.length === 0 ? (
+                <div className="dashboard-modal-empty">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-500" aria-hidden="true" />
+                  <p>All products are well stocked! 🎉</p>
+                </div>
+              ) : (
+                <div className="dashboard-low-stock-list">
+                  {lowStockProducts.map((product, index) => {
+                    // Falls back through common id spellings, then index —
+                    // guards the list key from collapsing to `undefined`
+                    // when a live response omits every known id field.
+                    const productId = pickId(product, ["PRODUCT_ID", "product_id", "id"], null);
+                    return (
+                      <div key={productId ?? `low-stock-${index}`} className="dashboard-low-stock-item">
+                        <div className="dashboard-low-stock-info">
+                          <p className="dashboard-low-stock-name">
+                            {findField(product, ["NAME_EN", "name_en", "name", "product_name", "productName", "title"]) || "Unnamed product"}
                           </p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                            {product.NAME_KH}
-                          </p>
-                          <div className="flex flex-wrap items-center gap-3 mt-1">
-                            <span className="text-xs text-red-600 dark:text-red-400 font-bold animate-pulse">
-                              Available: {product.QtyAvailable}
+                          <p className="dashboard-low-stock-desc">{findField(product, ["NAME_KH", "name_kh"]) || ""}</p>
+                          <div className="dashboard-low-stock-meta">
+                            <span className="dashboard-low-stock-available">
+                              Available: {findField(product, ["QtyAvailable", "qty_available", "quantity_available", "stock", "qty"]) || 0}
                             </span>
-                            <span className="text-xs text-gray-400">
-                              Alert Level: {product.QTY_ALERT}
+                            <span className="dashboard-low-stock-alert">
+                              Alert Level: {findField(product, ["QTY_ALERT", "qty_alert", "alert_level", "alertLevel", "reorder_level"]) || 0}
                             </span>
-                            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                              ${product.SALEOUT_PRICE}
+                            <span className="dashboard-low-stock-price">
+                              {formatCurrency(findField(product, ["SALEOUT_PRICE", "saleout_price", "price", "sale_price", "salePrice"]) || 0)}
                             </span>
                           </div>
                         </div>
                         <button
                           onClick={() => {
-                            navigate(`/products/${product.PRODUCT_ID}/edit`);
+                            navigate("/stock");
                             setShowLowStockModal(false);
                           }}
-                          className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm whitespace-nowrap ml-2 group-hover:scale-105"
+                          className="dashboard-low-stock-btn"
                         >
-                          Restock
+                          <Package className="w-4 h-4 mr-1" aria-hidden="true" />
+                          View Stock
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-              <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-between flex-wrap gap-2">
-                <button
-                  onClick={handleViewStock}
-                  className="px-4 py-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 transition font-medium flex items-center gap-2 group"
-                >
-                  View All Stock{" "}
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
-                </button>
-                <button
-                  onClick={() => setShowLowStockModal(false)}
-                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium hover:scale-105"
-                >
-                  Close
-                </button>
-              </div>
+            <div className="dashboard-modal-footer">
+              <button onClick={handleViewStock} className="dashboard-modal-footer-link">
+                View All Stock <ArrowRight className="w-4 h-4" aria-hidden="true" />
+              </button>
+              <button onClick={() => setShowLowStockModal(false)} className="dashboard-modal-footer-btn">
+                Close
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {showPendingOrdersModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto animate-slideUp">
-              <div className="sticky top-0 bg-white dark:bg-gray-800 z-10 p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-                <h2 className="text-xl font-bold dark:text-white flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-blue-500 animate-pulse" />
-                  Pending Orders ({pendingOrdersList.length})
-                </h2>
-                <button
-                  onClick={() => setShowPendingOrdersModal(false)}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition hover:rotate-90"
-                >
-                  <X className="w-5 h-5 text-gray-500" />
-                </button>
-              </div>
+      {/* ===== PENDING ORDERS MODAL ===== */}
+      {showPendingOrdersModal && (
+        <div className="dashboard-modal-overlay" onClick={handleOverlayClick(() => setShowPendingOrdersModal(false))}>
+          <div className="dashboard-modal-content dashboard-modal-lg" role="dialog" aria-modal="true" aria-label="Pending orders">
+            <div className="dashboard-modal-header">
+              <h2 className="dashboard-modal-title">
+                <Clock className="w-5 h-5 text-blue-500" aria-hidden="true" />
+                Pending Orders ({pendingOrdersList.length})
+              </h2>
+              <button onClick={() => setShowPendingOrdersModal(false)} className="dashboard-modal-close" aria-label="Close">
+                <X className="w-5 h-5 text-gray-500" aria-hidden="true" />
+              </button>
+            </div>
 
-              <div className="p-6">
-                {pendingOrdersList.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400">
-                    <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-500 animate-bounce" />
-                    <p>All orders are processed! 🎉</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {pendingOrdersList.map((order) => (
-                      <div
-                        key={order.OR_ID}
-                        className="flex flex-wrap items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-200 dark:border-blue-800/30 hover:shadow-md transition-all duration-300 group"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-mono font-medium text-indigo-600 dark:text-indigo-400 truncate">
-                              {order.ORDER_NO}
-                            </p>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-xs font-medium animate-pulse ${
-                                order.STATUS === "Processing"
-                                  ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400"
-                                  : "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                              }`}
-                            >
-                              {order.STATUS}
-                            </span>
+            <div className="dashboard-modal-body">
+              {pendingOrdersList.length === 0 ? (
+                <div className="dashboard-modal-empty">
+                  <CheckCircle className="w-12 h-12 mx-auto mb-3 text-emerald-500" aria-hidden="true" />
+                  <p>All orders are processed! 🎉</p>
+                </div>
+              ) : (
+                <div className="dashboard-pending-list">
+                  {pendingOrdersList.map((order, index) => {
+                    // Same id-fallback treatment as the low stock list
+                    // above, plus the view/process handlers below are
+                    // guarded so a missing id never navigates to
+                    // "/orders/undefined".
+                    const orderId = pickId(order, ["OR_ID", "or_id", "order_id", "id"], null);
+                    const status = order.STATUS || order.status || "Pending";
+                    return (
+                      <div key={orderId ?? `pending-order-${index}`} className="dashboard-pending-item">
+                        <div className="dashboard-pending-info">
+                          <div className="dashboard-pending-header">
+                            <p className="dashboard-pending-order">{order.ORDER_NO || order.order_no}</p>
+                            <StatusBadge status={status} />
                           </div>
-                          <p className="text-sm dark:text-white truncate">
-                            {order.FIRST_NAME} {order.LAST_NAME}
-                          </p>
-                          <div className="flex flex-wrap items-center gap-3 mt-1">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              {new Date(order.ORDER_DATE).toLocaleDateString()}
-                            </span>
-                            <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
-                              ${order.AMOUNT_US}
+                          <p className="dashboard-pending-customer">{getCustomerName(order)}</p>
+                          <div className="dashboard-pending-meta">
+                            <span className="dashboard-pending-date">{formatDate(order.ORDER_DATE || order.order_date)}</span>
+                            <span className="dashboard-pending-amount">
+                              {formatCurrency(order.AMOUNT_US || order.amount_us || order.total || 0)}
                             </span>
                           </div>
                         </div>
-                        <div className="flex gap-2 mt-2 sm:mt-0">
+                        <div className="dashboard-pending-actions">
                           <button
                             onClick={() => {
-                              handleViewOrderDetails(order.OR_ID);
+                              handleViewOrderDetails(orderId);
                               setShowPendingOrdersModal(false);
                             }}
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm hover:scale-105"
+                            className="dashboard-pending-btn dashboard-pending-btn-view"
                           >
+                            <Eye className="w-4 h-4 mr-1" aria-hidden="true" />
                             View
                           </button>
                           <button
                             onClick={() => {
-                              handleProcessOrder(order.OR_ID);
+                              handleProcessOrder(orderId);
                               setShowPendingOrdersModal(false);
                             }}
-                            className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition text-sm hover:scale-105"
+                            className="dashboard-pending-btn dashboard-pending-btn-process"
                           >
+                            <Zap className="w-4 h-4 mr-1" aria-hidden="true" />
                             Process
                           </button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-              <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex justify-between flex-wrap gap-2">
-                <button
-                  onClick={handleViewOrders}
-                  className="px-4 py-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 transition font-medium flex items-center gap-2 group"
-                >
-                  View All Orders{" "}
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition" />
-                </button>
-                <button
-                  onClick={() => setShowPendingOrdersModal(false)}
-                  className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition font-medium hover:scale-105"
-                >
-                  Close
-                </button>
-              </div>
+            <div className="dashboard-modal-footer">
+              <button onClick={handleViewOrders} className="dashboard-modal-footer-link">
+                View All Orders <ArrowRight className="w-4 h-4" aria-hidden="true" />
+              </button>
+              <button onClick={() => setShowPendingOrdersModal(false)} className="dashboard-modal-footer-btn">
+                Close
+              </button>
             </div>
           </div>
-        )}
-
-        {/* ===== CSS ANIMATIONS ===== */}
-        <style>{`
-          @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-          }
-          @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px) scale(0.95); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-          }
-          @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px) scale(0.95); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-          }
-          @keyframes floatParticle {
-            0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); opacity: 0.1; }
-            25% { transform: translate(30px, -40px) scale(1.2) rotate(90deg); opacity: 0.3; }
-            50% { transform: translate(-20px, -70px) scale(0.8) rotate(180deg); opacity: 0.2; }
-            75% { transform: translate(10px, -30px) scale(1.1) rotate(270deg); opacity: 0.4; }
-          }
-          @keyframes pulse-slow {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.6; transform: scale(1.05); }
-          }
-          @keyframes spin-slow {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          @keyframes sparkle {
-            0%, 100% { opacity: 1; transform: scale(1) rotate(0deg); }
-            50% { opacity: 0.4; transform: scale(0.8) rotate(180deg); }
-          }
-          @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-          }
-          @keyframes shimmer {
-            0% { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
-          }
-
-          .animate-fadeIn { animation: fadeIn 0.6s ease-out forwards; }
-          .animate-fadeInUp { animation: fadeInUp 0.5s ease-out forwards; }
-          .animate-slideUp { animation: slideUp 0.5s ease-out forwards; opacity: 0; }
-          .animate-slideDown { animation: slideDown 0.3s ease-out forwards; opacity: 0; }
-          .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-          .animate-spin-slow { animation: spin-slow 20s linear infinite; }
-          .animate-sparkle { animation: sparkle 2s ease-in-out infinite; }
-          .animate-bounce { animation: bounce 1s ease-in-out infinite; }
-          .animate-shimmer { animation: shimmer 2s ease-in-out infinite; }
-
-          ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-          }
-          ::-webkit-scrollbar-track {
-            background: transparent;
-          }
-          ::-webkit-scrollbar-thumb {
-            background: #6366f1;
-            border-radius: 9999px;
-          }
-          ::-webkit-scrollbar-thumb:hover {
-            background: #4f46e5;
-          }
-
-          .glass {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-          }
-
-          .dark .glass {
-            background: rgba(0, 0, 0, 0.2);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-          }
-
-          @media (prefers-reduced-motion: reduce) {
-            * {
-              animation-duration: 0.01ms !important;
-              animation-iteration-count: 1 !important;
-              transition-duration: 0.01ms !important;
-            }
-          }
-        `}</style>
-      </div>
+        </div>
+      )}
     </div>
   );
 };

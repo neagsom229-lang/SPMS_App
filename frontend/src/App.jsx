@@ -1,236 +1,164 @@
-import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './components/Login';
-import Dashboard from './components/Dashboard';
-import Orders from './components/Orders';
-import Products from './components/Products';
-import Customers from './components/Customers';
-import Stock from './components/Stock';
-import Suppliers from './components/Suppliers';
-import Reports from './components/Reports';
-import Users from './components/Users';
-import ActivityLog from './components/ActivityLog';
-import Warranty from './components/Warranty';
-import Layout from './components/Layout';
-import Analytics from './components/Analytics';
-import Payment from './components/Payment';
-import { ThemeProvider } from './context/ThemeContext';
-import Profile from './components/Profile';
+// frontend/src/App.jsx
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from 'react-hot-toast';
 
+// Components
+import Login from "./components/Login";
+import Dashboard from "./components/Dashboard";
+import Orders from "./components/Orders";
+import Products from "./components/Products";
+import Customers from "./components/Customers";
+import Stock from "./components/Stock";
+import Suppliers from "./components/Suppliers";
+import Reports from "./components/Reports";
+import Users from "./components/Users";
+import ActivityLog from "./components/ActivityLog";
+import Warranty from "./components/Warranty";
+import Layout from "./components/Layout";
+import Analytics from "./components/Analytics";
+import Payment from "./components/Payment";
+import Profile from "./components/Profile";
+import ErrorBoundary from './components/ErrorBoundary';
+
+// Pages
+import Pricing from "./pages/Pricing";
+import Landing from "./pages/Landing";
+import Register from "./pages/Register";
+import Help from './pages/Help';
+
+// Context
+import { ThemeProvider } from "./context/ThemeContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+
+// Create Query Client
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
+
+// ============================================
+// ✅ LOADING SPINNER
+// ============================================
+const LoadingSpinner = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-indigo-600 mx-auto"></div>
+      <p className="mt-4 text-gray-600 dark:text-gray-400 font-medium">Loading...</p>
+    </div>
+  </div>
+);
+
+// ============================================
+// ✅ PROTECTED ROUTE COMPONENT
+// ============================================
+const ProtectedRoute = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Outlet />;
+};
+
+// ============================================
+// ✅ MAIN APP COMPONENT - FIXED
+// ============================================
 function App() {
-  const [user, setUser] = useState(null);
-
-  // Protected route wrapper
-  const ProtectedRoute = ({ children }) => {
-    if (!user) {
-      return <Navigate to="/login" replace />;
-    }
-    return children;
-  };
-
   return (
-    <ThemeProvider>
-      <BrowserRouter
-        future={{
-          v7_startTransition: true,
-          v7_relativeSplatPath: true,
-        }}
-      >
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/login" element={<Login setUser={setUser} />} />
-          
-          {/* Protected Routes */}
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Dashboard user={user} />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Dashboard user={user} />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/orders"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Orders />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          {/* ✅ FIXED: Order detail routes */}
-          <Route
-            path="/orders/:id"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Orders />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/orders/:id/process"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Orders />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/products"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Products />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/customers"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Customers />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/stock"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Stock />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/suppliers"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Suppliers />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/reports"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Reports />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/users"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Users />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/activity"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <ActivityLog />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/warranty"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Warranty />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/analytics"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Analytics />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          
-          <Route
-            path="/payment/:orderId"
-            element={
-              <ProtectedRoute>
-                <Layout user={user}>
-                  <Payment />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/profile" element={
-  user ? (
-    <Layout user={user}>
-      <Profile user={user} />
-    </Layout>
-  ) : (
-    <Navigate to="/login" />
-  )
-} />
+    <ErrorBoundary> {/* ✅ ERRORBOUNDARY WRAPS THE ENTIRE APP */}
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
+          <AuthProvider>
+            <ThemeProvider>
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  duration: 4000,
+                  style: {
+                    background: '#363636',
+                    color: '#fff',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
+                  },
+                  success: {
+                    duration: 3000,
+                    iconTheme: {
+                      primary: '#22c55e',
+                      secondary: '#fff',
+                    },
+                    style: {
+                      background: '#065f46',
+                      color: '#fff',
+                    },
+                  },
+                  error: {
+                    duration: 4000,
+                    iconTheme: {
+                      primary: '#ef4444',
+                      secondary: '#fff',
+                    },
+                    style: {
+                      background: '#7f1d1d',
+                      color: '#fff',
+                    },
+                  },
+                }}
+              />
 
-          
-          {/* Catch all - redirect to dashboard if logged in, else login */}
-          <Route
-            path="*"
-            element={
-              user ? (
-                <Navigate to="/dashboard" replace />
-              ) : (
-                <Navigate to="/login" replace />
-              )
-            }
-          />
-        </Routes>
-      </BrowserRouter>
-    </ThemeProvider>
+              <Routes>
+                {/* ===== PUBLIC ROUTES ===== */}
+                <Route path="/" element={<Landing />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/pricing" element={<Pricing />} />
+
+                {/* ===== PROTECTED ROUTES ===== */}
+                <Route element={<ProtectedRoute />}>
+                  <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
+                  <Route path="/orders" element={<Layout><Orders /></Layout>} />
+                  <Route path="/orders/:id" element={<Layout><Orders /></Layout>} />
+                  <Route path="/orders/:id/process" element={<Layout><Orders /></Layout>} />
+                  <Route path="/products" element={<Layout><Products /></Layout>} />
+                  <Route path="/customers" element={<Layout><Customers /></Layout>} />
+                  <Route path="/stock" element={<Layout><Stock /></Layout>} />
+                  <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
+                  <Route path="/reports" element={<Layout><Reports /></Layout>} />
+                  <Route path="/users" element={<Layout><Users /></Layout>} />
+                  <Route path="/activity" element={<Layout><ActivityLog /></Layout>} />
+                  <Route path="/warranty" element={<Layout><Warranty /></Layout>} />
+                  <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
+                  <Route path="/payment/:orderId" element={<Layout><Payment /></Layout>} />
+                  <Route path="/profile" element={<Layout><Profile /></Layout>} />
+                </Route>
+
+                {/* ===== CATCH ALL ===== */}
+                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="/help" element={<Help />} />
+              </Routes>
+            </ThemeProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ErrorBoundary> 
   );
 }
 

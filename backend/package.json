@@ -2,27 +2,54 @@
   "name": "spms-backend",
   "version": "1.0.0",
   "description": "SPMS - Sale & Product Management System Backend API",
-  "main": "server.js",
+  "main": "src/app.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
-    "build": "npm install --production",
-    "vercel-build": "npm install --production",
-    "test": "echo 'No tests specified'"
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "seed": "node scripts/seed.js",
+    "seed:reset": "node scripts/seed.js --reset",
+    "test": "echo 'No tests specified' && exit 0",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix",
+    "format": "prettier --write src/**/*.js",
+    "build": "npm run lint && npm run test",
+    "docker:build": "docker build -t spms-backend .",
+    "docker:run": "docker run -p 5000:5000 spms-backend",
+    "db:backup": "node scripts/backup.js",
+    "db:restore": "node scripts/restore.js",
+    "backup": "node scripts/backup.js"
   },
   "dependencies": {
+    "axios": "^1.18.1",
     "bcryptjs": "^2.4.3",
-    "cors": "^2.8.5",
+    "compression": "^1.8.1",
+    "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "express": "^4.18.2",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^2.2.0",
-    "pg": "^8.22.0"
+    "exceljs": "^4.4.0",
+    "express": "^4.22.2",
+    "express-rate-limit": "^8.6.1",
+    "express-validator": "^7.3.2",
+    "helmet": "^7.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "memory-cache": "^0.2.0",
+    "mongoose": "^8.24.1",
+    "morgan": "^1.11.0",
+    "nodemailer": "^6.10.1",
+    "pdfkit": "^0.14.0",
+    "pg": "^8.22.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.2",
+    "stripe": "^14.25.0",
+    "uuid": "^14.0.1",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "eslint": "^8.55.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2",
+    "prettier": "^3.1.0",
+    "supertest": "^6.3.3"
   }
 }

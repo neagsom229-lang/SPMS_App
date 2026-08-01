@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import axios from 'axios';
 import { 
   Search, Plus, Edit2, Trash2, Users as UsersIcon, 
   X, Save, DollarSign, Phone, Mail, MapPin, User,
@@ -11,40 +10,11 @@ import {
   Sparkles, Gift, Crown, AlertTriangle,
   Image as ImageIcon, Upload, Camera
 } from 'lucide-react';
-
-// ============================================
-// API CONFIGURATION
-// ============================================
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-console.log('🔧 API_BASE (Customers):', API_BASE);
-
-const api = axios.create({
-  baseURL: API_BASE,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-api.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-api.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+import '../styles/customer.css';
+// ✅ Shared axios instance — attaches the Authorization header from
+// localStorage on every request. Adjust the path below to match where
+// client.js actually lives relative to this file (e.g. '../api/client').
+import apiClient from '../api/client';
 
 // ============================================
 // MAIN CUSTOMERS COMPONENT
@@ -237,7 +207,7 @@ const Customers = () => {
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/customers', { 
+      const res = await apiClient.get('/customers', { 
         params: search ? { search: search } : {} 
       });
       
@@ -465,10 +435,10 @@ const Customers = () => {
 
       let response;
       if (editingCustomer && customerId) {
-        response = await api.put(`/customers/${customerId}`, submitData);
+        response = await apiClient.put(`/customers/${customerId}`, submitData);
         showMessage('✅ Customer updated successfully!');
       } else {
-        response = await api.post('/customers', submitData);
+        response = await apiClient.post('/customers', submitData);
         showMessage('✅ Customer created successfully!');
       }
       
@@ -523,7 +493,7 @@ const Customers = () => {
     }
 
     try {
-      await api.delete(`/customers/${id}`);
+      await apiClient.delete(`/customers/${id}`);
       showMessage('✅ Customer deleted successfully!');
       fetchCustomers();
     } catch (error) {
@@ -558,7 +528,7 @@ const Customers = () => {
       }
 
       for (const id of apiIds) {
-        await api.delete(`/customers/${id}`);
+        await apiClient.delete(`/customers/${id}`);
       }
 
       showMessage(`✅ ${selectedCustomers.length} customers deleted!`);
@@ -1466,85 +1436,6 @@ const Customers = () => {
           </div>
         </div>
       )}
-
-      {/* ===== CSS ANIMATIONS ===== */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateX(-20px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideInRight {
-          from { opacity: 0; transform: translateX(100px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        @keyframes pulse-slow {
-          0%, 100% { opacity: 0.2; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(1.1); }
-        }
-        @keyframes spin-slow {
-          0% { transform: translate(-50%, -50%) rotate(0deg); }
-          100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-        @keyframes bar1 {
-          0%, 100% { height: 4px; }
-          50% { height: 8px; }
-        }
-        @keyframes bar2 {
-          0%, 100% { height: 6px; }
-          50% { height: 12px; }
-        }
-        @keyframes bar3 {
-          0%, 100% { height: 8px; }
-          50% { height: 16px; }
-        }
-
-        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideIn { animation: slideIn 0.4s ease-out forwards; opacity: 0; }
-        .animate-slideInRight { animation: slideInRight 0.5s ease-out forwards; }
-        .animate-slideUp { animation: slideUp 0.4s ease-out forwards; opacity: 0; }
-        .animate-float { animation: float 3s ease-in-out infinite; }
-        .animate-pulse-slow { animation: pulse-slow 4s ease-in-out infinite; }
-        .animate-spin-slow { animation: spin-slow 20s linear infinite; }
-        .animate-bar1 { animation: bar1 1.5s ease-in-out infinite; }
-        .animate-bar2 { animation: bar2 1.5s ease-in-out infinite; }
-        .animate-bar3 { animation: bar3 1.5s ease-in-out infinite; }
-        .animate-bounce { animation: bounce 1s ease-in-out infinite; }
-        .animation-delay-1000 { animation-delay: 1s; }
-        .animation-delay-2000 { animation-delay: 2s; }
-
-        ::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #c4c4c4;
-          border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #a0a0a0;
-        }
-        .dark ::-webkit-scrollbar-thumb {
-          background: #4b5563;
-        }
-        .dark ::-webkit-scrollbar-thumb:hover {
-          background: #6b7280;
-        }
-      `}</style>
     </div>
   );
 };
