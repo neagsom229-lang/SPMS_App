@@ -18,7 +18,7 @@ const Login = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [error, setError] = useState('');
 
   // ===== REDIRECT IF ALREADY LOGGED IN =====
   useEffect(() => {
@@ -34,6 +34,7 @@ const Login = () => {
   // ===== HANDLE SUBMIT =====
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
     
     if (isLocked) {
       toast.error('⛔ Account is locked. Please wait.');
@@ -41,6 +42,7 @@ const Login = () => {
     }
     
     if (!formData.username.trim() || !formData.password.trim()) {
+      setError('Please enter both username and password');
       toast.error('Please enter both username and password');
       return;
     }
@@ -48,17 +50,19 @@ const Login = () => {
     setLoading(true);
     
     try {
+      console.log('📤 Attempting login...');
       const result = await login(formData.username, formData.password);
       
       if (result.success) {
         toast.success('Welcome back! 🎉');
         // Redirect handled by useEffect
       } else {
-        setFailedAttempts(prev => prev + 1);
+        setError(result.error || 'Login failed');
         toast.error(result.error || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
+      setError('Network error. Please check your connection.');
       toast.error('Network error. Please try again.');
     } finally {
       setLoading(false);
@@ -94,6 +98,13 @@ const Login = () => {
                 Please wait <strong>{Math.ceil(lockRemaining / 60000)} minutes</strong> before trying again.
               </p>
             </div>
+          </div>
+        )}
+
+        {error && !isLocked && (
+          <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 flex items-center gap-3 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 
@@ -140,6 +151,16 @@ const Login = () => {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm text-indigo-200">
+                <input type="checkbox" className="rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-400" />
+                Remember me
+              </label>
+              <Link to="/forgot-password" className="text-sm text-indigo-300 hover:text-indigo-200 transition-colors">
+                Forgot password?
+              </Link>
             </div>
 
             <button
