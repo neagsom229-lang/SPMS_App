@@ -19,7 +19,19 @@ const QRCode = require("qrcode");
 const crypto = require("crypto");
 const ExcelJS = require("exceljs");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-
+// ============================================
+// IMPORT ROUTES
+// ============================================
+const authRoutes = require('./routes/auth');
+const dashboardRoutes = require('./routes/dashboard');
+const productRoutes = require('./routes/products');
+const orderRoutes = require('./routes/orders');
+const customerRoutes = require('./routes/customers');
+const supplierRoutes = require('./routes/suppliers');
+const userRoutes = require('./routes/users');
+const stockRoutes = require('./routes/stock');
+const tenantRoutes = require('./routes/tenants');
+const categoryRoutes = require('./routes/categories');
 // ============================================
 // GLOBAL CRASH GUARDS
 // ============================================
@@ -2817,7 +2829,19 @@ app.get("/api/reports/:type", authenticate, async (req, res) => {
     res.status(500).json({ error: "Database error", message: error.message });
   }
 });
-
+// ============================================
+// ROUTES - MOUNT ALL ROUTES
+// ============================================
+app.use('/api/auth', authRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/suppliers', supplierRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/stock', stockRoutes);
+app.use('/api/tenants', tenantRoutes);
+app.use('/api/categories', categoryRoutes);
 // ============================================
 // 404 HANDLER - MUST BE LAST
 // ============================================

@@ -1,6 +1,6 @@
 // backend/src/routes/dashboard.js
 const express = require('express');
-const pool = require('../../config/database');
+const db = require('../config/postgres'); // ✅ Changed from '../../config/database'
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
@@ -22,12 +22,11 @@ router.get('/stats', authenticate, async (req, res) => {
       isSuperAdmin 
     });
 
-    // Get counts
     let productQuery = 'SELECT COUNT(*) as count FROM tbl_products';
     let orderQuery = 'SELECT COUNT(*) as count FROM tbl_orders';
     let customerQuery = 'SELECT COUNT(*) as count FROM tbl_customers';
     let supplierQuery = 'SELECT COUNT(*) as count FROM tbl_suppliers';
-    let revenueQuery = 'SELECT COALESCE(SUM(total_amount), 0) as total FROM tbl_orders';
+    let revenueQuery = 'SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders';
     let lowStockQuery = 'SELECT COUNT(*) as count FROM tbl_products WHERE qty_instock <= qty_alert';
     let pendingQuery = 'SELECT COUNT(*) as count FROM tbl_orders WHERE status = $1';
     let recentQuery = 'SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= NOW() - INTERVAL \'7 days\'';
@@ -59,7 +58,6 @@ router.get('/stats', authenticate, async (req, res) => {
       });
     }
 
-    // Execute all queries
     const [
       productsResult,
       ordersResult,
@@ -70,14 +68,14 @@ router.get('/stats', authenticate, async (req, res) => {
       pendingResult,
       recentResult
     ] = await Promise.all([
-      pool.query(productQuery, params),
-      pool.query(orderQuery, params),
-      pool.query(customerQuery, params),
-      pool.query(supplierQuery, params),
-      pool.query(revenueQuery, params),
-      pool.query(lowStockQuery, params),
-      pool.query(pendingQuery, pendingParams),
-      pool.query(recentQuery, params)
+      db.query(productQuery, params),
+      db.query(orderQuery, params),
+      db.query(customerQuery, params),
+      db.query(supplierQuery, params),
+      db.query(revenueQuery, params),
+      db.query(lowStockQuery, params),
+      db.query(pendingQuery, pendingParams),
+      db.query(recentQuery, params)
     ]);
 
     res.json({
@@ -127,7 +125,7 @@ router.get('/recent', authenticate, async (req, res) => {
     query += ` ORDER BY o.created_at DESC LIMIT $${paramIndex}`;
     params.push(parseInt(limit));
 
-    const result = await pool.query(query, params);
+    const result = await db.query(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('❌ Get recent orders error:', error);
@@ -153,7 +151,7 @@ router.get('/low-stock', authenticate, async (req, res) => {
     
     query += ' ORDER BY qty_instock ASC LIMIT 10';
 
-    const result = await pool.query(query, params);
+    const result = await db.query(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('❌ Get low stock error:', error);
@@ -187,7 +185,7 @@ router.get('/pending', authenticate, async (req, res) => {
     query += ` ORDER BY o.created_at DESC LIMIT $${paramIndex}`;
     params.push(10);
 
-    const result = await pool.query(query, params);
+    const result = await db.query(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('❌ Get pending orders error:', error);

@@ -1,11 +1,11 @@
-// backend/src/routes/customers.js
+// backend/src/routes/suppliers.js
 const express = require('express');
 const db = require('../config/postgres');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ===== GET ALL CUSTOMERS =====
+// ===== GET ALL SUPPLIERS =====
 router.get('/', authenticate, async (req, res) => {
   const { search } = req.query;
   const token = req.headers.authorization?.split(' ')[1];
@@ -14,7 +14,7 @@ router.get('/', authenticate, async (req, res) => {
   const isSuperAdmin = decoded.isSuperAdmin || false;
   const tenantId = decoded.tenantId;
 
-  let sql = "SELECT * FROM tbl_customers WHERE status = 'Active'";
+  let sql = "SELECT * FROM tbl_suppliers WHERE status = 'Active'";
   const params = [];
 
   if (!isSuperAdmin && tenantId) {
@@ -22,21 +22,21 @@ router.get('/', authenticate, async (req, res) => {
     params.push(tenantId);
     let paramIndex = 2;
     if (search) {
-      sql += ` AND (first_name ILIKE $${paramIndex} OR last_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR e_mail ILIKE $${paramIndex})`;
+      sql += ` AND (company ILIKE $${paramIndex} OR first_name ILIKE $${paramIndex} OR last_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR e_mail ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
     }
   } else if (search) {
-    sql += ` AND (first_name ILIKE $1 OR last_name ILIKE $1 OR phone ILIKE $1 OR e_mail ILIKE $1)`;
+    sql += ` AND (company ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1 OR phone ILIKE $1 OR e_mail ILIKE $1)`;
     params.push(`%${search}%`);
   }
 
-  sql += " ORDER BY first_name ASC";
+  sql += " ORDER BY company";
 
   try {
     const result = await db.query(sql, params);
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ Customers error:", err.message);
+    console.error("❌ Suppliers error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
