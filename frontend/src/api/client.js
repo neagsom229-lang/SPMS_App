@@ -1,7 +1,6 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-// Force use Render backend
 const API_URL = 'https://spms-backend-pro.onrender.com';
 
 console.log('🔧 API URL:', API_URL);
