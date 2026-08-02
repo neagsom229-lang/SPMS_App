@@ -22,6 +22,9 @@ import Payment from "./components/Payment";
 import Profile from "./components/Profile";
 import ErrorBoundary from './components/ErrorBoundary';
 
+// Super Admin Pages
+import SuperAdminDashboard from "./pages/SuperAdmin/Dashboard";
+
 // Pages
 import Pricing from "./pages/Pricing";
 import Landing from "./pages/Landing";
@@ -74,11 +77,32 @@ const ProtectedRoute = () => {
 };
 
 // ============================================
-// ✅ MAIN APP COMPONENT - FIXED
+// ✅ SUPER ADMIN ROUTE
+// ============================================
+const SuperAdminRoute = () => {
+  const { user, loading, isSuperAdmin } = useAuth();
+
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!isSuperAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <Outlet />;
+};
+
+// ============================================
+// ✅ MAIN APP COMPONENT
 // ============================================
 function App() {
   return (
-    <ErrorBoundary> {/* ✅ ERRORBOUNDARY WRAPS THE ENTIRE APP */}
+    <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter
           future={{
@@ -131,6 +155,11 @@ function App() {
                 <Route path="/register" element={<Register />} />
                 <Route path="/pricing" element={<Pricing />} />
 
+                {/* ===== SUPER ADMIN ROUTES ===== */}
+                <Route element={<SuperAdminRoute />}>
+                  <Route path="/admin" element={<Layout><SuperAdminDashboard /></Layout>} />
+                </Route>
+
                 {/* ===== PROTECTED ROUTES ===== */}
                 <Route element={<ProtectedRoute />}>
                   <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
@@ -158,7 +187,7 @@ function App() {
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
-    </ErrorBoundary> 
+    </ErrorBoundary>
   );
 }
 

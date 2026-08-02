@@ -1,6 +1,7 @@
 // ============================================
 // ✅ app.js - COMPLETE WORKING VERSION
-// ALL ORIGINAL FUNCTIONALITY PRESERVED
+// WITH SUPER ADMIN & MULTI-TENANT SUPPORT
+// INCLUDES HEALTH CHECK FOR RENDER
 // ============================================
 
 require("dotenv").config();
@@ -266,21 +267,42 @@ app.delete("/api/activity-logs", (req, res) => {
 });
 
 // ============================================
-// TEST ENDPOINTS
+// HEALTH CHECK - RENDER REQUIRED
 // ============================================
-app.get("/api/test", (req, res) => {
-  res.json({
-    message: "API is working!",
-    time: new Date().toISOString(),
-    status: "ok",
-  });
+app.get("/health", async (req, res) => {
+  try {
+    await db.query("SELECT 1");
+    res.status(200).json({
+      status: "OK",
+      message: "Server is healthy",
+      database: "Connected",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || "development",
+      version: "1.0.1"
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "ERROR",
+      message: "Database connection failed",
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
-app.get("/api", (req, res) => {
+// ============================================
+// ROOT ENDPOINT
+// ============================================
+app.get("/", (req, res) => {
   res.json({
-    message: "SPMS API is running",
-    status: "ok",
+    message: "SPMS Backend API",
+    version: "1.0.1",
+    status: "running",
+    timestamp: new Date().toISOString(),
     endpoints: {
+      health: "GET /health",
+      test: "GET /api/test",
       auth: {
         login: "POST /api/auth/login",
         register: "POST /api/auth/register",
@@ -294,14 +316,11 @@ app.get("/api", (req, res) => {
       users: "GET/POST/PUT/DELETE /api/users",
       analytics: "GET /api/analytics/*",
       reports: "GET /api/reports/*",
-      test: "GET /api/test",
-      dbTest: "GET /api/db-test",
-      health: "GET /api/health",
+      stock: "GET/POST/PUT/DELETE /api/stock",
       warranties: "GET/POST/PUT/DELETE /api/warranties",
       services: "GET/POST/PUT/DELETE /api/services",
-      activity: "GET/DELETE /api/activity-logs",
-      stock: "GET/POST/PUT/DELETE /api/stock, /api/stock/low-stock",
-      invoice: "GET /api/orders/:id/invoice",
+      tenants: "GET/POST/PUT/DELETE /api/tenants",
+      systemStats: "GET /api/system/stats",
       payment: {
         khqr: "GET /api/payment/khqr",
         status: "GET /api/payment/status/:sessionId",
@@ -312,8 +331,17 @@ app.get("/api", (req, res) => {
 });
 
 // ============================================
-// DATABASE TEST
+// TEST ENDPOINTS
 // ============================================
+app.get("/api/test", (req, res) => {
+  res.json({
+    message: "✅ API is working!",
+    time: new Date().toISOString(),
+    status: "ok",
+    version: "1.0.1"
+  });
+});
+
 app.get("/api/db-test", async (req, res) => {
   try {
     console.log("🔍 Testing database connection...");
@@ -345,7 +373,7 @@ app.get("/api/db-test", async (req, res) => {
 });
 
 // ============================================
-// AUTHENTICATION - LOGIN
+// AUTHENTICATION - LOGIN (WITH SUPER ADMIN)
 // ============================================
 app.post("/api/auth/login", async (req, res) => {
   const { username, password } = req.body;
@@ -359,9 +387,12 @@ app.post("/api/auth/login", async (req, res) => {
 
   try {
     const result = await db.query(
-      `SELECT userid, username, password, fullname, role, status, email 
-       FROM tbl_users 
-       WHERE LOWER(username) = LOWER($1) AND status = 'ACTIVE'`,
+      `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
+              u.is_super_admin, u.tenant_id,
+              t.id as tenant_id, t.name as tenant_name, t.subdomain
+       FROM tbl_users u
+       LEFT JOIN tenants t ON u.tenant_id = t.id
+       WHERE LOWER(u.username) = LOWER($1) AND u.status = 'ACTIVE'`,
       [username],
     );
 
@@ -385,22 +416,40 @@ app.post("/api/auth/login", async (req, res) => {
         userId: user.userid,
         username: user.username,
         role: user.role || "Admin",
+        tenantId: user.is_super_admin ? null : user.tenant_id,
+        isSuperAdmin: user.is_super_admin || false,
       },
       process.env.JWT_SECRET || "your-secret-key",
       { expiresIn: "7d" },
     );
 
+    // Build user response
+    const userResponse = {
+      user_id: user.userid,
+      username: user.username,
+      email: user.email || `${username}@example.com`,
+      role: user.role || "Admin",
+      role_name: user.role || "Admin",
+      status: user.status,
+      fullname: user.fullname || user.username,
+      isSuperAdmin: user.is_super_admin || false,
+    };
+
+    if (user.is_super_admin) {
+      userResponse.tenant = null;
+      userResponse.accessLevel = "all";
+    } else if (user.tenant_id) {
+      userResponse.tenant = {
+        id: user.tenant_id,
+        name: user.tenant_name,
+        subdomain: user.subdomain,
+      };
+      userResponse.accessLevel = "tenant";
+    }
+
     res.json({
       token,
-      user: {
-        user_id: user.userid,
-        username: user.username,
-        email: user.email || `${username}@example.com`,
-        role: user.role || "Admin",
-        role_name: user.role || "Admin",
-        status: user.status,
-        fullname: user.fullname || user.username,
-      },
+      user: userResponse,
     });
   } catch (err) {
     console.error("❌ Login error:", err.message);
@@ -484,7 +533,12 @@ app.get("/api/auth/me", async (req, res) => {
       process.env.JWT_SECRET || "your-secret-key",
     );
     const result = await db.query(
-      "SELECT userid, username, fullname, role, status, email FROM tbl_users WHERE userid = $1",
+      `SELECT u.userid, u.username, u.fullname, u.role, u.status, u.email,
+              u.is_super_admin, u.tenant_id,
+              t.name as tenant_name, t.subdomain
+       FROM tbl_users u
+       LEFT JOIN tenants t ON u.tenant_id = t.id
+       WHERE u.userid = $1`,
       [decoded.userId],
     );
     if (result.rows.length === 0) {
@@ -493,6 +547,303 @@ app.get("/api/auth/me", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error("❌ Auth me error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// SUPER ADMIN - TENANT MANAGEMENT
+// ============================================
+
+// ===== GET ALL TENANTS =====
+app.get("/api/tenants", authenticate, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    const result = await db.query(`
+      SELECT 
+        t.*,
+        COUNT(DISTINCT u.userid) as user_count,
+        COUNT(DISTINCT p.id) as product_count,
+        COUNT(DISTINCT o.id) as order_count,
+        COALESCE(SUM(o.total_amount), 0) as total_revenue
+      FROM tenants t
+      LEFT JOIN tbl_users u ON u.tenant_id = t.id
+      LEFT JOIN tbl_products p ON p.tenant_id = t.id
+      LEFT JOIN tbl_orders o ON o.tenant_id = t.id
+      GROUP BY t.id
+      ORDER BY t.created_at DESC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Get tenants error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== GET SINGLE TENANT =====
+app.get("/api/tenants/:id", authenticate, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    const result = await db.query(
+      `SELECT t.*,
+              COUNT(DISTINCT u.userid) as user_count,
+              COUNT(DISTINCT p.id) as product_count,
+              COUNT(DISTINCT o.id) as order_count,
+              COALESCE(SUM(o.total_amount), 0) as total_revenue
+       FROM tenants t
+       LEFT JOIN tbl_users u ON u.tenant_id = t.id
+       LEFT JOIN tbl_products p ON p.tenant_id = t.id
+       LEFT JOIN tbl_orders o ON o.tenant_id = t.id
+       WHERE t.id = $1
+       GROUP BY t.id`,
+      [req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("❌ Get tenant error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== CREATE TENANT =====
+app.post("/api/tenants", authenticate, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    const {
+      name,
+      subdomain,
+      email,
+      phone,
+      address,
+      subscriptionPlan = "free",
+      maxUsers = 5,
+      maxProducts = 100,
+    } = req.body;
+
+    if (!name || !subdomain || !email) {
+      return res.status(400).json({ error: "Name, subdomain, and email are required" });
+    }
+
+    // Check subdomain
+    const existing = await db.query(
+      "SELECT id FROM tenants WHERE subdomain = $1",
+      [subdomain.toLowerCase()]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: "Subdomain already taken" });
+    }
+
+    // Check email
+    const existingEmail = await db.query(
+      "SELECT id FROM tenants WHERE email = $1",
+      [email]
+    );
+    if (existingEmail.rows.length > 0) {
+      return res.status(400).json({ error: "Email already registered" });
+    }
+
+    const result = await db.query(
+      `INSERT INTO tenants 
+       (name, subdomain, email, phone, address, settings, subscription_plan, max_users, max_products, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       RETURNING *`,
+      [
+        name,
+        subdomain.toLowerCase(),
+        email,
+        phone || null,
+        address || null,
+        '{"theme": "light"}',
+        subscriptionPlan,
+        maxUsers,
+        maxProducts,
+      ]
+    );
+
+    logUserActivity(decoded.userId, "Created tenant", "tenants", result.rows[0].id);
+    res.status(201).json({
+      message: "Tenant created successfully",
+      tenant: result.rows[0],
+    });
+  } catch (err) {
+    console.error("❌ Create tenant error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== UPDATE TENANT =====
+app.put("/api/tenants/:id", authenticate, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    const {
+      name,
+      email,
+      phone,
+      address,
+      status,
+      subscriptionPlan,
+      maxUsers,
+      maxProducts,
+      settings,
+    } = req.body;
+
+    const result = await db.query(
+      `UPDATE tenants 
+       SET name = COALESCE($1, name),
+           email = COALESCE($2, email),
+           phone = COALESCE($3, phone),
+           address = COALESCE($4, address),
+           status = COALESCE($5, status),
+           subscription_plan = COALESCE($6, subscription_plan),
+           max_users = COALESCE($7, max_users),
+           max_products = COALESCE($8, max_products),
+           settings = COALESCE($9, settings),
+           updated_at = NOW()
+       WHERE id = $10
+       RETURNING *`,
+      [
+        name,
+        email,
+        phone,
+        address,
+        status,
+        subscriptionPlan,
+        maxUsers,
+        maxProducts,
+        settings,
+        req.params.id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    logUserActivity(decoded.userId, "Updated tenant", "tenants", req.params.id);
+    res.json({
+      message: "Tenant updated successfully",
+      tenant: result.rows[0],
+    });
+  } catch (err) {
+    console.error("❌ Update tenant error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== DELETE TENANT =====
+app.delete("/api/tenants/:id", authenticate, async (req, res) => {
+  const client = await db.connect();
+  
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    await client.query("BEGIN");
+
+    // Delete all data for this tenant
+    await client.query("DELETE FROM order_items WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_orders WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_products WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_customers WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_suppliers WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_categories WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_stock WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tbl_users WHERE tenant_id = $1", [req.params.id]);
+    await client.query("DELETE FROM tenants WHERE id = $1", [req.params.id]);
+
+    await client.query("COMMIT");
+
+    logUserActivity(decoded.userId, "Deleted tenant", "tenants", req.params.id);
+    res.json({ message: "Tenant deleted successfully" });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Delete tenant error:", err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================
+// SUPER ADMIN - SYSTEM STATS
+// ============================================
+app.get("/api/system/stats", authenticate, async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    if (!decoded.isSuperAdmin) {
+      return res.status(403).json({ error: "Access denied. Super Admin only." });
+    }
+
+    const stats = await db.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM tenants) as total_tenants,
+        (SELECT COUNT(*) FROM tbl_users) as total_users,
+        (SELECT COUNT(*) FROM tbl_products) as total_products,
+        (SELECT COUNT(*) FROM tbl_orders) as total_orders,
+        (SELECT COUNT(*) FROM tbl_customers) as total_customers,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM tbl_orders) as total_revenue
+    `);
+
+    const tenantStats = await db.query(`
+      SELECT 
+        t.name,
+        t.subdomain,
+        t.status,
+        t.created_at,
+        COUNT(DISTINCT u.userid) as users,
+        COUNT(DISTINCT p.id) as products,
+        COUNT(DISTINCT o.id) as orders
+      FROM tenants t
+      LEFT JOIN tbl_users u ON u.tenant_id = t.id
+      LEFT JOIN tbl_products p ON p.tenant_id = t.id
+      LEFT JOIN tbl_orders o ON o.tenant_id = t.id
+      GROUP BY t.id
+      ORDER BY t.created_at DESC
+      LIMIT 10
+    `);
+
+    res.json({
+      overview: stats.rows[0],
+      recentTenants: tenantStats.rows,
+    });
+  } catch (err) {
+    console.error("❌ System stats error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -589,7 +940,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
 });
 
 // ============================================
-// DASHBOARD STATS (CACHED)
+// DASHBOARD STATS (WITH TENANT FILTERING)
 // ============================================
 app.get(
   "/api/dashboard/stats",
@@ -597,24 +948,60 @@ app.get(
   cacheMiddleware(120),
   async (req, res) => {
     try {
-      const queries = [
-        db.query(
-          "SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'",
-        ),
-        db.query(
-          "SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'",
-        ),
-        db.query("SELECT COUNT(*) as count FROM tbl_orders"),
-        db.query(
-          "SELECT COALESCE(SUM(amount_us), 0) as revenue FROM tbl_orders",
-        ),
-        db.query(
-          "SELECT COUNT(*) as count FROM tbl_stock WHERE qtyavailable <= 5",
-        ),
-        db.query(
-          "SELECT COUNT(*) as count FROM tbl_orders WHERE status = 'Pending'",
-        ),
-      ];
+      const token = req.headers.authorization?.split(" ")[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+      
+      const isSuperAdmin = decoded.isSuperAdmin || false;
+      const tenantId = decoded.tenantId;
+
+      let queries = [];
+
+      if (isSuperAdmin) {
+        queries = [
+          db.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'"),
+          db.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'"),
+          db.query("SELECT COUNT(*) as count FROM tbl_orders"),
+          db.query("SELECT COALESCE(SUM(amount_us), 0) as revenue FROM tbl_orders"),
+          db.query("SELECT COUNT(*) as count FROM tbl_stock WHERE qtyavailable <= 5"),
+          db.query("SELECT COUNT(*) as count FROM tbl_orders WHERE status = 'Pending'"),
+        ];
+      } else if (tenantId) {
+        queries = [
+          db.query(
+            "SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1 AND status = 'Active'",
+            [tenantId]
+          ),
+          db.query(
+            "SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1 AND status = 'Active'",
+            [tenantId]
+          ),
+          db.query(
+            "SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1",
+            [tenantId]
+          ),
+          db.query(
+            "SELECT COALESCE(SUM(amount_us), 0) as revenue FROM tbl_orders WHERE tenant_id = $1",
+            [tenantId]
+          ),
+          db.query(
+            "SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE p.tenant_id = $1 AND s.qtyavailable <= 5",
+            [tenantId]
+          ),
+          db.query(
+            "SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = 'Pending'",
+            [tenantId]
+          ),
+        ];
+      } else {
+        return res.json({
+          totalCustomers: 0,
+          totalProducts: 0,
+          totalOrders: 0,
+          totalRevenue: 0,
+          lowStockItems: 0,
+          pendingOrders: 0,
+        });
+      }
 
       const results = await Promise.all(queries);
 
@@ -636,14 +1023,28 @@ app.get(
 );
 
 // ============================================
-// ✅ CUSTOMERS CRUD
+// ✅ CUSTOMERS CRUD (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/customers", authenticate, async (req, res) => {
   const { search } = req.query;
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   let sql = "SELECT * FROM tbl_customers WHERE status = 'Active'";
   const params = [];
 
-  if (search) {
+  if (!isSuperAdmin && tenantId) {
+    sql += " AND tenant_id = $1";
+    params.push(tenantId);
+    let paramIndex = 2;
+    if (search) {
+      sql += ` AND (first_name ILIKE $${paramIndex} OR last_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR e_mail ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+    }
+  } else if (search) {
     sql += ` AND (first_name ILIKE $1 OR last_name ILIKE $1 OR phone ILIKE $1 OR e_mail ILIKE $1)`;
     params.push(`%${search}%`);
   }
@@ -820,7 +1221,7 @@ app.delete("/api/customers/:id", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ PRODUCTS CRUD
+// ✅ PRODUCTS CRUD (WITH TENANT FILTERING)
 // ============================================
 app.get(
   "/api/products",
@@ -828,11 +1229,24 @@ app.get(
   cacheMiddleware(300),
   async (req, res) => {
     const { search } = req.query;
+    const token = req.headers.authorization?.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+    
+    const isSuperAdmin = decoded.isSuperAdmin || false;
+    const tenantId = decoded.tenantId;
 
     let sql = "SELECT * FROM tbl_products WHERE status = 'Active'";
     const params = [];
 
-    if (search) {
+    if (!isSuperAdmin && tenantId) {
+      sql += " AND tenant_id = $1";
+      params.push(tenantId);
+      let paramIndex = 2;
+      if (search) {
+        sql += ` AND (name_en ILIKE $${paramIndex} OR name_kh ILIKE $${paramIndex} OR barcode ILIKE $${paramIndex})`;
+        params.push(`%${search}%`);
+      }
+    } else if (search) {
       sql += ` AND (name_en ILIKE $1 OR name_kh ILIKE $1 OR barcode ILIKE $1)`;
       params.push(`%${search}%`);
     }
@@ -1056,10 +1470,15 @@ app.delete("/api/products/:id", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ ORDERS CRUD
+// ✅ ORDERS CRUD (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/orders", authenticate, async (req, res) => {
   const { limit = 50, status } = req.query;
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
 
   let sql = `
     SELECT o.or_id, o.order_no, o.order_date, o.amount_us, o.status, o.paymentmethod, o.customer_id,
@@ -1074,10 +1493,20 @@ app.get("/api/orders", authenticate, async (req, res) => {
     ) d ON d.or_id = o.or_id
   `;
   const params = [];
+  let whereClause = [];
+
+  if (!isSuperAdmin && tenantId) {
+    whereClause.push(`o.tenant_id = $${params.length + 1}`);
+    params.push(tenantId);
+  }
 
   if (status) {
-    sql += ` WHERE o.status = $1`;
+    whereClause.push(`o.status = $${params.length + 1}`);
     params.push(status);
+  }
+
+  if (whereClause.length > 0) {
+    sql += ` WHERE ${whereClause.join(' AND ')}`;
   }
 
   sql += " ORDER BY o.order_date DESC";
@@ -1103,14 +1532,29 @@ app.get("/api/orders", authenticate, async (req, res) => {
 });
 
 app.get("/api/orders/recent", authenticate, async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   try {
-    const result = await db.query(
-      `SELECT o.or_id, o.order_no, o.order_date, o.amount_us, o.status, o.paymentmethod, o.customer_id,
-              TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer_name
-       FROM tbl_orders o
-       LEFT JOIN tbl_customers c ON c.cus_id = CONCAT('CUS', LPAD(o.customer_id::text, 3, '0'))
-       ORDER BY o.order_date DESC LIMIT 10`,
-    );
+    let sql = `
+      SELECT o.or_id, o.order_no, o.order_date, o.amount_us, o.status, o.paymentmethod, o.customer_id,
+             TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer_name
+      FROM tbl_orders o
+      LEFT JOIN tbl_customers c ON c.cus_id = CONCAT('CUS', LPAD(o.customer_id::text, 3, '0'))
+    `;
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      sql += ` WHERE o.tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    sql += ` ORDER BY o.order_date DESC LIMIT 10`;
+
+    const result = await db.query(sql, params);
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Recent orders error:", err.message);
@@ -1119,15 +1563,30 @@ app.get("/api/orders/recent", authenticate, async (req, res) => {
 });
 
 app.get("/api/orders/pending", authenticate, async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   try {
-    const result = await db.query(
-      `SELECT o.or_id, o.order_no, o.order_date, o.amount_us, o.status, o.paymentmethod, o.customer_id,
-              TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer_name
-       FROM tbl_orders o
-       LEFT JOIN tbl_customers c ON c.cus_id = CONCAT('CUS', LPAD(o.customer_id::text, 3, '0'))
-       WHERE o.status IN ('Pending', 'Processing')
-       ORDER BY o.order_date DESC`,
-    );
+    let sql = `
+      SELECT o.or_id, o.order_no, o.order_date, o.amount_us, o.status, o.paymentmethod, o.customer_id,
+             TRIM(CONCAT(c.first_name, ' ', c.last_name)) AS customer_name
+      FROM tbl_orders o
+      LEFT JOIN tbl_customers c ON c.cus_id = CONCAT('CUS', LPAD(o.customer_id::text, 3, '0'))
+      WHERE o.status IN ('Pending', 'Processing')
+    `;
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      sql += ` AND o.tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    sql += ` ORDER BY o.order_date DESC`;
+
+    const result = await db.query(sql, params);
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Pending orders error:", err.message);
@@ -1417,15 +1876,28 @@ app.delete("/api/orders/:id", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ SUPPLIERS CRUD
+// ✅ SUPPLIERS CRUD (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/suppliers", authenticate, async (req, res) => {
   const { search } = req.query;
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
 
   let sql = "SELECT * FROM tbl_suppliers WHERE status = 'Active'";
   const params = [];
 
-  if (search) {
+  if (!isSuperAdmin && tenantId) {
+    sql += " AND tenant_id = $1";
+    params.push(tenantId);
+    let paramIndex = 2;
+    if (search) {
+      sql += ` AND (company ILIKE $${paramIndex} OR first_name ILIKE $${paramIndex} OR last_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR e_mail ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+    }
+  } else if (search) {
     sql += ` AND (company ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1 OR phone ILIKE $1 OR e_mail ILIKE $1)`;
     params.push(`%${search}%`);
   }
@@ -1642,9 +2114,8 @@ app.delete("/api/suppliers/:id", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ STOCK MANAGEMENT – COMPLETE & FIXED
+// ✅ STOCK MANAGEMENT (WITH TENANT FILTERING)
 // ============================================
-
 async function resolveProductId(rawId) {
   if (rawId === undefined || rawId === null) return null;
   const asString = String(rawId).trim();
@@ -1661,12 +2132,26 @@ async function resolveProductId(rawId) {
 }
 
 app.get("/api/stock", authenticate, async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   try {
-    const result = await db.query(`
+    let sql = `
       SELECT s.*, p.product_id as product_code, p.name_en, p.name_kh, p.qty_alert, p.saleout_price
       FROM tbl_stock s
       LEFT JOIN tbl_products p ON s.productid = p.id
-    `);
+    `;
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      sql += ` WHERE p.tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    const result = await db.query(sql, params);
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Stock error:", err.message);
@@ -1675,14 +2160,29 @@ app.get("/api/stock", authenticate, async (req, res) => {
 });
 
 app.get("/api/stock/low-stock", authenticate, async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   try {
-    const result = await db.query(
-      `SELECT p.product_id, p.name_en, p.name_kh, s.qtyavailable, p.qty_alert, p.saleout_price
-       FROM tbl_stock s
-       LEFT JOIN tbl_products p ON s.productid = p.id
-       WHERE s.qtyavailable <= p.qty_alert AND p.status = 'Active'
-       ORDER BY s.qtyavailable ASC`,
-    );
+    let sql = `
+      SELECT p.product_id, p.name_en, p.name_kh, s.qtyavailable, p.qty_alert, p.saleout_price
+      FROM tbl_stock s
+      LEFT JOIN tbl_products p ON s.productid = p.id
+      WHERE s.qtyavailable <= p.qty_alert AND p.status = 'Active'
+    `;
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      sql += ` AND p.tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    sql += ` ORDER BY s.qtyavailable ASC`;
+
+    const result = await db.query(sql, params);
     res.json(result.rows || []);
   } catch (err) {
     console.error("❌ Low stock error:", err.message);
@@ -1810,15 +2310,27 @@ app.delete("/api/stock/:productid", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ USERS CRUD
+// ✅ USERS CRUD (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/users", authenticate, authorize("Admin"), async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   try {
-    const result = await db.query(
-      `SELECT userid, username, fullname, role, status, createdat, email, phone 
-       FROM tbl_users 
-       ORDER BY userid`,
-    );
+    let sql = `SELECT userid, username, fullname, role, status, createdat, email, phone, is_super_admin FROM tbl_users`;
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      sql += ` WHERE tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    sql += ` ORDER BY userid`;
+
+    const result = await db.query(sql, params);
     const mappedUsers = result.rows.map((user) => ({
       user_id: user.userid,
       username: user.username || "",
@@ -1830,6 +2342,7 @@ app.get("/api/users", authenticate, authorize("Admin"), async (req, res) => {
       phone: user.phone || "",
       created_at: user.createdat || null,
       last_login: user.lastlogin || null,
+      is_super_admin: user.is_super_admin || false,
     }));
     res.json(mappedUsers);
   } catch (err) {
@@ -2079,13 +2592,25 @@ app.get("/api/orders/:id/invoice", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ EXCEL EXPORTS
+// ✅ EXCEL EXPORTS (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/reports/export/products", authenticate, async (req, res) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
+
   try {
-    const result = await db.query(
-      "SELECT product_id, name_en, name_kh, saleout_price, status FROM tbl_products WHERE status = 'Active'",
-    );
+    let sql = "SELECT product_id, name_en, name_kh, saleout_price, status FROM tbl_products WHERE status = 'Active'";
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      sql += ` AND tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    const result = await db.query(sql, params);
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Products");
     worksheet.addRow(["ID", "Name (EN)", "Name (KH)", "Price", "Status"]);
@@ -2243,26 +2768,45 @@ app.post("/api/payment/confirm", (req, res) => {
 });
 
 // ============================================
-// REPORTS
+// REPORTS (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/reports/:type", authenticate, async (req, res) => {
   const { type } = req.params;
   const { search } = req.query;
+  const token = req.headers.authorization?.split(" ")[1];
+  const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-secret-key");
+  
+  const isSuperAdmin = decoded.isSuperAdmin || false;
+  const tenantId = decoded.tenantId;
 
   try {
     let data = [];
 
     if (type === "stock") {
-      const result = await db.query(`
+      let sql = `
         SELECT s.*, p.product_id as product_code, p.name_en, p.name_kh
         FROM tbl_stock s
         LEFT JOIN tbl_products p ON s.productid = p.id
-      `);
+      `;
+      const params = [];
+
+      if (!isSuperAdmin && tenantId) {
+        sql += ` WHERE p.tenant_id = $1`;
+        params.push(tenantId);
+      }
+
+      const result = await db.query(sql, params);
       data = result.rows;
     } else if (type === "customers") {
-      const result = await db.query(
-        "SELECT * FROM tbl_customers WHERE status = 'Active'",
-      );
+      let sql = "SELECT * FROM tbl_customers WHERE status = 'Active'";
+      const params = [];
+
+      if (!isSuperAdmin && tenantId) {
+        sql += ` AND tenant_id = $1`;
+        params.push(tenantId);
+      }
+
+      const result = await db.query(sql, params);
       data = result.rows;
     } else {
       return res.status(404).json({ error: `Unknown report type: ${type}` });
@@ -2275,48 +2819,7 @@ app.get("/api/reports/:type", authenticate, async (req, res) => {
 });
 
 // ============================================
-// HEALTH CHECK
-// ============================================
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "OK",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-  });
-});
-
-// ============================================
-// ROOT ENDPOINT
-// ============================================
-app.get("/", (req, res) => {
-  res.json({
-    message: "SPMS Backend API",
-    version: "1.0.1",
-    status: "running",
-    endpoints: {
-      auth: {
-        login: "POST /api/auth/login",
-        register: "POST /api/auth/register",
-        me: "GET /api/auth/me",
-      },
-      subscription: "POST /api/create-checkout-session",
-      customers: "GET/POST/PUT/DELETE /api/customers",
-      products: "GET/POST/PUT/DELETE /api/products",
-      orders: "GET/POST/DELETE /api/orders",
-      suppliers: "GET/POST/PUT/DELETE /api/suppliers",
-      users: "GET/POST/PUT/DELETE /api/users",
-      analytics: "GET /api/analytics/*",
-      reports: "GET /api/reports/*",
-      test: "GET /api/test",
-      dbTest: "GET /api/db-test",
-      health: "GET /api/health",
-    },
-  });
-});
-
-// ============================================
-// 404 HANDLER
+// 404 HANDLER - MUST BE LAST
 // ============================================
 app.use((req, res) => {
   res.status(404).json({
@@ -2355,9 +2858,10 @@ async function startServer() {
       `📊 Connected to PostgreSQL at: ${testResult.rows[0].current_time}`,
     );
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`🚀 SPMS Backend running on http://localhost:${PORT}`);
       console.log(`📊 Test API: http://localhost:${PORT}/api/test`);
+      console.log(`💚 Health: http://localhost:${PORT}/health`);
       console.log("📁 Connected to PostgreSQL database successfully!");
       console.log("");
       console.log("📋 Available Endpoints:");
@@ -2371,20 +2875,24 @@ async function startServer() {
       console.log("  👤 Users:         GET/POST/PUT/DELETE /api/users");
       console.log("  📊 Reports:       GET /api/reports/*");
       console.log("  📊 Analytics:     GET /api/analytics/*");
-      console.log(
-        "  📊 Stock:         GET/POST/PUT/DELETE /api/stock, /api/stock/low-stock",
-      );
+      console.log("  📊 Stock:         GET/POST/PUT/DELETE /api/stock, /api/stock/low-stock");
       console.log("  📋 Warranties:    GET/POST/PUT/DELETE /api/warranties");
       console.log("  🔧 Services:      GET/POST/PUT/DELETE /api/services");
       console.log("  📱 KHQR:          GET /api/payment/khqr");
       console.log("  📄 Invoice:       GET /api/orders/:id/invoice");
+      console.log("  🏢 Tenants:       GET/POST/PUT/DELETE /api/tenants");
+      console.log("  📊 System Stats:  GET /api/system/stats");
+      console.log("  💚 Health:        GET /health");
     });
+
+    server.on('error', (error) => {
+      console.error('❌ Server error:', error);
+      process.exit(1);
+    });
+
   } catch (err) {
     console.error("❌ Server startup error:", err.message);
-    app.listen(PORT, () => {
-      console.log(`🚀 SPMS Backend running on http://localhost:${PORT}`);
-      console.log("⚠️ Database connection failed, some features may not work");
-    });
+    process.exit(1);
   }
 }
 

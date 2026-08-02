@@ -1,12 +1,13 @@
 {
   "name": "spms-app",
   "version": "1.0.0",
+  "description": "SPMS - Sale & Product Management System",
   "scripts": {
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "start": "cd backend && node server.js",
+    "start": "cd backend && npm start",
     "build": "cd frontend && npm run build",
     "vercel-build": "cd frontend && npm install && npm run build"
   },

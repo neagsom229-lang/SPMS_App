@@ -1,34 +1,32 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const apiClient = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json'
   },
+  timeout: 30000,
+  withCredentials: true
 });
 
-// ✅ REQUEST INTERCEPTOR - ADD TOKEN
+// ===== REQUEST INTERCEPTOR =====
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     
     console.log('🔑 Interceptor - Token exists:', token ? '✅ YES' : '❌ NO');
     console.log('🔑 Interceptor - Request URL:', config.url);
-    console.log('🔑 Interceptor - Token value:', token ? token.substring(0, 20) + '...' : 'null');
     
     if (token) {
-      // ✅ IMPORTANT: Set Authorization header
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('🔑 Authorization header set to:', config.headers.Authorization);
-      console.log('🔑 Full headers:', config.headers);
-    } else {
-      console.warn('⚠️ No token found - request will fail');
+      console.log('🔑 Authorization header set to:', token.substring(0, 30) + '...');
     }
     
+    console.log('🔑 Full headers:', config.headers);
     return config;
   },
   (error) => {
@@ -37,7 +35,7 @@ apiClient.interceptors.request.use(
   }
 );
 
-// ✅ RESPONSE INTERCEPTOR
+// ===== RESPONSE INTERCEPTOR =====
 apiClient.interceptors.response.use(
   (response) => {
     console.log('📥 Response:', response.status, response.config.url);
@@ -45,11 +43,25 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     console.error('❌ Response error:', error.response?.status, error.response?.data);
+    
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
+    
+    if (error.response?.status === 403) {
+      console.error('🔒 Forbidden:', error.response?.data?.error);
+    }
+    
+    if (error.code === 'ECONNABORTED') {
+      console.error('⏱️ Request timeout');
+    }
+    
+    if (!error.response) {
+      console.error('🌐 Network Error - Check if backend is running');
+    }
+    
     return Promise.reject(error);
   }
 );

@@ -1,152 +1,192 @@
-// Add stats cards with icons, quick actions, charts
-// I'll provide complete code
-// frontend/src/pages/Dashboard.jsx
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { dashboardApi } from '../api/dashboard';
-import StatsCard from '../components/StatsCard';
-import RevenueChart from '../components/RevenueChart';
-import RecentOrders from '../components/RecentOrders';
-import LowStockAlert from '../components/LowStockAlert';
-import LoadingSpinner from '../components/LoadingSpinner';
-import SkeletonLoader from '../components/SkeletonLoader';
-
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import api from '../api/axios';
+import { toast } from 'react-hot-toast';
 import { 
-  CurrencyDollarIcon, 
-  ShoppingBagIcon, 
-  UsersIcon, 
-  CubeIcon,
-  PlusIcon,
-  DocumentChartBarIcon,
-  UserPlusIcon,
-  CubePlusIcon
-} from '@heroicons/react/24/outline';
-import { Link } from 'react-router-dom';
+  Package, ShoppingCart, Users, AlertTriangle, 
+  DollarSign, TrendingUp, Clock, RefreshCw
+} from 'lucide-react';
 
 const Dashboard = () => {
-  const { data: stats, isLoading, refetch } = useQuery({
-    queryKey: ['dashboardStats'],
-    queryFn: dashboardApi.getStats,
-    refetchInterval: 30000
+  const { user, tenant } = useAuth();
+  const [stats, setStats] = useState({
+    totalProducts: 0,
+    totalOrders: 0,
+    totalCustomers: 0,
+    lowStock: 0,
+    recentOrders: 0,
+    totalRevenue: 0,
+    pendingOrders: 0
   });
-   const { data: stats, isLoading } = useQuery({
-    queryKey: ['dashboardStats'],
-    queryFn: dashboardApi.getStats,
-  });
+  const [loading, setLoading] = useState(true);
+  const [recentOrders, setRecentOrders] = useState([]);
+  const [lowStockItems, setLowStockItems] = useState([]);
 
-  if (isLoading) return <LoadingSpinner />;
-  const { data: recentOrders, isLoading: ordersLoading } = useQuery({
-    queryKey: ['recentOrders'],
-    queryFn: () => dashboardApi.getRecentOrders()
-  });
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
-  const { data: lowStock, isLoading: stockLoading } = useQuery({
-    queryKey: ['lowStock'],
-    queryFn: () => dashboardApi.getLowStock()
-  });
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      const [statsRes, ordersRes, stockRes] = await Promise.all([
+        api.get('/dashboard/stats'),
+        api.get('/dashboard/recent-orders?limit=5'),
+        api.get('/dashboard/low-stock')
+      ]);
 
-  // Quick action buttons
-  const quickActions = [
-    { name: 'New Order', icon: PlusIcon, href: '/orders/new', color: 'bg-blue-600' },
-    { name: 'Add Product', icon: CubePlusIcon, href: '/products/new', color: 'bg-green-600' },
-    { name: 'New Customer', icon: UserPlusIcon, href: '/customers/new', color: 'bg-purple-600' },
-    { name: 'Reports', icon: DocumentChartBarIcon, href: '/reports', color: 'bg-orange-600' },
-  ];
-
-  // Stats data
-  const statsData = [
-    {
-      title: 'Total Revenue',
-      value: `$${stats?.totalRevenue?.toFixed(2) || '0.00'}`,
-      icon: CurrencyDollarIcon,
-      color: 'bg-green-500',
-      change: '+12.5%',
-      trend: 'up'
-    },
-    {
-      title: 'Total Orders',
-      value: stats?.totalOrders || 0,
-      icon: ShoppingBagIcon,
-      color: 'bg-blue-500',
-      change: '+8.2%',
-      trend: 'up'
-    },
-    {
-      title: 'Active Customers',
-      value: stats?.totalCustomers || 0,
-      icon: UsersIcon,
-      color: 'bg-purple-500',
-      change: '+5.3%',
-      trend: 'up'
-    },
-    {
-      title: 'Low Stock Items',
-      value: stats?.lowStockItems || 0,
-      icon: CubeIcon,
-      color: 'bg-red-500',
-      change: '-2.1%',
-      trend: 'down'
+      setStats(statsRes.data);
+      setRecentOrders(ordersRes.data);
+      setLowStockItems(stockRes.data);
+    } catch (error) {
+      console.error('Fetch dashboard error:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const statCards = [
+    { 
+      title: 'Total Products', 
+      value: stats.totalProducts, 
+      icon: Package, 
+      color: 'bg-blue-500/20 text-blue-400',
+      border: 'border-blue-500/30'
+    },
+    { 
+      title: 'Total Orders', 
+      value: stats.totalOrders, 
+      icon: ShoppingCart, 
+      color: 'bg-green-500/20 text-green-400',
+      border: 'border-green-500/30'
+    },
+    { 
+      title: 'Total Customers', 
+      value: stats.totalCustomers, 
+      icon: Users, 
+      color: 'bg-purple-500/20 text-purple-400',
+      border: 'border-purple-500/30'
+    },
+    { 
+      title: 'Low Stock Alert', 
+      value: stats.lowStock, 
+      icon: AlertTriangle, 
+      color: 'bg-red-500/20 text-red-400',
+      border: 'border-red-500/30'
+    },
+    { 
+      title: 'Total Revenue', 
+      value: `$${stats.totalRevenue.toFixed(2)}`, 
+      icon: DollarSign, 
+      color: 'bg-yellow-500/20 text-yellow-400',
+      border: 'border-yellow-500/30'
+    },
+    { 
+      title: 'Pending Orders', 
+      value: stats.pendingOrders, 
+      icon: Clock, 
+      color: 'bg-orange-500/20 text-orange-400',
+      border: 'border-orange-500/30'
+    },
+    { 
+      title: 'Recent Orders (7d)', 
+      value: stats.recentOrders, 
+      icon: TrendingUp, 
+      color: 'bg-indigo-500/20 text-indigo-400',
+      border: 'border-indigo-500/30'
+    },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <RefreshCw className="w-8 h-8 animate-spin text-indigo-400" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-          <p className="text-gray-600 dark:text-gray-400">Welcome back! Here's what's happening.</p>
-        </div>
-        <button 
-          onClick={() => refetch()}
-          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 text-sm"
-        >
-          🔄 Refresh
-        </button>
+    <div className="p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">
+          Welcome back, {user?.fullName || 'Admin'}!
+        </h1>
+        <p className="text-gray-400">
+          {tenant?.name || 'Your Business'} Dashboard
+        </p>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {quickActions.map((action) => (
-          <Link
-            key={action.name}
-            to={action.href}
-            className={`${action.color} text-white p-4 rounded-xl hover:shadow-lg transition-all hover:scale-105 flex items-center justify-center gap-2`}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {statCards.map((stat, index) => (
+          <div
+            key={index}
+            className={`bg-white/5 backdrop-blur-sm border ${stat.border} rounded-xl p-4`}
           >
-            <action.icon className="h-5 w-5" />
-            <span>{action.name}</span>
-          </Link>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">{stat.title}</p>
+                <p className="text-2xl font-bold text-white">{stat.value}</p>
+              </div>
+              <div className={`p-3 rounded-xl ${stat.color}`}>
+                <stat.icon className="w-5 h-5" />
+              </div>
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statsData.map((stat, index) => (
-          <StatsCard key={index} {...stat} loading={isLoading} />
-        ))}
-      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Recent Orders */}
+        <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4">
+          <h2 className="text-white font-semibold mb-4">Recent Orders</h2>
+          {recentOrders.length === 0 ? (
+            <p className="text-gray-400 text-sm">No recent orders</p>
+          ) : (
+            <div className="space-y-3">
+              {recentOrders.map((order) => (
+                <div key={order.id} className="flex items-center justify-between border-b border-white/5 pb-2">
+                  <div>
+                    <p className="text-white text-sm">#{order.id}</p>
+                    <p className="text-gray-400 text-xs">{order.customer_name || 'Walk-in'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-white text-sm">${order.total_amount}</p>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      order.status === 'COMPLETED' ? 'bg-green-500/20 text-green-400' :
+                      order.status === 'PENDING' ? 'bg-yellow-500/20 text-yellow-400' :
+                      'bg-red-500/20 text-red-400'
+                    }`}>
+                      {order.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Revenue Trend</h3>
-          <RevenueChart data={stats?.monthlyRevenue} loading={isLoading} />
+        {/* Low Stock */}
+        <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-4">
+          <h2 className="text-white font-semibold mb-4">Low Stock Alert</h2>
+          {lowStockItems.length === 0 ? (
+            <p className="text-green-400 text-sm">✅ All products have sufficient stock</p>
+          ) : (
+            <div className="space-y-3">
+              {lowStockItems.map((product) => (
+                <div key={product.id} className="flex items-center justify-between border-b border-white/5 pb-2">
+                  <div>
+                    <p className="text-white text-sm">{product.name_en}</p>
+                    <p className="text-gray-400 text-xs">In stock: {product.qty_instock}</p>
+                  </div>
+                  <span className="text-red-400 text-xs px-2 py-0.5 bg-red-500/20 rounded-full">
+                    Alert: {product.qty_alert}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">⚠️ Low Stock Alerts</h3>
-          <LowStockAlert products={lowStock} loading={stockLoading} />
-        </div>
-      </div>
-
-      {/* Recent Orders */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Orders</h3>
-          <Link to="/orders" className="text-blue-600 hover:text-blue-800 dark:text-blue-400 text-sm">
-            View All →
-          </Link>
-        </div>
-        <RecentOrders orders={recentOrders} loading={ordersLoading} />
       </div>
     </div>
   );

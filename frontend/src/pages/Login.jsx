@@ -1,18 +1,10 @@
-// frontend/src/pages/Login.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ArrowRight, 
-  Shield,
-  AlertCircle,
-  Clock,
-  RefreshCw
+  Mail, Lock, Eye, EyeOff, ArrowRight, Shield,
+  AlertCircle, Clock, RefreshCw, Building2
 } from 'lucide-react';
 
 const Login = () => {
@@ -21,31 +13,26 @@ const Login = () => {
   
   const [formData, setFormData] = useState({
     username: '',
-    password: ''
+    password: '',
+    subdomain: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lockRemaining, setLockRemaining] = useState(0);
-  const [showLockWarning, setShowLockWarning] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
 
-  // ===== CHECK LOCK STATUS =====
   useEffect(() => {
     if (isLocked) {
       const updateLockTime = () => {
         const remaining = getLockRemaining();
         setLockRemaining(remaining);
-        if (remaining <= 0) {
-          setShowLockWarning(false);
-        }
       };
-      
       updateLockTime();
       const interval = setInterval(updateLockTime, 1000);
       return () => clearInterval(interval);
     }
   }, [isLocked, getLockRemaining]);
 
-  // ===== HANDLE SUBMIT =====
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -58,28 +45,40 @@ const Login = () => {
       toast.error('Please enter both username and password');
       return;
     }
+
+    if (!formData.subdomain.trim()) {
+      toast.error('Please enter your business ID or subdomain');
+      return;
+    }
     
     setLoading(true);
     
     try {
-      const result = await login(formData.username, formData.password);
+      const result = await login(
+        formData.username,
+        formData.password,
+        formData.subdomain
+      );
       
       if (result.success) {
+        toast.success('Welcome back! 🎉');
         navigate('/dashboard');
+      } else if (result.locked) {
+        toast.error(`⛔ ${result.error}`);
+      } else if (result.attempts) {
+        setFailedAttempts(result.attempts);
+        toast.error(`Invalid credentials. ${5 - result.attempts} attempts remaining.`);
       } else {
-        // Check if locked
-        if (result.error === 'Too many login attempts') {
-          setShowLockWarning(true);
-        }
+        toast.error(result.error || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
+      toast.error('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ===== HANDLE INPUT CHANGE =====
   const handleChange = (e) => {
     setFormData({
       ...formData,
@@ -90,33 +89,59 @@ const Login = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-sm px-6 py-3 rounded-2xl border border-white/10">
             <Shield className="w-8 h-8 text-indigo-400" />
             <span className="text-2xl font-bold text-white">SPMS</span>
           </div>
           <h2 className="text-white text-xl font-semibold mt-4">Welcome Back</h2>
-          <p className="text-indigo-200 text-sm">Sign in to your account to continue</p>
+          <p className="text-indigo-200 text-sm">Sign in to your business account</p>
         </div>
 
-        {/* Lock Warning */}
-        {isLocked && (
+        {(isLocked) && (
           <div className="mb-4 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <div>
               <p className="font-medium">Account Temporarily Locked</p>
               <p className="text-sm opacity-90">
-                Too many failed login attempts. Please wait <strong>{formatLockTime(lockRemaining)}</strong> before trying again.
+                Please wait <strong>{formatLockTime(lockRemaining)}</strong> before trying again.
               </p>
             </div>
           </div>
         )}
 
-        {/* Login Form */}
+        {failedAttempts > 0 && failedAttempts < 5 && (
+          <div className="mb-4 p-3 bg-yellow-500/20 border border-yellow-500/30 rounded-xl text-yellow-200 flex items-center gap-3 text-sm">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              {5 - failedAttempts} login attempts remaining. After 5 failed attempts, your account will be locked.
+            </span>
+          </div>
+        )}
+
         <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/10 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Username */}
+            <div>
+              <label className="block text-sm font-medium text-indigo-200 mb-1.5">
+                Business ID or Subdomain
+              </label>
+              <div className="relative">
+                <Building2 className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-indigo-300" />
+                <input
+                  type="text"
+                  name="subdomain"
+                  value={formData.subdomain}
+                  onChange={handleChange}
+                  placeholder="Enter your business ID (e.g., mybusiness)"
+                  disabled={loading || isLocked}
+                  className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-indigo-300/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all duration-200 disabled:opacity-50"
+                />
+              </div>
+              <p className="text-xs text-indigo-300/50 mt-1">
+                This was created when you registered your business
+              </p>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                 Username
@@ -135,7 +160,6 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                 Password
@@ -161,7 +185,6 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Forgot Password */}
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 text-sm text-indigo-200">
                 <input type="checkbox" className="rounded border-white/20 bg-white/5 text-indigo-500 focus:ring-indigo-400" />
@@ -172,7 +195,6 @@ const Login = () => {
               </Link>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading || isLocked}
@@ -196,17 +218,15 @@ const Login = () => {
               )}
             </button>
 
-            {/* Register Link */}
             <p className="text-center text-sm text-indigo-200">
-              Don't have an account?{' '}
+              New to SPMS?{' '}
               <Link to="/register" className="text-white font-medium hover:underline">
-                Create one
+                Start Your Business
               </Link>
             </p>
           </form>
         </div>
 
-        {/* Footer */}
         <p className="text-center text-xs text-indigo-300/50 mt-6">
           Protected by bank-grade encryption 🔒
         </p>

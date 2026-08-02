@@ -122,7 +122,39 @@ const Layout = ({ children }) => {
     { path: '/profile', icon: UserCircle, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['account', 'settings'] },
     { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10', keywords: ['preferences', 'config'] },
   ], []);
+    
+  // frontend/src/components/Layout.jsx (Add Super Admin Menu)
+// Add this to the menu array when isSuperAdmin is true:
 
+const getMenuItems = useCallback((isSuperAdmin) => {
+  const baseMenu = [
+    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+    { path: '/orders', icon: ShoppingCart, label: 'Orders', color: 'text-purple-400', bg: 'bg-purple-500/10' },
+    { path: '/products', icon: Package, label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+    { path: '/customers', icon: Users, label: 'Customers', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+    { path: '/stock', icon: Warehouse, label: 'Stock', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+    { path: '/suppliers', icon: Truck, label: 'Suppliers', color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+    { path: '/reports', icon: ClipboardList, label: 'Reports', color: 'text-rose-400', bg: 'bg-rose-500/10' },
+  ];
+
+  if (isSuperAdmin) {
+    return [
+      ...baseMenu,
+      // Super Admin Only Menu
+      { path: '/admin', icon: Shield, label: 'System Admin', color: 'text-red-400', bg: 'bg-red-500/10' },
+      { path: '/admin/tenants', icon: Building2, label: 'Businesses', color: 'text-orange-400', bg: 'bg-orange-500/10' },
+      { path: '/admin/users', icon: UserCircle, label: 'System Users', color: 'text-pink-400', bg: 'bg-pink-500/10' },
+      { path: '/profile', icon: User, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+      { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10' },
+    ];
+  }
+
+  return [
+    ...baseMenu,
+    { path: '/profile', icon: User, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+    { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10' },
+  ];
+}, []);
   // ===== GREETING BASED ON TIME =====
   useEffect(() => {
     const hour = new Date().getHours();

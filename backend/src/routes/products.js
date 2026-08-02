@@ -1,149 +1,269 @@
-// backend/routes/products.js
-const express = require("express");
-const db = require("../config/database");
-const { requireAuth } = require("../middleware/auth");
-const { validate, productValidations } = require('../middleware/validate');
-// backend/src/routes/products.js
-const { page = 1, limit = 10 } = req.query;
-const offset = (page - 1) * limit;
-
-router.post(
-  '/', 
-  authenticate, 
-  validate(productValidations.create), 
-  productController.create
-);
-
-router.put(
-  '/:id', 
-  authenticate, 
-  validate(productValidations.update), 
-  productController.update
-);
+const express = require('express');
+const pool = require('../config/database');
+const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
-router.use(requireAuth);
 
-// GET /api/products - list all products (with category name)
-router.get("/", (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT p.*, c.CATEGORY_EN, c.CATEGORY_KH
-       FROM TBL_PRODUCTS p
-       LEFT JOIN TBL_CATEGORY c ON c.ID = p.CATEGORY_ID
-       ORDER BY p.ID`
-    )
-    .all();
-  res.json(rows);
-});
+// ===== GET ALL PRODUCTS =====
+router.get('/', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
+  const { page = 1, limit = 20, search, category, status } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
 
-// GET /api/products/:id
-router.get("/:id", (req, res) => {
-  const row = db
-    .prepare(
-      `SELECT p.*, c.CATEGORY_EN, c.CATEGORY_KH
-       FROM TBL_PRODUCTS p
-       LEFT JOIN TBL_CATEGORY c ON c.ID = p.CATEGORY_ID
-       WHERE p.ID = ?`
-    )
-    .get(req.params.id);
-  if (!row) return res.status(404).json({ error: "Product not found" });
-  res.json(row);
-});
+  try {
+    let query = `
+      SELECT p.*, c.category_en, c.category_kh,
+             s.name_en as supplier_name
+      FROM tbl_products p
+      LEFT JOIN tbl_categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
+      LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1
+    `;
+    const params = [tenantId];
+    let paramIndex = 2;
 
-// POST /api/products - create a new product
-router.post("/", (req, res) => {
-  const {
-    PRODUCT_ID, SUPPLIER_ID, BARCODE, NAME_EN, NAME_KH, BRAND, MODEL,
-    CATEGORY_ID, BUYIN_PRICE, SALEOUT_PRICE, QTY_INSTOCK, QTY_ALERT, STATUS,
-  } = req.body;
+    if (search) {
+      query += ` AND (p.name_en ILIKE $${paramIndex} OR p.name_kh ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
 
-  if (!NAME_EN || SALEOUT_PRICE === undefined) {
-    return res.status(400).json({ error: "NAME_EN and SALEOUT_PRICE are required" });
+    if (category) {
+      query += ` AND p.category_id = $${paramIndex}`;
+      params.push(category);
+      paramIndex++;
+    }
+
+    if (status) {
+      query += ` AND p.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    // Get total count
+    const countQuery = query.replace(
+      /SELECT p\.\*, c\.category_en, c\.category_kh, s\.name_en as supplier_name FROM/i,
+      'SELECT COUNT(*) as total FROM'
+    );
+    const countResult = await pool.query(countQuery, params.slice(0, paramIndex - 1));
+    const total = parseInt(countResult.rows[0]?.total || 0);
+
+    // Get paginated results
+    query += ` ORDER BY p.id DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(parseInt(limit), offset);
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      products: result.rows,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Get products error:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
   }
+});
 
-  const info = db
-    .prepare(
-      `INSERT INTO TBL_PRODUCTS
-        (PRODUCT_ID, SUPPLIER_ID, BARCODE, NAME_EN, NAME_KH, BRAND, MODEL,
-         CATEGORY_ID, BUYIN_PRICE, SALEOUT_PRICE, QTY_INSTOCK, QTY_ALERT, STATUS, CREATED_DATE)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-    )
-    .run(
-      PRODUCT_ID || null, SUPPLIER_ID || null, BARCODE || null, NAME_EN, NAME_KH || null,
-      BRAND || null, MODEL || null, CATEGORY_ID || null, BUYIN_PRICE || 0,
-      SALEOUT_PRICE, QTY_INSTOCK || 0, QTY_ALERT || 0, STATUS || "ACTIVE"
+// ===== GET PRODUCT BY ID =====
+router.get('/:id', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
+
+  try {
+    const result = await pool.query(
+      `SELECT p.*, c.category_en, c.category_kh, s.name_en as supplier_name
+       FROM tbl_products p
+       LEFT JOIN tbl_categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
+       LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+       WHERE p.id = $1 AND p.tenant_id = $2`,
+      [req.params.id, tenantId]
     );
 
-  const created = db.prepare(`SELECT * FROM TBL_PRODUCTS WHERE ID = ?`).get(info.lastInsertRowid);
-  res.status(201).json(created);
-});
-
-// PUT /api/products/:id - update a product
-router.put("/:id", (req, res) => {
-  const existing = db.prepare(`SELECT * FROM TBL_PRODUCTS WHERE ID = ?`).get(req.params.id);
-  if (!existing) return res.status(404).json({ error: "Product not found" });
-
-  const fields = [
-    "NAME_EN", "NAME_KH", "BRAND", "MODEL", "CATEGORY_ID", "BUYIN_PRICE",
-    "SALEOUT_PRICE", "QTY_INSTOCK", "QTY_ALERT", "STATUS",
-  ];
-  const updates = [];
-  const values = [];
-  for (const f of fields) {
-    if (req.body[f] !== undefined) {
-      updates.push(`${f} = ?`);
-      values.push(req.body[f]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
     }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Get product error:', error);
+    res.status(500).json({ error: 'Failed to fetch product' });
   }
-  if (!updates.length) return res.status(400).json({ error: "No valid fields to update" });
-
-  updates.push(`UPDATED_DATE = datetime('now')`);
-  values.push(req.params.id);
-
-  db.prepare(`UPDATE TBL_PRODUCTS SET ${updates.join(", ")} WHERE ID = ?`).run(...values);
-  const updated = db.prepare(`SELECT * FROM TBL_PRODUCTS WHERE ID = ?`).get(req.params.id);
-  res.json(updated);
 });
 
-// DELETE /api/products/:id
-router.delete("/:id", (req, res) => {
-  const existing = db.prepare(`SELECT * FROM TBL_PRODUCTS WHERE ID = ?`).get(req.params.id);
-  if (!existing) return res.status(404).json({ error: "Product not found" });
-  db.prepare(`DELETE FROM TBL_PRODUCTS WHERE ID = ?`).run(req.params.id);
-  res.status(204).end();
+// ===== CREATE PRODUCT =====
+router.post('/', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
+  const userId = req.user?.userId;
+  const {
+    product_id, supplier_id, barcode, name_en, name_kh, brand, model,
+    category_id, buyin_price, saleout_price, qty_instock, qty_alert, status
+  } = req.body;
+
+  if (!name_en || saleout_price === undefined) {
+    return res.status(400).json({ error: 'Name and sale price are required' });
+  }
+
+  try {
+    // Check for duplicate barcode
+    if (barcode) {
+      const existing = await pool.query(
+        'SELECT id FROM tbl_products WHERE barcode = $1 AND tenant_id = $2',
+        [barcode, tenantId]
+      );
+      if (existing.rows.length > 0) {
+        return res.status(400).json({ error: 'Product with this barcode already exists' });
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO tbl_products 
+       (tenant_id, product_id, supplier_id, barcode, name_en, name_kh, brand, model,
+        category_id, buyin_price, saleout_price, qty_instock, qty_alert, status, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+       RETURNING *`,
+      [
+        tenantId,
+        product_id || null,
+        supplier_id || null,
+        barcode || null,
+        name_en,
+        name_kh || null,
+        brand || null,
+        model || null,
+        category_id || null,
+        buyin_price || 0,
+        saleout_price,
+        qty_instock || 0,
+        qty_alert || 0,
+        status || 'ACTIVE',
+        userId || null
+      ]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Create product error:', error);
+    res.status(500).json({ error: 'Failed to create product' });
+  }
 });
 
-// backend/src/routes/products.js
+// ===== UPDATE PRODUCT =====
+router.put('/:id', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
+  const userId = req.user?.userId;
 
-// Bulk delete
+  try {
+    // Check if product exists
+    const existing = await pool.query(
+      'SELECT * FROM tbl_products WHERE id = $1 AND tenant_id = $2',
+      [req.params.id, tenantId]
+    );
+
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const fields = [
+      'product_id', 'supplier_id', 'barcode', 'name_en', 'name_kh', 'brand',
+      'model', 'category_id', 'buyin_price', 'saleout_price',
+      'qty_instock', 'qty_alert', 'status'
+    ];
+
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const field of fields) {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = $${paramIndex}`);
+        values.push(req.body[field]);
+        paramIndex++;
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    updates.push(`updated_by = $${paramIndex}`);
+    values.push(userId || null);
+    paramIndex++;
+
+    updates.push(`updated_at = NOW()`);
+    values.push(req.params.id, tenantId);
+
+    const query = `
+      UPDATE tbl_products 
+      SET ${updates.join(', ')} 
+      WHERE id = $${paramIndex} AND tenant_id = $${paramIndex + 1}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, [...values, req.params.id, tenantId]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update product error:', error);
+    res.status(500).json({ error: 'Failed to update product' });
+  }
+});
+
+// ===== DELETE PRODUCT =====
+router.delete('/:id', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM tbl_products WHERE id = $1 AND tenant_id = $2 RETURNING id',
+      [req.params.id, tenantId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    res.status(204).end();
+  } catch (error) {
+    console.error('Delete product error:', error);
+    res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
+// ===== BULK DELETE =====
 router.delete('/bulk', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
   const { ids } = req.body;
-  
+
   if (!ids || !Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'No product IDs provided' });
   }
 
   try {
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    const result = await db.query(
-      `UPDATE tbl_products SET status = 'Inactive' WHERE id IN (${placeholders})`,
-      ids
-    );
-    
-    res.json({ 
+    const query = `
+      DELETE FROM tbl_products 
+      WHERE id IN (${placeholders}) AND tenant_id = $${ids.length + 1}
+    `;
+    const result = await pool.query(query, [...ids, tenantId]);
+
+    res.json({
       message: `${result.rowCount} products deleted successfully`,
       deleted: result.rowCount
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Bulk delete error:', error);
+    res.status(500).json({ error: 'Failed to delete products' });
   }
 });
 
-// Bulk update stock
+// ===== BULK STOCK UPDATE =====
 router.patch('/bulk-stock', authenticate, async (req, res) => {
-  const { ids, quantity } = req.body;
-  
+  const tenantId = req.tenantId || req.user?.tenantId;
+  const { ids, quantity, type = 'add' } = req.body;
+
   if (!ids || !Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'No product IDs provided' });
   }
@@ -154,47 +274,52 @@ router.patch('/bulk-stock', authenticate, async (req, res) => {
 
   try {
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    const result = await db.query(
-      `UPDATE tbl_stock s 
-       SET qtyinstock = qtyinstock + $${ids.length + 1}, 
-           qtyavailable = qtyavailable + $${ids.length + 1}
-       FROM tbl_products p 
-       WHERE s.productid = p.id AND p.id IN (${placeholders})`,
-      [...ids, quantity]
-    );
-    
-    res.json({ 
+    const query = `
+      UPDATE tbl_products 
+      SET qty_instock = qty_instock + $${ids.length + 1},
+          updated_at = NOW()
+      WHERE id IN (${placeholders}) AND tenant_id = $${ids.length + 2}
+    `;
+    const result = await pool.query(query, [...ids, quantity, tenantId]);
+
+    res.json({
       message: `Stock updated for ${result.rowCount} products`,
       updated: result.rowCount
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Bulk stock update error:', error);
+    res.status(500).json({ error: 'Failed to update stock' });
   }
 });
 
-// Bulk export
+// ===== EXPORT PRODUCTS =====
 router.get('/export', authenticate, async (req, res) => {
+  const tenantId = req.tenantId || req.user?.tenantId;
   const { ids } = req.query;
-  
-  let query = 'SELECT * FROM tbl_products WHERE status = \'Active\'';
-  const params = [];
-  
-  if (ids) {
-    const idArray = ids.split(',');
-    const placeholders = idArray.map((_, i) => `$${i + 1}`).join(',');
-    query += ` AND id IN (${placeholders})`;
-    params.push(...idArray);
-  }
-  
+
   try {
-    const result = await db.query(query, params);
-    // Export to Excel logic here
-    res.json({ 
+    let query = 'SELECT * FROM tbl_products WHERE tenant_id = $1';
+    const params = [tenantId];
+
+    if (ids) {
+      const idArray = ids.split(',');
+      const placeholders = idArray.map((_, i) => `$${i + 2}`).join(',');
+      query += ` AND id IN (${placeholders})`;
+      params.push(...idArray);
+    }
+
+    query += ' ORDER BY id';
+
+    const result = await pool.query(query, params);
+
+    res.json({
       products: result.rows,
-      count: result.rows.length
+      count: result.rows.length,
+      exportDate: new Date().toISOString()
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Export error:', error);
+    res.status(500).json({ error: 'Failed to export products' });
   }
 });
 
