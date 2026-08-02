@@ -1,8 +1,8 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-// Use environment variable with fallback
-const API_URL = import.meta.env.VITE_API_URL || 'https://spms-backend-pro.onrender.com';
+// Force use Render backend
+const API_URL = 'https://spms-backend-pro.onrender.com';
 
 console.log('🔧 API URL:', API_URL);
 
@@ -21,7 +21,8 @@ apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     
-    console.log('🔑 Request URL:', config.baseURL + config.url);
+    console.log('🔑 Full URL:', config.baseURL + config.url);
+    console.log('🔑 Token exists:', token ? '✅ YES' : '❌ NO');
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;

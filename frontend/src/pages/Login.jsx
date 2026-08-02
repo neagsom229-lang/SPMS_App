@@ -50,20 +50,25 @@ const Login = () => {
     setLoading(true);
     
     try {
-      console.log('📤 Attempting login...');
+      console.log('📤 Attempting login with:', formData.username);
+      
       const result = await login(formData.username, formData.password);
+      
+      console.log('📤 Login result:', result);
       
       if (result.success) {
         toast.success('Welcome back! 🎉');
         // Redirect handled by useEffect
       } else {
-        setError(result.error || 'Login failed');
-        toast.error(result.error || 'Login failed');
+        const errorMsg = result.error || 'Login failed';
+        setError(errorMsg);
+        toast.error(errorMsg);
       }
     } catch (error) {
       console.error('Login error:', error);
-      setError('Network error. Please check your connection.');
-      toast.error('Network error. Please try again.');
+      const errorMsg = error.message || 'Network error. Please try again.';
+      setError(errorMsg);
+      toast.error(errorMsg);
     } finally {
       setLoading(false);
     }

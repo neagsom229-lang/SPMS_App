@@ -59,15 +59,20 @@ export const AuthProvider = ({ children }) => {
 
     try {
       console.log('📤 Logging in...', username);
+      console.log('📤 API URL:', apiClient.defaults.baseURL);
       
       const response = await apiClient.post('/auth/login', {
         username,
         password
       });
 
-      console.log('✅ Login successful:', response.data);
+      console.log('✅ Login response:', response.data);
 
       const { token, user: userData } = response.data;
+
+      if (!token || !userData) {
+        throw new Error('Invalid response from server');
+      }
 
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
@@ -87,25 +92,18 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user: userData };
       
     } catch (error) {
-      console.error('❌ Login error:', error.response?.data || error.message);
+      console.error('❌ Login error:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
       
-      const errorMessage = error.response?.data?.error || 'Login failed';
+      const errorMessage = error.response?.data?.error || error.message || 'Login failed';
       toast.error(`❌ ${errorMessage}`);
       
-      // Increment login attempts
-      const newAttempts = loginAttempts + 1;
-      setLoginAttempts(newAttempts);
-      localStorage.setItem('loginAttempts', String(newAttempts));
-      
-      if (newAttempts >= 5) {
-        setIsLocked(true);
-        const lockDuration = 15 * 60 * 1000;
-        setLockRemaining(lockDuration);
-        localStorage.setItem('loginLockUntil', String(Date.now() + lockDuration));
-        toast.error('⛔ Too many failed attempts. Account locked for 15 minutes.');
-      }
-      
-      return { success: false, error: errorMessage };
+      return { 
+        success: false, 
+        error: errorMessage,
+        status: error.response?.status
+      };
     }
   }, [isLocked, loginAttempts, lockRemaining]);
 
