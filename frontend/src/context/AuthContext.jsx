@@ -105,6 +105,7 @@ export const AuthProvider = ({ children }) => {
 
   // ===== LOGIN =====
   // frontend/src/context/AuthContext.jsx - Login function
+// frontend/src/context/AuthContext.jsx
 const login = useCallback(async (username, password) => {
   if (isLocked) {
     toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
@@ -112,7 +113,15 @@ const login = useCallback(async (username, password) => {
   }
 
   try {
-    const response = await apiClient.post('/auth/login', { username, password });
+    console.log('📤 Logging in...', username);
+    
+    // The API URL is already set in the axios instance
+    const response = await apiClient.post('/auth/login', {
+      username,
+      password
+    });
+
+    console.log('✅ Login successful:', response.data);
 
     const { token, user: userData } = response.data;
 
@@ -129,13 +138,17 @@ const login = useCallback(async (username, password) => {
     
     setUser(userData);
     setIsSuperAdmin(userData.isSuperAdmin || false);
-    
     toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
     
     return { success: true, user: userData };
     
   } catch (error) {
-    // ... error handling
+    console.error('❌ Login error:', error.response?.data || error.message);
+    
+    const errorMessage = error.response?.data?.error || 'Login failed';
+    toast.error(`❌ ${errorMessage}`);
+    
+    return { success: false, error: errorMessage };
   }
 }, [isLocked, loginAttempts, lockRemaining]);
 
