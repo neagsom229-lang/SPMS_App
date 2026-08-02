@@ -1,8 +1,10 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-// Use environment variable
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Force use Render backend for production
+const API_URL = import.meta.env.VITE_API_URL || 'https://spms-backend-pro.onrender.com';
+
+console.log('🔧 API_URL:', API_URL);
 
 const apiClient = axios.create({
   baseURL: API_URL,

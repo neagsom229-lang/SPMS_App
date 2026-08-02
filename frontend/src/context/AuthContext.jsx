@@ -1,6 +1,6 @@
 // frontend/src/context/AuthContext.jsx
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import apiClient from '../api/axios';
+import apiClient from '../api/client';
 import { toast } from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -20,7 +20,6 @@ export const AuthProvider = ({ children }) => {
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [lockRemaining, setLockRemaining] = useState(0);
-  const [lockTimer, setLockTimer] = useState(null);
 
   // ===== LOAD USER =====
   useEffect(() => {
@@ -49,108 +48,66 @@ export const AuthProvider = ({ children }) => {
     };
     
     loadUser();
-    
-    // Check lock status
-    const lockUntil = localStorage.getItem('loginLockUntil');
-    if (lockUntil) {
-      const remaining = parseInt(lockUntil) - Date.now();
-      if (remaining > 0) {
-        setIsLocked(true);
-        setLockRemaining(remaining);
-        setLockTimer(setTimeout(() => {
-          setIsLocked(false);
-          localStorage.removeItem('loginLockUntil');
-          localStorage.removeItem('loginAttempts');
-          setLoginAttempts(0);
-          setLockRemaining(0);
-          toast.info('🔓 Account unlocked. You can try logging in now.');
-        }, remaining));
-      } else {
-        localStorage.removeItem('loginLockUntil');
-        localStorage.removeItem('loginAttempts');
-        setLoginAttempts(0);
-        setIsLocked(false);
-        setLockRemaining(0);
-      }
-    }
-    
-    return () => {
-      if (lockTimer) clearTimeout(lockTimer);
-    };
   }, []);
 
-  // ===== UPDATE LOCK TIME =====
-  useEffect(() => {
-    if (isLocked) {
-      const interval = setInterval(() => {
-        const lockUntil = localStorage.getItem('loginLockUntil');
-        if (lockUntil) {
-          const remaining = parseInt(lockUntil) - Date.now();
-          if (remaining > 0) {
-            setLockRemaining(remaining);
-          } else {
-            setIsLocked(false);
-            localStorage.removeItem('loginLockUntil');
-            localStorage.removeItem('loginAttempts');
-            setLoginAttempts(0);
-            setLockRemaining(0);
-            toast.info('🔓 Account unlocked. You can try logging in now.');
-            clearInterval(interval);
-          }
-        }
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [isLocked]);
-
   // ===== LOGIN =====
-  // frontend/src/context/AuthContext.jsx - Login function
-// frontend/src/context/AuthContext.jsx
-const login = useCallback(async (username, password) => {
-  if (isLocked) {
-    toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
-    return { success: false, error: 'Account locked' };
-  }
+  const login = useCallback(async (username, password) => {
+    if (isLocked) {
+      toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
+      return { success: false, error: 'Account locked' };
+    }
 
-  try {
-    console.log('📤 Logging in...', username);
-    
-    // The API URL is already set in the axios instance
-    const response = await apiClient.post('/auth/login', {
-      username,
-      password
-    });
+    try {
+      console.log('📤 Logging in...', username);
+      
+      const response = await apiClient.post('/auth/login', {
+        username,
+        password
+      });
 
-    console.log('✅ Login successful:', response.data);
+      console.log('✅ Login successful:', response.data);
 
-    const { token, user: userData } = response.data;
+      const { token, user: userData } = response.data;
 
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    
-    setLoginAttempts(0);
-    localStorage.removeItem('loginAttempts');
-    localStorage.removeItem('loginLockUntil');
-    setIsLocked(false);
-    setLockRemaining(0);
-    
-    setUser(userData);
-    setIsSuperAdmin(userData.isSuperAdmin || false);
-    toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
-    
-    return { success: true, user: userData };
-    
-  } catch (error) {
-    console.error('❌ Login error:', error.response?.data || error.message);
-    
-    const errorMessage = error.response?.data?.error || 'Login failed';
-    toast.error(`❌ ${errorMessage}`);
-    
-    return { success: false, error: errorMessage };
-  }
-}, [isLocked, loginAttempts, lockRemaining]);
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      setLoginAttempts(0);
+      localStorage.removeItem('loginAttempts');
+      localStorage.removeItem('loginLockUntil');
+      setIsLocked(false);
+      setLockRemaining(0);
+      
+      setUser(userData);
+      setIsSuperAdmin(userData.isSuperAdmin || false);
+      toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
+      
+      return { success: true, user: userData };
+      
+    } catch (error) {
+      console.error('❌ Login error:', error.response?.data || error.message);
+      
+      const errorMessage = error.response?.data?.error || 'Login failed';
+      toast.error(`❌ ${errorMessage}`);
+      
+      // Increment login attempts
+      const newAttempts = loginAttempts + 1;
+      setLoginAttempts(newAttempts);
+      localStorage.setItem('loginAttempts', String(newAttempts));
+      
+      if (newAttempts >= 5) {
+        setIsLocked(true);
+        const lockDuration = 15 * 60 * 1000;
+        setLockRemaining(lockDuration);
+        localStorage.setItem('loginLockUntil', String(Date.now() + lockDuration));
+        toast.error('⛔ Too many failed attempts. Account locked for 15 minutes.');
+      }
+      
+      return { success: false, error: errorMessage };
+    }
+  }, [isLocked, loginAttempts, lockRemaining]);
 
   // ===== LOGOUT =====
   const logout = useCallback(() => {
@@ -169,28 +126,7 @@ const login = useCallback(async (username, password) => {
     setIsLocked(false);
     setLockRemaining(0);
     
-    if (lockTimer) {
-      clearTimeout(lockTimer);
-      setLockTimer(null);
-    }
-    
     toast.success('👋 Logged out successfully');
-  }, [lockTimer]);
-
-  // ===== FORMAT LOCK TIME =====
-  const formatLockTime = useCallback((ms) => {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = Math.floor((ms % 60000) / 1000);
-    if (minutes > 0) {
-      return `${minutes}m ${seconds}s`;
-    }
-    return `${seconds}s`;
-  }, []);
-
-  // ===== CHECK IF AUTHENTICATED =====
-  const isAuthenticated = useCallback(() => {
-    const token = localStorage.getItem('token');
-    return !!token;
   }, []);
 
   const value = {
@@ -203,8 +139,6 @@ const login = useCallback(async (username, password) => {
     loginAttempts,
     isLocked,
     lockRemaining,
-    formatLockTime,
-    isAuthenticated
   };
 
   if (loading) {
