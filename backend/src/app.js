@@ -220,7 +220,23 @@ const logUserActivity = (
     return null;
   }
 };
+// ============================================
+// SIMPLE TEST ROUTE - NO AUTH REQUIRED
+// ============================================
+app.get('/test', (req, res) => {
+  res.json({ 
+    message: '✅ Test route is working!',
+    timestamp: new Date().toISOString()
+  });
+});
 
+app.post('/test', (req, res) => {
+  res.json({ 
+    message: '✅ POST test is working!',
+    data: req.body,
+    timestamp: new Date().toISOString()
+  });
+});
 // ============================================
 // ACTIVITY LOGS ROUTES
 // ============================================
@@ -2842,6 +2858,14 @@ app.use('/api/users', userRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/categories', categoryRoutes);
+// ============================================
+// DEBUG ROUTE - Log all requests
+// ============================================
+app.use((req, res, next) => {
+  console.log('📤 Request:', req.method, req.url);
+  console.log('📤 Headers:', req.headers);
+  next();
+});
 // ============================================
 // 404 HANDLER - MUST BE LAST
 // ============================================

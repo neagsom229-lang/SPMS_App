@@ -1,6 +1,7 @@
+// frontend/src/pages/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import api from '../api/axios';
+import apiClient from '../api/client';
 import { toast } from 'react-hot-toast';
 import { 
   Package, ShoppingCart, Users, AlertTriangle, 
@@ -29,10 +30,12 @@ const Dashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
+      
+      // ✅ FIX: Added /api/ prefix to all calls
       const [statsRes, ordersRes, stockRes] = await Promise.all([
-        api.get('/dashboard/stats'),
-        api.get('/dashboard/recent-orders?limit=5'),
-        api.get('/dashboard/low-stock')
+        apiClient.get('/api/dashboard/stats'),
+        apiClient.get('/api/orders/recent?limit=5'),
+        apiClient.get('/api/stock/low-stock')
       ]);
 
       setStats(statsRes.data);
@@ -110,7 +113,7 @@ const Dashboard = () => {
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">
-          Welcome back, {user?.fullName || 'Admin'}!
+          Welcome back, {user?.fullname || 'Admin'}!
         </h1>
         <p className="text-gray-400">
           {tenant?.name || 'Your Business'} Dashboard

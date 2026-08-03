@@ -1,7 +1,8 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-const API_URL = 'https://spms-backend-pro.onrender.com';
+// ✅ FIX: Add /api to the base URL
+const API_URL = 'https://spms-backend-pro.onrender.com/api';
 
 console.log('🔧 API URL:', API_URL);
 
