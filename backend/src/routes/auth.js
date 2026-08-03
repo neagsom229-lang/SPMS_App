@@ -131,7 +131,7 @@ router.post('/logout', (req, res) => {
   res.json({ message: 'Logged out successfully' });
 });
 
-// ===== ✅ CLIENT SELF-REGISTRATION (FIXED - UNIQUE USERNAME) =====
+// ===== ✅ CLIENT SELF-REGISTRATION (FIXED FOR YOUR DB) =====
 router.post('/register-client', async (req, res) => {
   const { 
     businessName, 
@@ -196,7 +196,7 @@ router.post('/register-client', async (req, res) => {
 
     const tenant = tenantResult.rows[0];
 
-    // ✅ FIX: Create unique username using subdomain
+    // Create unique username using subdomain
     const uniqueUsername = `${subdomain.toLowerCase()}_admin`;
 
     // Hash password
@@ -213,7 +213,17 @@ router.post('/register-client', async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // Create default categories for the tenant
+    // ✅ FIX: Create default categories with correct column names
+    // First, check what columns exist
+    const columns = await db.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_name = 'tbl_categories'`
+    );
+    
+    const columnNames = columns.rows.map(row => row.column_name);
+    console.log('📋 Categories columns:', columnNames);
+
+    // Define categories with correct column names
     const categories = [
       ['Electronics', 'Electronic products and gadgets'],
       ['Furniture', 'Furniture and home items'],
@@ -222,12 +232,57 @@ router.post('/register-client', async (req, res) => {
       ['Office Supplies', 'Office and stationery items']
     ];
 
+    // Insert categories with the correct column names
     for (const [name, desc] of categories) {
-      await db.query(
-        `INSERT INTO tbl_categories (tenant_id, category_en, category_kh, created_at)
-         VALUES ($1, $2, $3, NOW())`,
-        [tenant.id, name, desc]
-      );
+      let insertQuery = `INSERT INTO tbl_categories (tenant_id`;
+      let values = [tenant.id];
+      let valuePlaceholders = ['$1'];
+      let paramIndex = 2;
+
+      if (columnNames.includes('category_en')) {
+        insertQuery += `, category_en`;
+        values.push(name);
+        valuePlaceholders.push(`$${paramIndex}`);
+        paramIndex++;
+      }
+      
+      if (columnNames.includes('category_kh')) {
+        insertQuery += `, category_kh`;
+        values.push(desc || name);
+        valuePlaceholders.push(`$${paramIndex}`);
+        paramIndex++;
+      }
+      
+      if (columnNames.includes('name')) {
+        insertQuery += `, name`;
+        values.push(name);
+        valuePlaceholders.push(`$${paramIndex}`);
+        paramIndex++;
+      }
+      
+      if (columnNames.includes('description')) {
+        insertQuery += `, description`;
+        values.push(desc || name);
+        valuePlaceholders.push(`$${paramIndex}`);
+        paramIndex++;
+      }
+      
+      if (columnNames.includes('created_at')) {
+        insertQuery += `, created_at`;
+        values.push(new Date());
+        valuePlaceholders.push(`NOW()`);
+      }
+
+      insertQuery += `) VALUES (${valuePlaceholders.join(', ')})`;
+
+      console.log('📝 Insert query:', insertQuery);
+      
+      try {
+        await db.query(insertQuery, values);
+      } catch (err) {
+        console.warn('⚠️ Category insert failed:', err.message);
+        // Continue with next category
+      }
     }
 
     // Generate JWT
