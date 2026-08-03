@@ -17,23 +17,25 @@ const apiClient = axios.create({
 });
 
 // ===== REQUEST INTERCEPTOR =====
+// Add tenant header to all requests
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
-    
-    console.log('🔑 Full URL:', config.baseURL + config.url);
-    console.log('🔑 Token exists:', token ? '✅ YES' : '❌ NO');
+    const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     
+    // ✅ Add tenant ID to headers
+    if (tenant.id) {
+      config.headers['X-Tenant-Id'] = tenant.id;
+      config.headers['X-Tenant-Subdomain'] = tenant.subdomain;
+    }
+    
     return config;
   },
-  (error) => {
-    console.error('❌ Request error:', error);
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 // ===== RESPONSE INTERCEPTOR =====

@@ -25,22 +25,30 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [tenant?.id]); // ✅ Re-fetch when tenant changes
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
       
-      // ✅ FIX: Added /api/ prefix to all calls
+      // ✅ Use the tenant ID from context
+      const tenantId = tenant?.id || user?.tenant?.id;
+      
       const [statsRes, ordersRes, stockRes] = await Promise.all([
-        apiClient.get('/api/dashboard/stats'),
-        apiClient.get('/api/orders/recent?limit=5'),
-        apiClient.get('/api/stock/low-stock')
+        apiClient.get('/api/dashboard/stats', {
+          params: { tenantId }
+        }),
+        apiClient.get('/api/orders/recent', {
+          params: { tenantId, limit: 5 }
+        }),
+        apiClient.get('/api/stock/low-stock', {
+          params: { tenantId }
+        })
       ]);
 
       setStats(statsRes.data);
-      setRecentOrders(ordersRes.data);
-      setLowStockItems(stockRes.data);
+      setRecentOrders(ordersRes.data || []);
+      setLowStockItems(stockRes.data || []);
     } catch (error) {
       console.error('Fetch dashboard error:', error);
       toast.error('Failed to load dashboard data');
@@ -103,20 +111,29 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <RefreshCw className="w-8 h-8 animate-spin text-indigo-400" />
       </div>
     );
   }
 
+  // ✅ Show tenant info
+  const tenantName = tenant?.name || user?.tenant?.name || 'Your Business';
+  const subdomain = tenant?.subdomain || user?.tenant?.subdomain || '';
+
   return (
     <div className="p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">
-          Welcome back, {user?.fullname || 'Admin'}!
+          Welcome back, {user?.fullname || user?.username || 'Admin'}!
         </h1>
         <p className="text-gray-400">
-          {tenant?.name || 'Your Business'} Dashboard
+          {tenantName} Dashboard
+          {subdomain && (
+            <span className="ml-2 text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full">
+              {subdomain}
+            </span>
+          )}
         </p>
       </div>
 

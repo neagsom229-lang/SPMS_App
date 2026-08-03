@@ -15,33 +15,45 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [tenant, setTenant] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [isLocked, setIsLocked] = useState(false);
   const [lockRemaining, setLockRemaining] = useState(0);
 
-  // ===== LOAD USER =====
+  // ===== LOAD USER FROM LOCAL STORAGE =====
   useEffect(() => {
     const loadUser = () => {
       try {
         const token = localStorage.getItem('token');
         const userData = localStorage.getItem('user');
+        const tenantData = localStorage.getItem('tenant');
         
         console.log('🔍 Loading user...');
         console.log('📦 Token found:', token ? '✅ Yes' : '❌ No');
         console.log('📦 User found:', userData ? '✅ Yes' : '❌ No');
+        console.log('📦 Tenant found:', tenantData ? '✅ Yes' : '❌ No');
         
         if (token && userData) {
           const parsedUser = JSON.parse(userData);
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           setUser(parsedUser);
           setIsSuperAdmin(parsedUser.isSuperAdmin || false);
+          
+          // ✅ Load tenant
+          if (tenantData) {
+            setTenant(JSON.parse(tenantData));
+          } else if (parsedUser.tenant) {
+            setTenant(parsedUser.tenant);
+            localStorage.setItem('tenant', JSON.stringify(parsedUser.tenant));
+          }
         }
       } catch (error) {
         console.error('Error loading user:', error);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('tenant');
       } finally {
         setLoading(false);
       }
@@ -77,6 +89,14 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userData));
       
+      // ✅ Store tenant separately
+      if (userData.tenant) {
+        localStorage.setItem('tenant', JSON.stringify(userData.tenant));
+        setTenant(userData.tenant);
+      } else {
+        setTenant(null);
+      }
+      
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
       setLoginAttempts(0);
@@ -107,57 +127,6 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isLocked, loginAttempts, lockRemaining]);
 
-  // ===== REGISTER (SELF-REGISTRATION) =====
-  const register = useCallback(async (formData) => {
-    try {
-      console.log('📤 Registering business...', formData.businessName);
-      console.log('📤 API URL:', apiClient.defaults.baseURL);
-      
-      const response = await apiClient.post('/auth/register-client', {
-        businessName: formData.businessName,
-        email: formData.email,
-        password: formData.password,
-        phone: formData.phone || '',
-        address: formData.address || '',
-        subdomain: formData.subdomain
-      });
-
-      console.log('✅ Registration response:', response.data);
-
-      const { token, user: userData, tenant } = response.data;
-
-      if (!token || !userData) {
-        throw new Error('Invalid response from server');
-      }
-
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      localStorage.setItem('tenant', JSON.stringify(tenant));
-      
-      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
-      setUser(userData);
-      setIsSuperAdmin(false);
-      toast.success(`🎉 ${tenant.name} registered successfully!`);
-      
-      return { success: true, user: userData, tenant };
-      
-    } catch (error) {
-      console.error('❌ Registration error:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
-      
-      const errorMessage = error.response?.data?.error || error.message || 'Registration failed';
-      toast.error(`❌ ${errorMessage}`);
-      
-      return { 
-        success: false, 
-        error: errorMessage,
-        status: error.response?.status
-      };
-    }
-  }, []);
-
   // ===== LOGOUT =====
   const logout = useCallback(() => {
     console.log('📤 Logging out...');
@@ -171,6 +140,7 @@ export const AuthProvider = ({ children }) => {
     delete apiClient.defaults.headers.common['Authorization'];
     
     setUser(null);
+    setTenant(null);
     setIsSuperAdmin(false);
     setLoginAttempts(0);
     setIsLocked(false);
@@ -182,9 +152,10 @@ export const AuthProvider = ({ children }) => {
   const value = {
     user,
     setUser,
+    tenant,
+    setTenant,
     loading,
     login,
-    register, // ✅ Now exported
     logout,
     isSuperAdmin,
     loginAttempts,

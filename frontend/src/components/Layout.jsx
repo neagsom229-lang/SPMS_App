@@ -60,11 +60,9 @@ import {
   Share2,
   Link2,
   Globe,
-  Send
+  Send,
+  Building2
 } from 'lucide-react';
-// REMOVED: Facebook, Github (not available in lucide-react)
-
-// ... rest of your Layout.jsx code remains the same
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -72,7 +70,7 @@ const Layout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { darkMode, toggleDarkMode } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, tenant, isSuperAdmin } = useAuth();
   
   // ===== STATE =====
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -83,10 +81,7 @@ const Layout = ({ children }) => {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [notifications, setNotifications] = useState([
-    { id: 1, title: 'New order #1234 placed', time: '2 min ago', read: false, type: 'order' },
-    { id: 2, title: 'Low stock alert: Product X', time: '1 hour ago', read: false, type: 'alert' },
-    { id: 3, title: 'Payment received $450', time: '3 hours ago', read: true, type: 'payment' },
-    { id: 4, title: 'New customer registered', time: '5 hours ago', read: true, type: 'customer' },
+    { id: 1, title: 'Welcome to SPMS!', time: 'Just now', read: false, type: 'info' },
   ]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -106,55 +101,42 @@ const Layout = ({ children }) => {
   const notificationTimeoutRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
-  // ===== MENU ITEMS WITH ICONS AND COLORS =====
-  const menu = useMemo(() => [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['home', 'main', 'overview'] },
-    { path: '/orders', icon: ShoppingCart, label: 'Orders', color: 'text-purple-400', bg: 'bg-purple-500/10', keywords: ['sales', 'purchase', 'cart'] },
-    { path: '/products', icon: Package, label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-500/10', keywords: ['items', 'inventory', 'stock'] },
-    { path: '/customers', icon: Users, label: 'Customers', color: 'text-blue-400', bg: 'bg-blue-500/10', keywords: ['clients', 'users', 'people'] },
-    { path: '/stock', icon: Warehouse, label: 'Stock', color: 'text-amber-400', bg: 'bg-amber-500/10', keywords: ['inventory', 'supply', 'storage'] },
-    { path: '/suppliers', icon: Truck, label: 'Suppliers', color: 'text-cyan-400', bg: 'bg-cyan-500/10', keywords: ['vendors', 'providers'] },
-    { path: '/reports', icon: ClipboardList, label: 'Reports', color: 'text-rose-400', bg: 'bg-rose-500/10', keywords: ['analytics', 'data', 'stats'] },
-    { path: '/users', icon: Shield, label: 'Users', color: 'text-red-400', bg: 'bg-red-500/10', keywords: ['accounts', 'permissions'] },
-    { path: '/activity', icon: Clock, label: 'Activity', color: 'text-orange-400', bg: 'bg-orange-500/10', keywords: ['logs', 'history'] },
-    { path: '/warranty', icon: Award, label: 'Warranty', color: 'text-teal-400', bg: 'bg-teal-500/10', keywords: ['guarantee', 'claims'] },
-    { path: '/analytics', icon: TrendingUp, label: 'Analytics', color: 'text-pink-400', bg: 'bg-pink-500/10', keywords: ['insights', 'metrics'] },
-    { path: '/profile', icon: UserCircle, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['account', 'settings'] },
-    { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10', keywords: ['preferences', 'config'] },
-  ], []);
-    
-  // frontend/src/components/Layout.jsx (Add Super Admin Menu)
-// Add this to the menu array when isSuperAdmin is true:
+  // ===== GET MENU ITEMS BASED ON ROLE =====
+  const getMenuItems = useCallback(() => {
+    const baseMenu = [
+      { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['home', 'main', 'overview'] },
+      { path: '/orders', icon: ShoppingCart, label: 'Orders', color: 'text-purple-400', bg: 'bg-purple-500/10', keywords: ['sales', 'purchase', 'cart'] },
+      { path: '/products', icon: Package, label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-500/10', keywords: ['items', 'inventory', 'stock'] },
+      { path: '/customers', icon: Users, label: 'Customers', color: 'text-blue-400', bg: 'bg-blue-500/10', keywords: ['clients', 'users', 'people'] },
+      { path: '/stock', icon: Warehouse, label: 'Stock', color: 'text-amber-400', bg: 'bg-amber-500/10', keywords: ['inventory', 'supply', 'storage'] },
+      { path: '/suppliers', icon: Truck, label: 'Suppliers', color: 'text-cyan-400', bg: 'bg-cyan-500/10', keywords: ['vendors', 'providers'] },
+      { path: '/reports', icon: ClipboardList, label: 'Reports', color: 'text-rose-400', bg: 'bg-rose-500/10', keywords: ['analytics', 'data', 'stats'] },
+    ];
 
-const getMenuItems = useCallback((isSuperAdmin) => {
-  const baseMenu = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
-    { path: '/orders', icon: ShoppingCart, label: 'Orders', color: 'text-purple-400', bg: 'bg-purple-500/10' },
-    { path: '/products', icon: Package, label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { path: '/customers', icon: Users, label: 'Customers', color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { path: '/stock', icon: Warehouse, label: 'Stock', color: 'text-amber-400', bg: 'bg-amber-500/10' },
-    { path: '/suppliers', icon: Truck, label: 'Suppliers', color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-    { path: '/reports', icon: ClipboardList, label: 'Reports', color: 'text-rose-400', bg: 'bg-rose-500/10' },
-  ];
+    if (isSuperAdmin) {
+      return [
+        ...baseMenu,
+        { path: '/admin', icon: Shield, label: 'System Admin', color: 'text-red-400', bg: 'bg-red-500/10', keywords: ['super', 'admin', 'system'] },
+        { path: '/admin/tenants', icon: Building2, label: 'Businesses', color: 'text-orange-400', bg: 'bg-orange-500/10', keywords: ['tenants', 'businesses', 'clients'] },
+        { path: '/admin/users', icon: UserCircle, label: 'System Users', color: 'text-pink-400', bg: 'bg-pink-500/10', keywords: ['system', 'users', 'accounts'] },
+        { path: '/profile', icon: User, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['account', 'settings'] },
+        { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10', keywords: ['preferences', 'config'] },
+      ];
+    }
 
-  if (isSuperAdmin) {
     return [
       ...baseMenu,
-      // Super Admin Only Menu
-      { path: '/admin', icon: Shield, label: 'System Admin', color: 'text-red-400', bg: 'bg-red-500/10' },
-      { path: '/admin/tenants', icon: Building2, label: 'Businesses', color: 'text-orange-400', bg: 'bg-orange-500/10' },
-      { path: '/admin/users', icon: UserCircle, label: 'System Users', color: 'text-pink-400', bg: 'bg-pink-500/10' },
-      { path: '/profile', icon: User, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
-      { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10' },
+      { path: '/users', icon: Shield, label: 'Users', color: 'text-red-400', bg: 'bg-red-500/10', keywords: ['accounts', 'permissions'] },
+      { path: '/activity', icon: Clock, label: 'Activity', color: 'text-orange-400', bg: 'bg-orange-500/10', keywords: ['logs', 'history'] },
+      { path: '/warranty', icon: Award, label: 'Warranty', color: 'text-teal-400', bg: 'bg-teal-500/10', keywords: ['guarantee', 'claims'] },
+      { path: '/analytics', icon: TrendingUp, label: 'Analytics', color: 'text-pink-400', bg: 'bg-pink-500/10', keywords: ['insights', 'metrics'] },
+      { path: '/profile', icon: UserCircle, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['account', 'settings'] },
+      { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10', keywords: ['preferences', 'config'] },
     ];
-  }
+  }, [isSuperAdmin]);
 
-  return [
-    ...baseMenu,
-    { path: '/profile', icon: User, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
-    { path: '/settings', icon: Settings, label: 'Settings', color: 'text-gray-400', bg: 'bg-gray-500/10' },
-  ];
-}, []);
+  const menu = useMemo(() => getMenuItems(), [getMenuItems]);
+
   // ===== GREETING BASED ON TIME =====
   useEffect(() => {
     const hour = new Date().getHours();
@@ -310,7 +292,7 @@ const getMenuItems = useCallback((isSuperAdmin) => {
     const results = menu.filter(item => {
       const searchLower = query.toLowerCase();
       return item.label.toLowerCase().includes(searchLower) ||
-             item.keywords.some(keyword => keyword.toLowerCase().includes(searchLower));
+             (item.keywords && item.keywords.some(keyword => keyword.toLowerCase().includes(searchLower)));
     });
 
     setSearchResults(results);
@@ -362,7 +344,8 @@ const getMenuItems = useCallback((isSuperAdmin) => {
         order: '/orders',
         alert: '/stock',
         payment: '/reports',
-        customer: '/customers'
+        customer: '/customers',
+        info: '/dashboard'
       };
       navigate(paths[notification.type] || '/dashboard');
     }
@@ -383,11 +366,15 @@ const getMenuItems = useCallback((isSuperAdmin) => {
   const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
 
   // ===== USER INFO =====
-  const userName = user?.username || user?.name || 'Guest';
+  const userName = user?.fullname || user?.username || user?.name || 'Guest';
   const userRole = user?.role || user?.role_name || 'User';
   const userInitial = userName.charAt(0).toUpperCase();
   const userEmail = user?.email || 'user@example.com';
   const userAvatar = user?.avatar || avatarPreview;
+  
+  // ✅ Get tenant info
+  const tenantName = tenant?.name || user?.tenant?.name || 'My Business';
+  const subdomain = tenant?.subdomain || user?.tenant?.subdomain || '';
 
   // ===== CURRENT PAGE =====
   const currentPage = menu.find(item => item.path === location.pathname)?.label || 'Dashboard';
@@ -401,8 +388,9 @@ const getMenuItems = useCallback((isSuperAdmin) => {
       alert: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
       payment: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
       customer: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+      info: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400',
     };
-    return colors[type] || colors.order;
+    return colors[type] || colors.info;
   }, []);
 
   const getNotificationIcon = useCallback((type) => {
@@ -411,8 +399,9 @@ const getMenuItems = useCallback((isSuperAdmin) => {
       alert: <AlertTriangle className="w-4 h-4" />,
       payment: <DollarSign className="w-4 h-4" />,
       customer: <User className="w-4 h-4" />,
+      info: <Info className="w-4 h-4" />,
     };
-    return icons[type] || icons.order;
+    return icons[type] || icons.info;
   }, []);
 
   // ===== GET AVATAR DISPLAY =====
@@ -523,7 +512,10 @@ const getMenuItems = useCallback((isSuperAdmin) => {
             <p className="text-xs text-gray-400 dark:text-gray-500">{userRole}</p>
           </div>
         </div>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 truncate">{userEmail}</p>
+        {subdomain && (
+          <p className="text-xs text-indigo-400 mt-1">🏢 {subdomain}</p>
+        )}
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 truncate">{userEmail}</p>
         <div className="flex items-center gap-2 mt-2">
           <span className={`text-xs px-2 py-0.5 rounded-full ${isOnline ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'}`}>
             {isOnline ? '🟢 Online' : '🔴 Offline'}
@@ -580,7 +572,7 @@ const getMenuItems = useCallback((isSuperAdmin) => {
         </div>
       </div>
     </div>
-  ), [userName, userRole, userEmail, isOnline, getAvatarDisplay, toggleDarkMode, darkMode, handleLogout]);
+  ), [userName, userRole, userEmail, isOnline, getAvatarDisplay, toggleDarkMode, darkMode, handleLogout, subdomain]);
 
   // ===== RENDER SEARCH RESULTS =====
   const renderSearchResults = useCallback(() => (
@@ -726,7 +718,10 @@ const getMenuItems = useCallback((isSuperAdmin) => {
               <h1 className="text-lg font-bold bg-gradient-to-r from-white to-indigo-200 bg-clip-text text-transparent">
                 SPMS
               </h1>
-              <p className="text-[10px] text-indigo-300/70 leading-tight">Sale & Product</p>
+              <p className="text-[10px] text-indigo-300/70 leading-tight">{tenantName}</p>
+              {subdomain && (
+                <p className="text-[8px] text-indigo-400/50 leading-tight">{subdomain}</p>
+              )}
             </div>
           </Link>
         </div>
@@ -751,6 +746,9 @@ const getMenuItems = useCallback((isSuperAdmin) => {
               <p className="text-[10px] text-indigo-300/70 truncate">
                 {userRole}
               </p>
+              {subdomain && (
+                <p className="text-[8px] text-indigo-400/50 truncate">{subdomain}</p>
+              )}
             </div>
             <ChevronRight className="w-4 h-4 text-indigo-400/50 opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:translate-x-1" />
           </div>

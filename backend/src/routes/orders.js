@@ -1,12 +1,19 @@
+// backend/src/routes/orders.js
 const express = require('express');
-const pool = require('../config/database');
+const pool = require('../config/postgres');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ===== GET ALL ORDERS =====
+// ===== HELPER: Get tenant ID =====
+const getTenantId = (req) => {
+  return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
+};
+
+// ===== GET ALL ORDERS (Only current tenant) =====
 router.get('/', authenticate, async (req, res) => {
-  const tenantId = req.tenantId || req.user?.tenantId;
+  const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
   const { page = 1, limit = 20, status } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
 
@@ -16,10 +23,17 @@ router.get('/', authenticate, async (req, res) => {
       FROM tbl_orders o
       LEFT JOIN tbl_customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
       LEFT JOIN tbl_users u ON u.userid = o.created_by
-      WHERE o.tenant_id = $1
+      WHERE 1=1
     `;
-    const params = [tenantId];
-    let paramIndex = 2;
+    const params = [];
+    let paramIndex = 1;
+
+    // ✅ Filter by tenant if not super admin
+    if (!isSuperAdmin && tenantId) {
+      query += ` AND o.tenant_id = $${paramIndex}`;
+      params.push(tenantId);
+      paramIndex++;
+    }
 
     if (status) {
       query += ` AND o.status = $${paramIndex}`;
@@ -50,51 +64,71 @@ router.get('/', authenticate, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get orders error:', error);
+    console.error('❌ Get orders error:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 });
 
-// ===== GET ORDER BY ID =====
+// ===== GET ORDER BY ID (Only if belongs to tenant) =====
 router.get('/:id', authenticate, async (req, res) => {
-  const tenantId = req.tenantId || req.user?.tenantId;
+  const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    const result = await pool.query(
-      `SELECT o.*, c.name_en as customer_name, u.fullname as created_by_name
-       FROM tbl_orders o
-       LEFT JOIN tbl_customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
-       LEFT JOIN tbl_users u ON u.userid = o.created_by
-       WHERE o.id = $1 AND o.tenant_id = $2`,
-      [req.params.id, tenantId]
-    );
+    let query = `
+      SELECT o.*, c.name_en as customer_name, u.fullname as created_by_name
+      FROM tbl_orders o
+      LEFT JOIN tbl_customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
+      LEFT JOIN tbl_users u ON u.userid = o.created_by
+      WHERE o.id = $1
+    `;
+    const params = [req.params.id];
+
+    if (!isSuperAdmin && tenantId) {
+      query += ` AND o.tenant_id = $2`;
+      params.push(tenantId);
+    }
+
+    const result = await pool.query(query, params);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Order not found' });
     }
 
     // Get order items
-    const items = await pool.query(
-      `SELECT oi.*, p.name_en as product_name, p.name_kh as product_name_kh
-       FROM order_items oi
-       LEFT JOIN tbl_products p ON p.id = oi.product_id AND p.tenant_id = oi.tenant_id
-       WHERE oi.order_id = $1 AND oi.tenant_id = $2`,
-      [req.params.id, tenantId]
-    );
+    let itemsQuery = `
+      SELECT oi.*, p.name_en as product_name, p.name_kh as product_name_kh
+      FROM order_items oi
+      LEFT JOIN tbl_products p ON p.id = oi.product_id AND p.tenant_id = oi.tenant_id
+      WHERE oi.order_id = $1
+    `;
+    const itemsParams = [req.params.id];
+
+    if (!isSuperAdmin && tenantId) {
+      itemsQuery += ` AND oi.tenant_id = $2`;
+      itemsParams.push(tenantId);
+    }
+
+    const items = await pool.query(itemsQuery, itemsParams);
 
     res.json({
       ...result.rows[0],
       items: items.rows
     });
   } catch (error) {
-    console.error('Get order error:', error);
+    console.error('❌ Get order error:', error);
     res.status(500).json({ error: 'Failed to fetch order' });
   }
 });
 
-// ===== CREATE ORDER =====
+// ===== CREATE ORDER (With tenant_id) =====
 router.post('/', authenticate, async (req, res) => {
-  const tenantId = req.tenantId || req.user?.tenantId;
+  const tenantId = getTenantId(req);
+  
+  if (!tenantId) {
+    return res.status(403).json({ error: 'Tenant context required' });
+  }
+
   const userId = req.user?.userId;
   const { customer_id, items, total_amount, payment_method, notes } = req.body;
 
@@ -107,7 +141,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Create order
+    // Create order with tenant_id
     const orderResult = await client.query(
       `INSERT INTO tbl_orders 
        (tenant_id, customer_id, total_amount, status, payment_method, notes, created_by, created_at)
@@ -118,7 +152,7 @@ router.post('/', authenticate, async (req, res) => {
 
     const order = orderResult.rows[0];
 
-    // Add order items
+    // Add order items with tenant_id
     for (const item of items) {
       await client.query(
         `INSERT INTO order_items 
@@ -163,16 +197,16 @@ router.post('/', authenticate, async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Create order error:', error);
+    console.error('❌ Create order error:', error);
     res.status(500).json({ error: 'Failed to create order' });
   } finally {
     client.release();
   }
 });
 
-// ===== UPDATE ORDER STATUS =====
+// ===== UPDATE ORDER STATUS (Only if belongs to tenant) =====
 router.patch('/:id/status', authenticate, async (req, res) => {
-  const tenantId = req.tenantId || req.user?.tenantId;
+  const tenantId = getTenantId(req);
   const { status } = req.body;
 
   if (!status) {
@@ -194,14 +228,14 @@ router.patch('/:id/status', authenticate, async (req, res) => {
 
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Update order status error:', error);
+    console.error('❌ Update order status error:', error);
     res.status(500).json({ error: 'Failed to update order status' });
   }
 });
 
-// ===== DELETE ORDER =====
+// ===== DELETE ORDER (Only if belongs to tenant) =====
 router.delete('/:id', authenticate, async (req, res) => {
-  const tenantId = req.tenantId || req.user?.tenantId;
+  const tenantId = getTenantId(req);
 
   try {
     const result = await pool.query(
@@ -215,7 +249,7 @@ router.delete('/:id', authenticate, async (req, res) => {
 
     res.status(204).end();
   } catch (error) {
-    console.error('Delete order error:', error);
+    console.error('❌ Delete order error:', error);
     res.status(500).json({ error: 'Failed to delete order' });
   }
 });
