@@ -63,69 +63,78 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ===== LOGIN =====
-  const login = useCallback(async (username, password) => {
-    if (isLocked) {
-      toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
-      return { success: false, error: 'Account locked' };
+  // ===== LOGIN =====
+const login = useCallback(async (username, password) => {
+  if (isLocked) {
+    toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
+    return { success: false, error: 'Account locked' };
+  }
+
+  try {
+    console.log('📤 Logging in...', username);
+    console.log('📤 API URL:', apiClient.defaults.baseURL);
+    
+    // ✅ Add timeout handling
+    const response = await apiClient.post('/auth/login', {
+      username,
+      password
+    }, {
+      timeout: 60000 // ✅ 60 seconds timeout
+    });
+
+    console.log('✅ Login response:', response.data);
+
+    const { token, user: userData } = response.data;
+
+    if (!token || !userData) {
+      throw new Error('Invalid response from server');
     }
 
-    try {
-      console.log('📤 Logging in...', username);
-      console.log('📤 API URL:', apiClient.defaults.baseURL);
-      
-      const response = await apiClient.post('/auth/login', {
-        username,
-        password
-      });
-
-      console.log('✅ Login response:', response.data);
-
-      const { token, user: userData } = response.data;
-
-      if (!token || !userData) {
-        throw new Error('Invalid response from server');
-      }
-
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      // ✅ Store tenant separately
-      if (userData.tenant) {
-        localStorage.setItem('tenant', JSON.stringify(userData.tenant));
-        setTenant(userData.tenant);
-      } else {
-        setTenant(null);
-      }
-      
-      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      
-      setLoginAttempts(0);
-      localStorage.removeItem('loginAttempts');
-      localStorage.removeItem('loginLockUntil');
-      setIsLocked(false);
-      setLockRemaining(0);
-      
-      setUser(userData);
-      setIsSuperAdmin(userData.isSuperAdmin || false);
-      toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
-      
-      return { success: true, user: userData };
-      
-    } catch (error) {
-      console.error('❌ Login error:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
-      
-      const errorMessage = error.response?.data?.error || error.message || 'Login failed';
-      toast.error(`❌ ${errorMessage}`);
-      
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(userData));
+    
+    if (userData.tenant) {
+      localStorage.setItem('tenant', JSON.stringify(userData.tenant));
+      setTenant(userData.tenant);
+    }
+    
+    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    
+    setLoginAttempts(0);
+    localStorage.removeItem('loginAttempts');
+    localStorage.removeItem('loginLockUntil');
+    setIsLocked(false);
+    setLockRemaining(0);
+    
+    setUser(userData);
+    setIsSuperAdmin(userData.isSuperAdmin || false);
+    toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
+    
+    return { success: true, user: userData };
+    
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    
+    // ✅ Check if it's a timeout error
+    if (error.isTimeout || error.message?.includes('timeout')) {
+      toast.error('⏱️ Server is waking up. Please wait a moment and try again.');
       return { 
         success: false, 
-        error: errorMessage,
-        status: error.response?.status
+        error: 'Server is starting up. Please try again in a few seconds.',
+        isTimeout: true
       };
     }
-  }, [isLocked, loginAttempts, lockRemaining]);
+    
+    const errorMessage = error.data?.error || error.message || 'Login failed';
+    toast.error(`❌ ${errorMessage}`);
+    
+    return { 
+      success: false, 
+      error: errorMessage,
+      status: error.status
+    };
+  }
+}, [isLocked, loginAttempts, lockRemaining]);
 
   // ===== LOGOUT =====
   const logout = useCallback(() => {
