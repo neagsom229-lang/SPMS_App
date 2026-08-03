@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
-    // ✅ Use bcrypt to compare password
+    // Use bcrypt to compare password
     const isValidPassword = await bcrypt.compare(password, user.password);
     console.log('🔑 Password valid:', isValidPassword);
 
@@ -131,7 +131,7 @@ router.post('/logout', (req, res) => {
   res.json({ message: 'Logged out successfully' });
 });
 
-// ===== ✅ CLIENT SELF-REGISTRATION =====
+// ===== ✅ CLIENT SELF-REGISTRATION (FIXED - UNIQUE USERNAME) =====
 router.post('/register-client', async (req, res) => {
   const { 
     businessName, 
@@ -157,36 +157,30 @@ router.post('/register-client', async (req, res) => {
     });
   }
 
-  const client = await db.connect();
-
   try {
-    await client.query('BEGIN');
-
     // Check if subdomain exists
-    const existingSubdomain = await client.query(
+    const existingSubdomain = await db.query(
       'SELECT id FROM tenants WHERE subdomain = $1',
       [subdomain.toLowerCase()]
     );
     if (existingSubdomain.rows.length > 0) {
-      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Subdomain already taken. Please choose another.' });
     }
 
     // Check if email exists
-    const existingEmail = await client.query(
+    const existingEmail = await db.query(
       'SELECT id FROM tenants WHERE email = $1',
       [email]
     );
     if (existingEmail.rows.length > 0) {
-      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Email already registered. Please use another email.' });
     }
 
     // Create tenant
-    const tenantResult = await client.query(
+    const tenantResult = await db.query(
       `INSERT INTO tenants 
-       (name, subdomain, email, phone, address, settings, subscription_plan, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', NOW())
+       (name, subdomain, email, phone, address, settings, status, subscription_plan, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING id, name, subdomain`,
       [
         businessName,
@@ -195,22 +189,26 @@ router.post('/register-client', async (req, res) => {
         phone || null,
         address || null,
         '{"theme": "light"}',
+        'ACTIVE',
         'free'
       ]
     );
 
     const tenant = tenantResult.rows[0];
 
+    // ✅ FIX: Create unique username using subdomain
+    const uniqueUsername = `${subdomain.toLowerCase()}_admin`;
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create admin user for the tenant
-    const userResult = await client.query(
+    // Create admin user with unique username
+    const userResult = await db.query(
       `INSERT INTO tbl_users 
        (tenant_id, username, password, fullname, email, role, status, createdat)
        VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', NOW())
        RETURNING userid, username, fullname, role`,
-      [tenant.id, 'admin', hashedPassword, businessName, email]
+      [tenant.id, uniqueUsername, hashedPassword, businessName, email]
     );
 
     const user = userResult.rows[0];
@@ -225,14 +223,12 @@ router.post('/register-client', async (req, res) => {
     ];
 
     for (const [name, desc] of categories) {
-      await client.query(
+      await db.query(
         `INSERT INTO tbl_categories (tenant_id, category_en, category_kh, created_at)
          VALUES ($1, $2, $3, NOW())`,
         [tenant.id, name, desc]
       );
     }
-
-    await client.query('COMMIT');
 
     // Generate JWT
     const token = jwt.sign(
@@ -265,13 +261,15 @@ router.post('/register-client', async (req, res) => {
     });
 
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ Registration error:', error);
+    console.error('❌ Registration error DETAILS:', error);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error code:', error.code);
+    
     res.status(500).json({ 
-      error: 'Registration failed. Please try again later.' 
+      error: 'Registration failed',
+      details: error.message,
+      code: error.code
     });
-  } finally {
-    client.release();
   }
 });
 
