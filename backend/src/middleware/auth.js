@@ -1,6 +1,6 @@
 // backend/src/middleware/auth.js
 const jwt = require('jsonwebtoken');
-const db = require('../config/postgres'); // ✅ Uses your original postgres.js
+const pool = require('../config/postgres');
 require('dotenv').config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
@@ -17,7 +17,7 @@ const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     
     // Get user from database
-    const result = await db.query(
+    const result = await pool.query(
       `SELECT u.userid, u.username, u.fullname, u.role, u.status, 
               u.is_super_admin, u.tenant_id,
               t.id as tenant_id, t.name as tenant_name, t.subdomain

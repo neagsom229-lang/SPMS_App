@@ -11,7 +11,7 @@ import {
 
 const Register = () => {
   const navigate = useNavigate();
-  const { register, user } = useAuth(); // ✅ Get register function
+  const { register, user } = useAuth();
   
   const [formData, setFormData] = useState({
     businessName: '',
@@ -139,7 +139,6 @@ const Register = () => {
     setLoading(true);
 
     try {
-      // ✅ Use the register function from AuthContext
       const result = await register({
         businessName: formData.businessName,
         email: formData.email,
@@ -151,7 +150,10 @@ const Register = () => {
 
       if (result.success) {
         toast.success('🎉 Business registered successfully!');
-        navigate('/dashboard');
+        // Wait a moment then redirect
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1000);
       } else {
         toast.error(result.error || 'Registration failed');
       }
@@ -176,7 +178,6 @@ const Register = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-6xl mx-auto">
           
-          {/* Header */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur-sm px-6 py-3 rounded-2xl border border-white/10 mb-4">
               <Shield className="w-8 h-8 text-indigo-400" />
@@ -191,7 +192,6 @@ const Register = () => {
           </div>
 
           <div className="grid md:grid-cols-2 gap-8">
-            {/* Features - Left Side */}
             <div className="hidden md:block space-y-6">
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
                 <h3 className="text-white text-xl font-semibold mb-4">Why Join SPMS?</h3>
@@ -239,7 +239,6 @@ const Register = () => {
               </div>
             </div>
 
-            {/* Registration Form - Right Side */}
             <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 md:p-8 border border-white/10 shadow-2xl max-h-[80vh] overflow-y-auto">
               <h2 className="text-white text-xl font-semibold mb-4">Create Your Account</h2>
               <p className="text-indigo-200 text-sm mb-6">
@@ -247,7 +246,6 @@ const Register = () => {
               </p>
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Business Name */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Business Name <span className="text-red-400">*</span>
@@ -273,7 +271,6 @@ const Register = () => {
                   )}
                 </div>
 
-                {/* Email */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Email Address <span className="text-red-400">*</span>
@@ -299,7 +296,6 @@ const Register = () => {
                   )}
                 </div>
 
-                {/* Subdomain */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Subdomain <span className="text-red-400">*</span>
@@ -333,7 +329,6 @@ const Register = () => {
                   </p>
                 </div>
 
-                {/* Password */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Password <span className="text-red-400">*</span>
@@ -385,7 +380,6 @@ const Register = () => {
                   )}
                 </div>
 
-                {/* Confirm Password */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Confirm Password <span className="text-red-400">*</span>
@@ -418,7 +412,6 @@ const Register = () => {
                   )}
                 </div>
 
-                {/* Phone (Optional) */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Phone Number (Optional)
@@ -437,7 +430,6 @@ const Register = () => {
                   </div>
                 </div>
 
-                {/* Address (Optional) */}
                 <div>
                   <label className="block text-sm font-medium text-indigo-200 mb-1.5">
                     Business Address (Optional)
@@ -456,7 +448,6 @@ const Register = () => {
                   </div>
                 </div>
 
-                {/* Terms */}
                 <div className="flex items-start gap-2">
                   <input
                     type="checkbox"
@@ -478,7 +469,6 @@ const Register = () => {
                   </p>
                 )}
 
-                {/* Submit Button */}
                 <button
                   type="submit"
                   disabled={loading}
@@ -497,7 +487,6 @@ const Register = () => {
                   )}
                 </button>
 
-                {/* Login Link */}
                 <p className="text-center text-sm text-indigo-200">
                   Already have an account?{' '}
                   <Link to="/login" className="text-white font-medium hover:underline">

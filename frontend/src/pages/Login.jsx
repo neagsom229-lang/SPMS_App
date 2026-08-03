@@ -58,7 +58,6 @@ const Login = () => {
       
       if (result.success) {
         toast.success('Welcome back! 🎉');
-        // Redirect handled by useEffect
       } else {
         const errorMsg = result.error || 'Login failed';
         setError(errorMsg);
@@ -131,6 +130,9 @@ const Login = () => {
                   className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-indigo-300/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all duration-200 disabled:opacity-50"
                 />
               </div>
+              <p className="text-xs text-indigo-300/50 mt-1">
+                If you registered, your username is: <span className="text-indigo-200">your-subdomain_admin</span>
+              </p>
             </div>
 
             <div>
@@ -194,15 +196,9 @@ const Login = () => {
             <p className="text-center text-sm text-indigo-200">
               Don't have an account?{' '}
               <Link to="/register" className="text-white font-medium hover:underline">
-                Create one
+                Start Your Business
               </Link>
             </p>
-            <p className="text-center text-sm text-indigo-200">
-  Don't have an account?{' '}
-  <Link to="/register-business" className="text-white font-medium hover:underline">
-    Start Your Business
-  </Link>
-</p>
           </form>
         </div>
 

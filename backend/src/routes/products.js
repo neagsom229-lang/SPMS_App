@@ -2,7 +2,6 @@
 const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate } = require('../middleware/auth');
-const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
@@ -11,7 +10,7 @@ const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
 
-// ===== GET ALL PRODUCTS (Only current tenant) =====
+// ===== GET ALL PRODUCTS =====
 router.get('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
@@ -30,7 +29,7 @@ router.get('/', authenticate, async (req, res) => {
     const params = [];
     let paramIndex = 1;
 
-    // ✅ If not super admin, filter by tenant
+    // ✅ CRITICAL: Filter by tenant
     if (!isSuperAdmin && tenantId) {
       query += ` AND p.tenant_id = $${paramIndex}`;
       params.push(tenantId);
@@ -55,7 +54,6 @@ router.get('/', authenticate, async (req, res) => {
       paramIndex++;
     }
 
-    // Get total count
     const countQuery = query.replace(
       /SELECT p\.\*, c\.category_en, c\.category_kh, s\.name_en as supplier_name FROM/i,
       'SELECT COUNT(*) as total FROM'
@@ -83,7 +81,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// ===== GET PRODUCT BY ID (Only if belongs to tenant) =====
+// ===== GET PRODUCT BY ID =====
 router.get('/:id', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
@@ -116,15 +114,15 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
-// ===== CREATE PRODUCT (With tenant_id) =====
+// ===== CREATE PRODUCT =====
 router.post('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
-  const userId = req.user?.userId;
-
+  
   if (!tenantId) {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
+  const userId = req.user?.userId;
   const {
     product_id, supplier_id, barcode, name_en, name_kh, brand, model,
     category_id, buyin_price, saleout_price, qty_instock, qty_alert, status
@@ -135,17 +133,6 @@ router.post('/', authenticate, async (req, res) => {
   }
 
   try {
-    // Check duplicate barcode within tenant
-    if (barcode) {
-      const existing = await pool.query(
-        'SELECT id FROM tbl_products WHERE barcode = $1 AND tenant_id = $2',
-        [barcode, tenantId]
-      );
-      if (existing.rows.length > 0) {
-        return res.status(400).json({ error: 'Product with this barcode already exists' });
-      }
-    }
-
     const result = await pool.query(
       `INSERT INTO tbl_products 
        (tenant_id, product_id, supplier_id, barcode, name_en, name_kh, brand, model,
@@ -178,20 +165,25 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
-// ===== UPDATE PRODUCT (Only if belongs to tenant) =====
+// ===== UPDATE PRODUCT =====
 router.put('/:id', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
   const userId = req.user?.userId;
 
   try {
-    // Check if product exists and belongs to tenant
-    const existing = await pool.query(
-      'SELECT * FROM tbl_products WHERE id = $1 AND tenant_id = $2',
-      [req.params.id, tenantId]
-    );
+    let checkQuery = 'SELECT * FROM tbl_products WHERE id = $1';
+    const checkParams = [req.params.id];
+
+    if (!isSuperAdmin && tenantId) {
+      checkQuery += ' AND tenant_id = $2';
+      checkParams.push(tenantId);
+    }
+
+    const existing = await pool.query(checkQuery, checkParams);
 
     if (existing.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found or unauthorized' });
+      return res.status(404).json({ error: 'Product not found' });
     }
 
     const fields = [
@@ -221,6 +213,8 @@ router.put('/:id', authenticate, async (req, res) => {
     paramIndex++;
 
     updates.push(`updated_at = NOW()`);
+    values.push(req.params.id);
+    values.push(tenantId);
 
     const query = `
       UPDATE tbl_products 
@@ -237,18 +231,24 @@ router.put('/:id', authenticate, async (req, res) => {
   }
 });
 
-// ===== DELETE PRODUCT (Only if belongs to tenant) =====
+// ===== DELETE PRODUCT =====
 router.delete('/:id', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    const result = await pool.query(
-      'DELETE FROM tbl_products WHERE id = $1 AND tenant_id = $2 RETURNING id',
-      [req.params.id, tenantId]
-    );
+    let query = 'DELETE FROM tbl_products WHERE id = $1';
+    const params = [req.params.id];
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Product not found or unauthorized' });
+    if (!isSuperAdmin && tenantId) {
+      query += ' AND tenant_id = $2';
+      params.push(tenantId);
+    }
+
+    const result = await pool.query(query, params);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Product not found' });
     }
 
     res.status(204).end();

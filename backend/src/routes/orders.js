@@ -5,12 +5,11 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ===== HELPER: Get tenant ID =====
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
 
-// ===== GET ALL ORDERS (Only current tenant) =====
+// ===== GET ALL ORDERS =====
 router.get('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
@@ -28,7 +27,6 @@ router.get('/', authenticate, async (req, res) => {
     const params = [];
     let paramIndex = 1;
 
-    // ✅ Filter by tenant if not super admin
     if (!isSuperAdmin && tenantId) {
       query += ` AND o.tenant_id = $${paramIndex}`;
       params.push(tenantId);
@@ -41,7 +39,6 @@ router.get('/', authenticate, async (req, res) => {
       paramIndex++;
     }
 
-    // Get total count
     const countQuery = query.replace(
       /SELECT o\.\*, c\.name_en as customer_name, u\.fullname as created_by_name FROM/i,
       'SELECT COUNT(*) as total FROM'
@@ -69,59 +66,67 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// ===== GET ORDER BY ID (Only if belongs to tenant) =====
-router.get('/:id', authenticate, async (req, res) => {
+// ===== RECENT ORDERS =====
+router.get('/recent', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const { limit = 5 } = req.query;
+
+  try {
+    let query = `
+      SELECT o.*, c.name_en as customer_name
+      FROM tbl_orders o
+      LEFT JOIN tbl_customers c ON c.id = o.customer_id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (!isSuperAdmin && tenantId) {
+      query += ` AND o.tenant_id = $1`;
+      params.push(tenantId);
+    }
+
+    query += ` ORDER BY o.created_at DESC LIMIT $${params.length + 1}`;
+    params.push(parseInt(limit));
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('❌ Get recent orders error:', error);
+    res.status(500).json({ error: 'Failed to fetch recent orders' });
+  }
+});
+
+// ===== PENDING ORDERS =====
+router.get('/pending', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
     let query = `
-      SELECT o.*, c.name_en as customer_name, u.fullname as created_by_name
+      SELECT o.*, c.name_en as customer_name
       FROM tbl_orders o
-      LEFT JOIN tbl_customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
-      LEFT JOIN tbl_users u ON u.userid = o.created_by
-      WHERE o.id = $1
+      LEFT JOIN tbl_customers c ON c.id = o.customer_id
+      WHERE o.status = 'Pending'
     `;
-    const params = [req.params.id];
+    const params = [];
 
     if (!isSuperAdmin && tenantId) {
-      query += ` AND o.tenant_id = $2`;
+      query += ` AND o.tenant_id = $1`;
       params.push(tenantId);
     }
 
+    query += ' ORDER BY o.created_at DESC LIMIT 10';
+
     const result = await pool.query(query, params);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    // Get order items
-    let itemsQuery = `
-      SELECT oi.*, p.name_en as product_name, p.name_kh as product_name_kh
-      FROM order_items oi
-      LEFT JOIN tbl_products p ON p.id = oi.product_id AND p.tenant_id = oi.tenant_id
-      WHERE oi.order_id = $1
-    `;
-    const itemsParams = [req.params.id];
-
-    if (!isSuperAdmin && tenantId) {
-      itemsQuery += ` AND oi.tenant_id = $2`;
-      itemsParams.push(tenantId);
-    }
-
-    const items = await pool.query(itemsQuery, itemsParams);
-
-    res.json({
-      ...result.rows[0],
-      items: items.rows
-    });
+    res.json(result.rows);
   } catch (error) {
-    console.error('❌ Get order error:', error);
-    res.status(500).json({ error: 'Failed to fetch order' });
+    console.error('❌ Get pending orders error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending orders' });
   }
 });
 
-// ===== CREATE ORDER (With tenant_id) =====
+// ===== CREATE ORDER =====
 router.post('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   
@@ -141,10 +146,9 @@ router.post('/', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Create order with tenant_id
     const orderResult = await client.query(
       `INSERT INTO tbl_orders 
-       (tenant_id, customer_id, total_amount, status, payment_method, notes, created_by, created_at)
+       (tenant_id, customer_id, amount_us, status, payment_method, notes, created_by, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        RETURNING *`,
       [tenantId, customer_id, total_amount || 0, 'PENDING', payment_method || 'CASH', notes || null, userId]
@@ -152,7 +156,6 @@ router.post('/', authenticate, async (req, res) => {
 
     const order = orderResult.rows[0];
 
-    // Add order items with tenant_id
     for (const item of items) {
       await client.query(
         `INSERT INTO order_items 
@@ -161,7 +164,6 @@ router.post('/', authenticate, async (req, res) => {
         [tenantId, order.id, item.product_id, item.quantity, item.price, item.quantity * item.price]
       );
 
-      // Update stock
       await client.query(
         `UPDATE tbl_products 
          SET qty_instock = qty_instock - $1,
@@ -173,28 +175,7 @@ router.post('/', authenticate, async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Get full order with items
-    const fullOrder = await pool.query(
-      `SELECT o.*, c.name_en as customer_name
-       FROM tbl_orders o
-       LEFT JOIN tbl_customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
-       WHERE o.id = $1 AND o.tenant_id = $2`,
-      [order.id, tenantId]
-    );
-
-    const orderItems = await pool.query(
-      `SELECT oi.*, p.name_en as product_name
-       FROM order_items oi
-       LEFT JOIN tbl_products p ON p.id = oi.product_id AND p.tenant_id = oi.tenant_id
-       WHERE oi.order_id = $1 AND oi.tenant_id = $2`,
-      [order.id, tenantId]
-    );
-
-    res.status(201).json({
-      ...fullOrder.rows[0],
-      items: orderItems.rows
-    });
-
+    res.status(201).json(order);
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('❌ Create order error:', error);
@@ -204,7 +185,7 @@ router.post('/', authenticate, async (req, res) => {
   }
 });
 
-// ===== UPDATE ORDER STATUS (Only if belongs to tenant) =====
+// ===== UPDATE ORDER STATUS =====
 router.patch('/:id/status', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const { status } = req.body;
@@ -233,7 +214,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
   }
 });
 
-// ===== DELETE ORDER (Only if belongs to tenant) =====
+// ===== DELETE ORDER =====
 router.delete('/:id', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
 

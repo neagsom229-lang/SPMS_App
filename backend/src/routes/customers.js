@@ -5,12 +5,11 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ===== HELPER: Get tenant ID =====
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
 
-// ===== GET ALL CUSTOMERS (Only current tenant) =====
+// ===== GET ALL CUSTOMERS =====
 router.get('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
@@ -41,7 +40,7 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// ===== CREATE CUSTOMER (With tenant_id) =====
+// ===== CREATE CUSTOMER =====
 router.post('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   

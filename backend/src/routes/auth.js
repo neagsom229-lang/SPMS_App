@@ -8,17 +8,20 @@ const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-// ===== TEST ROUTE =====
+// ============================================
+// TEST ROUTE
+// ============================================
 router.get('/test', (req, res) => {
-  res.json({ 
+  res.json({
     message: '✅ Auth route is working!',
     timestamp: new Date().toISOString(),
     status: 'ok'
   });
 });
 
-// ===== LOGIN =====
-// ===== LOGIN =====
+// ============================================
+// LOGIN
+// ============================================
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
   console.log('🔑 Login attempt:', username);
@@ -28,7 +31,6 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    // ✅ Optimize query - only get necessary fields
     const result = await db.query(
       `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
               u.is_super_admin, u.tenant_id,
@@ -51,7 +53,6 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
-    // ✅ Use bcrypt to compare password
     const isValidPassword = await bcrypt.compare(password, user.password);
     console.log('🔑 Password valid:', isValidPassword);
 
@@ -60,7 +61,8 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // ✅ Generate token
+    console.log('✅ Login successful:', username);
+
     const token = jwt.sign(
       {
         userId: user.userid,
@@ -73,7 +75,6 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // ✅ Build response
     const userResponse = {
       user_id: user.userid,
       username: user.username,
@@ -97,7 +98,6 @@ router.post('/login', async (req, res) => {
       userResponse.accessLevel = 'tenant';
     }
 
-    // ✅ Send response quickly
     res.json({
       token,
       user: userResponse,
@@ -108,7 +108,9 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ===== GET CURRENT USER =====
+// ============================================
+// GET CURRENT USER
+// ============================================
 router.get('/me', authenticate, async (req, res) => {
   try {
     const user = req.user;
@@ -129,39 +131,42 @@ router.get('/me', authenticate, async (req, res) => {
   }
 });
 
-// ===== LOGOUT =====
+// ============================================
+// LOGOUT
+// ============================================
 router.post('/logout', (req, res) => {
   res.json({ message: 'Logged out successfully' });
 });
 
-// ===== ✅ CLIENT SELF-REGISTRATION (FIXED FOR YOUR DB) =====
+// ============================================
+// CLIENT SELF-REGISTRATION
+// ============================================
 router.post('/register-client', async (req, res) => {
-  const { 
-    businessName, 
-    email, 
-    password, 
-    phone, 
+  const {
+    businessName,
+    email,
+    password,
+    phone,
     address,
-    subdomain 
+    subdomain
   } = req.body;
 
   console.log('📤 Registering client:', { businessName, email, subdomain });
 
-  // Validate required fields
   if (!businessName || !email || !password || !subdomain) {
-    return res.status(400).json({ 
-      error: 'Business name, email, password, and subdomain are required' 
+    return res.status(400).json({
+      error: 'Business name, email, password, and subdomain are required'
     });
   }
 
   if (password.length < 8) {
-    return res.status(400).json({ 
-      error: 'Password must be at least 8 characters' 
+    return res.status(400).json({
+      error: 'Password must be at least 8 characters'
     });
   }
 
   try {
-    // Check if subdomain exists
+    // 1. Check subdomain
     const existingSubdomain = await db.query(
       'SELECT id FROM tenants WHERE subdomain = $1',
       [subdomain.toLowerCase()]
@@ -170,7 +175,7 @@ router.post('/register-client', async (req, res) => {
       return res.status(400).json({ error: 'Subdomain already taken. Please choose another.' });
     }
 
-    // Check if email exists
+    // 2. Check email
     const existingEmail = await db.query(
       'SELECT id FROM tenants WHERE email = $1',
       [email]
@@ -179,7 +184,7 @@ router.post('/register-client', async (req, res) => {
       return res.status(400).json({ error: 'Email already registered. Please use another email.' });
     }
 
-    // Create tenant
+    // 3. Create tenant
     const tenantResult = await db.query(
       `INSERT INTO tenants 
        (name, subdomain, email, phone, address, settings, status, subscription_plan, created_at)
@@ -199,13 +204,13 @@ router.post('/register-client', async (req, res) => {
 
     const tenant = tenantResult.rows[0];
 
-    // Create unique username using subdomain
+    // 4. Create unique username
     const uniqueUsername = `${subdomain.toLowerCase()}_admin`;
 
-    // Hash password
+    // 5. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create admin user with unique username
+    // 6. Create admin user with tenant_id
     const userResult = await db.query(
       `INSERT INTO tbl_users 
        (tenant_id, username, password, fullname, email, role, status, createdat)
@@ -216,83 +221,11 @@ router.post('/register-client', async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // ✅ FIX: Create default categories with correct column names
-    // First, check what columns exist
-    const columns = await db.query(
-      `SELECT column_name FROM information_schema.columns 
-       WHERE table_name = 'tbl_categories'`
-    );
-    
-    const columnNames = columns.rows.map(row => row.column_name);
-    console.log('📋 Categories columns:', columnNames);
-
-    // Define categories with correct column names
-    const categories = [
-      ['Electronics', 'Electronic products and gadgets'],
-      ['Furniture', 'Furniture and home items'],
-      ['Clothing', 'Clothing and apparel'],
-      ['Food', 'Food and beverages'],
-      ['Office Supplies', 'Office and stationery items']
-    ];
-
-    // Insert categories with the correct column names
-    for (const [name, desc] of categories) {
-      let insertQuery = `INSERT INTO tbl_categories (tenant_id`;
-      let values = [tenant.id];
-      let valuePlaceholders = ['$1'];
-      let paramIndex = 2;
-
-      if (columnNames.includes('category_en')) {
-        insertQuery += `, category_en`;
-        values.push(name);
-        valuePlaceholders.push(`$${paramIndex}`);
-        paramIndex++;
-      }
-      
-      if (columnNames.includes('category_kh')) {
-        insertQuery += `, category_kh`;
-        values.push(desc || name);
-        valuePlaceholders.push(`$${paramIndex}`);
-        paramIndex++;
-      }
-      
-      if (columnNames.includes('name')) {
-        insertQuery += `, name`;
-        values.push(name);
-        valuePlaceholders.push(`$${paramIndex}`);
-        paramIndex++;
-      }
-      
-      if (columnNames.includes('description')) {
-        insertQuery += `, description`;
-        values.push(desc || name);
-        valuePlaceholders.push(`$${paramIndex}`);
-        paramIndex++;
-      }
-      
-      if (columnNames.includes('created_at')) {
-        insertQuery += `, created_at`;
-        values.push(new Date());
-        valuePlaceholders.push(`NOW()`);
-      }
-
-      insertQuery += `) VALUES (${valuePlaceholders.join(', ')})`;
-
-      console.log('📝 Insert query:', insertQuery);
-      
-      try {
-        await db.query(insertQuery, values);
-      } catch (err) {
-        console.warn('⚠️ Category insert failed:', err.message);
-        // Continue with next category
-      }
-    }
-
-    // Generate JWT
+    // 7. Generate JWT
     const token = jwt.sign(
-      { 
-        userId: user.userid, 
-        username: user.username, 
+      {
+        userId: user.userid,
+        username: user.username,
         role: user.role,
         tenantId: tenant.id,
         tenantName: tenant.name,
@@ -319,19 +252,17 @@ router.post('/register-client', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Registration error DETAILS:', error);
-    console.error('❌ Error message:', error.message);
-    console.error('❌ Error code:', error.code);
-    
-    res.status(500).json({ 
+    console.error('❌ Registration error:', error);
+    res.status(500).json({
       error: 'Registration failed',
-      details: error.message,
-      code: error.code
+      details: error.message
     });
   }
 });
 
-// ===== REGISTER (Super Admin Only) =====
+// ============================================
+// REGISTER (Super Admin Only)
+// ============================================
 router.post('/register', authenticate, requireSuperAdmin, async (req, res) => {
   const { username, email, password, firstName, lastName, companyName } = req.body;
 

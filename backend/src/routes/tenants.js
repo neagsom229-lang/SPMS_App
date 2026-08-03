@@ -1,6 +1,7 @@
-// backend/routes/tenants.js
+// backend/src/routes/tenants.js
 const express = require('express');
-const pool = require('../config/database');
+const bcrypt = require('bcryptjs');
+const pool = require('../config/postgres');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 
 const router = express.Router();
@@ -16,9 +17,9 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
         t.*,
         COUNT(DISTINCT u.userid) as user_count,
         COUNT(DISTINCT p.id) as product_count,
-        COUNT(DISTINCT o.id) as order_count,
-        COALESCE(SUM(o.total_amount), 0) as total_revenue,
-        MAX(o.created_at) as last_order_date
+        COUNT(DISTINCT o.or_id) as order_count,
+        COALESCE(SUM(o.amount_us), 0) as total_revenue,
+        MAX(o.order_date) as last_order_date
       FROM tenants t
       LEFT JOIN tbl_users u ON u.tenant_id = t.id
       LEFT JOIN tbl_products p ON p.tenant_id = t.id
@@ -45,12 +46,15 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    // Get total count
-    const countResult = await pool.query(
-      'SELECT COUNT(*) as total FROM tenants WHERE 1=1' + 
-      (search ? ` AND (name ILIKE '%${search}%' OR subdomain ILIKE '%${search}%' OR email ILIKE '%${search}%')` : '') +
-      (status ? ` AND status = '${status}'` : '')
-    );
+    let countQuery = 'SELECT COUNT(*) as total FROM tenants WHERE 1=1';
+    if (search) {
+      countQuery += ` AND (name ILIKE '%${search}%' OR subdomain ILIKE '%${search}%' OR email ILIKE '%${search}%')`;
+    }
+    if (status) {
+      countQuery += ` AND status = '${status}'`;
+    }
+
+    const countResult = await pool.query(countQuery);
 
     res.json({
       tenants: result.rows,
@@ -62,7 +66,7 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get tenants error:', error);
+    console.error('❌ Get tenants error:', error);
     res.status(500).json({ error: 'Failed to fetch tenants' });
   }
 });
@@ -75,9 +79,9 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
         t.*,
         COUNT(DISTINCT u.userid) as user_count,
         COUNT(DISTINCT p.id) as product_count,
-        COUNT(DISTINCT o.id) as order_count,
-        COALESCE(SUM(o.total_amount), 0) as total_revenue,
-        MAX(o.created_at) as last_order_date
+        COUNT(DISTINCT o.or_id) as order_count,
+        COALESCE(SUM(o.amount_us), 0) as total_revenue,
+        MAX(o.order_date) as last_order_date
        FROM tenants t
        LEFT JOIN tbl_users u ON u.tenant_id = t.id
        LEFT JOIN tbl_products p ON p.tenant_id = t.id
@@ -93,8 +97,80 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
 
     res.json(result.rows[0]);
   } catch (error) {
-    console.error('Get tenant error:', error);
+    console.error('❌ Get tenant error:', error);
     res.status(500).json({ error: 'Failed to fetch tenant' });
+  }
+});
+
+// ===== CREATE TENANT =====
+router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
+  const {
+    name, subdomain, email, phone, address, status,
+    subscription_plan = 'free', max_users = 5, max_products = 100,
+    settings
+  } = req.body;
+
+  if (!name || !subdomain || !email) {
+    return res.status(400).json({ error: 'Name, subdomain, and email are required' });
+  }
+
+  try {
+    const existing = await pool.query(
+      'SELECT id FROM tenants WHERE subdomain = $1',
+      [subdomain.toLowerCase()]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'Subdomain already taken' });
+    }
+
+    const existingEmail = await pool.query(
+      'SELECT id FROM tenants WHERE email = $1',
+      [email]
+    );
+    if (existingEmail.rows.length > 0) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO tenants 
+       (name, subdomain, email, phone, address, status, subscription_plan, max_users, max_products, settings, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+       RETURNING *`,
+      [
+        name,
+        subdomain.toLowerCase(),
+        email,
+        phone || null,
+        address || null,
+        status || 'ACTIVE',
+        subscription_plan,
+        max_users,
+        max_products,
+        settings || '{"theme": "light"}'
+      ]
+    );
+
+    const defaultPassword = 'admin123';
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    
+    await pool.query(
+      `INSERT INTO tbl_users 
+       (tenant_id, username, password, fullname, email, role, status, createdat)
+       VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', NOW())`,
+      [result.rows[0].id, 'admin', hashedPassword, name, email]
+    );
+
+    res.status(201).json({
+      message: 'Tenant created successfully',
+      tenant: result.rows[0],
+      defaultCredentials: {
+        username: 'admin',
+        password: 'admin123'
+      }
+    });
+  } catch (error) {
+    console.error('❌ Create tenant error:', error);
+    res.status(500).json({ error: 'Failed to create tenant' });
   }
 });
 
@@ -132,9 +208,12 @@ router.put('/:id', authenticate, requireSuperAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      message: 'Tenant updated successfully',
+      tenant: result.rows[0]
+    });
   } catch (error) {
-    console.error('Update tenant error:', error);
+    console.error('❌ Update tenant error:', error);
     res.status(500).json({ error: 'Failed to update tenant' });
   }
 });
@@ -146,7 +225,6 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Delete all data for this tenant
     await client.query('DELETE FROM order_items WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_orders WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_products WHERE tenant_id = $1', [req.params.id]);
@@ -154,6 +232,9 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
     await client.query('DELETE FROM tbl_suppliers WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_categories WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_stock WHERE tenant_id = $1', [req.params.id]);
+    await client.query('DELETE FROM tbl_warranty WHERE tenant_id = $1', [req.params.id]);
+    await client.query('DELETE FROM tbl_service_requests WHERE tenant_id = $1', [req.params.id]);
+    await client.query('DELETE FROM tbl_activity_logs WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_users WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tenants WHERE id = $1', [req.params.id]);
 
@@ -162,10 +243,30 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
     res.json({ message: 'Tenant deleted successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Delete tenant error:', error);
+    console.error('❌ Delete tenant error:', error);
     res.status(500).json({ error: 'Failed to delete tenant' });
   } finally {
     client.release();
+  }
+});
+
+// ===== SYSTEM STATS =====
+router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    const stats = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM tenants) as total_tenants,
+        (SELECT COUNT(*) FROM tbl_users) as total_users,
+        (SELECT COUNT(*) FROM tbl_products) as total_products,
+        (SELECT COUNT(*) FROM tbl_orders) as total_orders,
+        (SELECT COALESCE(SUM(amount_us), 0) FROM tbl_orders) as total_revenue,
+        (SELECT COUNT(*) FROM tbl_customers) as total_customers
+    `);
+
+    res.json(stats.rows[0]);
+  } catch (error) {
+    console.error('❌ System stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch system stats' });
   }
 });
 

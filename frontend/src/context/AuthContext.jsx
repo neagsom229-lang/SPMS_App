@@ -41,7 +41,6 @@ export const AuthProvider = ({ children }) => {
           setUser(parsedUser);
           setIsSuperAdmin(parsedUser.isSuperAdmin || false);
           
-          // ✅ Load tenant
           if (tenantData) {
             setTenant(JSON.parse(tenantData));
           } else if (parsedUser.tenant) {
@@ -62,6 +61,63 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, []);
 
+  // ===== REGISTER (Self-Registration) =====
+  const register = useCallback(async (formData) => {
+    try {
+      console.log('📤 Registering business...', formData.businessName);
+      console.log('📤 API URL:', apiClient.defaults.baseURL);
+      
+      const response = await apiClient.post('/auth/register-client', {
+        businessName: formData.businessName,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phone || '',
+        address: formData.address || '',
+        subdomain: formData.subdomain
+      });
+
+      console.log('✅ Registration response:', response.data);
+
+      const { token, user: userData, tenant: tenantData } = response.data;
+
+      if (!token || !userData) {
+        throw new Error('Invalid response from server');
+      }
+
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      if (tenantData) {
+        localStorage.setItem('tenant', JSON.stringify(tenantData));
+        setTenant(tenantData);
+      }
+      
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      setUser(userData);
+      setIsSuperAdmin(false);
+      
+      toast.success(`🎉 ${tenantData?.name || 'Business'} registered successfully!`);
+      toast.info(`🔑 Your username: ${userData.username}`);
+      
+      return { success: true, user: userData, tenant: tenantData };
+      
+    } catch (error) {
+      console.error('❌ Registration error:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      
+      const errorMessage = error.response?.data?.error || error.response?.data?.details || error.message || 'Registration failed';
+      toast.error(`❌ ${errorMessage}`);
+      
+      return { 
+        success: false, 
+        error: errorMessage,
+        status: error.response?.status
+      };
+    }
+  }, []);
+
   // ===== LOGIN =====
   const login = useCallback(async (username, password) => {
     if (isLocked) {
@@ -77,7 +133,7 @@ export const AuthProvider = ({ children }) => {
         username,
         password
       }, {
-        timeout: 60000 // 60 seconds timeout
+        timeout: 60000
       });
 
       console.log('✅ Login response:', response.data);
@@ -88,33 +144,25 @@ export const AuthProvider = ({ children }) => {
         throw new Error('Invalid response from server');
       }
 
-      // ✅ Store token
       localStorage.setItem('token', token);
-      
-      // ✅ Store user
       localStorage.setItem('user', JSON.stringify(userData));
       
-      // ✅ Store tenant separately
       if (userData.tenant) {
         localStorage.setItem('tenant', JSON.stringify(userData.tenant));
         setTenant(userData.tenant);
       } else {
-        // Super admin has no tenant
         localStorage.setItem('tenant', JSON.stringify({ id: null, isSuperAdmin: true }));
         setTenant(null);
       }
       
-      // ✅ Set authorization header
       apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
-      // ✅ Reset login attempts
       setLoginAttempts(0);
       localStorage.removeItem('loginAttempts');
       localStorage.removeItem('loginLockUntil');
       setIsLocked(false);
       setLockRemaining(0);
       
-      // ✅ Set user state
       setUser(userData);
       setIsSuperAdmin(userData.isSuperAdmin || false);
       
@@ -125,7 +173,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('❌ Login error:', error);
       
-      // ✅ Check if it's a timeout error
       if (error.isTimeout || error.message?.includes('timeout')) {
         toast.error('⏱️ Server is waking up. Please wait a moment and try again.');
         return { 
@@ -135,15 +182,12 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      // ✅ Get error message
-      const errorMessage = error.data?.error || error.response?.data?.error || error.message || 'Login failed';
+      const errorMessage = error.response?.data?.error || error.message || 'Login failed';
       
-      // ✅ Increment login attempts
       const newAttempts = loginAttempts + 1;
       setLoginAttempts(newAttempts);
       localStorage.setItem('loginAttempts', String(newAttempts));
       
-      // ✅ Lock after 5 attempts
       if (newAttempts >= 5) {
         setIsLocked(true);
         const lockDuration = 15 * 60 * 1000;
@@ -157,7 +201,7 @@ export const AuthProvider = ({ children }) => {
       return { 
         success: false, 
         error: errorMessage,
-        status: error.status || error.response?.status
+        status: error.response?.status
       };
     }
   }, [isLocked, loginAttempts, lockRemaining]);
@@ -184,34 +228,6 @@ export const AuthProvider = ({ children }) => {
     toast.success('👋 Logged out successfully');
   }, []);
 
-  // ===== CHECK IF AUTHENTICATED =====
-  const isAuthenticated = useCallback(() => {
-    const token = localStorage.getItem('token');
-    return !!token && !!user;
-  }, [user]);
-
-  // ===== GET USER ROLE =====
-  const getUserRole = useCallback(() => {
-    if (isSuperAdmin) return 'superadmin';
-    if (user?.role) return user.role.toLowerCase();
-    return 'user';
-  }, [isSuperAdmin, user]);
-
-  // ===== GET TENANT ID =====
-  const getTenantId = useCallback(() => {
-    return tenant?.id || user?.tenant?.id || null;
-  }, [tenant, user]);
-
-  // ===== GET TENANT NAME =====
-  const getTenantName = useCallback(() => {
-    return tenant?.name || user?.tenant?.name || 'My Business';
-  }, [tenant, user]);
-
-  // ===== GET SUBDOMAIN =====
-  const getSubdomain = useCallback(() => {
-    return tenant?.subdomain || user?.tenant?.subdomain || '';
-  }, [tenant, user]);
-
   const value = {
     user,
     setUser,
@@ -219,16 +235,12 @@ export const AuthProvider = ({ children }) => {
     setTenant,
     loading,
     login,
+    register,
     logout,
     isSuperAdmin,
     loginAttempts,
     isLocked,
     lockRemaining,
-    isAuthenticated,
-    getUserRole,
-    getTenantId,
-    getTenantName,
-    getSubdomain,
   };
 
   if (loading) {

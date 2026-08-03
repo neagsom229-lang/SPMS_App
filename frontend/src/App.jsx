@@ -25,6 +25,8 @@ import RegisterBusiness from './pages/RegisterBusiness';
 
 // Super Admin Pages
 import SuperAdminDashboard from "./pages/SuperAdmin/Dashboard";
+import Businesses from "./pages/SuperAdmin/Businesses";
+import SystemUsers from "./pages/SuperAdmin/SystemUsers";
 
 // Pages
 import Pricing from "./pages/Pricing";
@@ -154,11 +156,16 @@ function App() {
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/register-business" element={<RegisterBusiness />} />
                 <Route path="/pricing" element={<Pricing />} />
+                <Route path="/help" element={<Help />} />
 
                 {/* ===== SUPER ADMIN ROUTES ===== */}
                 <Route element={<SuperAdminRoute />}>
                   <Route path="/admin" element={<Layout><SuperAdminDashboard /></Layout>} />
+                  <Route path="/admin/tenants" element={<Layout><Businesses /></Layout>} />
+                  <Route path="/admin/tenants/new" element={<Layout><Businesses /></Layout>} />
+                  <Route path="/admin/users" element={<Layout><SystemUsers /></Layout>} />
                 </Route>
 
                 {/* ===== PROTECTED ROUTES ===== */}
@@ -182,8 +189,6 @@ function App() {
 
                 {/* ===== CATCH ALL ===== */}
                 <Route path="*" element={<Navigate to="/" replace />} />
-                <Route path="/help" element={<Help />} />
-                <Route path="/register-business" element={<RegisterBusiness />} />
               </Routes>
             </ThemeProvider>
           </AuthProvider>
