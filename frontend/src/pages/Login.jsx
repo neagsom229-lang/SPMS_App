@@ -197,6 +197,12 @@ const Login = () => {
                 Create one
               </Link>
             </p>
+            <p className="text-center text-sm text-indigo-200">
+  Don't have an account?{' '}
+  <Link to="/register-business" className="text-white font-medium hover:underline">
+    Start Your Business
+  </Link>
+</p>
           </form>
         </div>
 

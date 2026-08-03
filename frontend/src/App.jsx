@@ -21,6 +21,7 @@ import Analytics from "./components/Analytics";
 import Payment from "./components/Payment";
 import Profile from "./components/Profile";
 import ErrorBoundary from './components/ErrorBoundary';
+import RegisterBusiness from './pages/RegisterBusiness';
 
 // Super Admin Pages
 import SuperAdminDashboard from "./pages/SuperAdmin/Dashboard";
@@ -182,6 +183,7 @@ function App() {
                 {/* ===== CATCH ALL ===== */}
                 <Route path="*" element={<Navigate to="/" replace />} />
                 <Route path="/help" element={<Help />} />
+                <Route path="/register-business" element={<RegisterBusiness />} />
               </Routes>
             </ThemeProvider>
           </AuthProvider>

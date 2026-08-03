@@ -1268,12 +1268,12 @@
   left: -50%;
   width: 200%;
   height: 200%;
-  background: linear-gradient(
+  /* background: linear-gradient(
     115deg,
     transparent 42%,
     rgba(245, 166, 35, 0.1) 50%,
     transparent 58%
-  );
+  ); */
   animation: kf-shimmer-sweep 5s ease-in-out infinite;
   pointer-events: none;
 }
@@ -1295,7 +1295,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--kf-navy-950);
-  background: linear-gradient(135deg, var(--kf-gold), #ffd98a);
+  /* background: linear-gradient(135deg, var(--kf-gold), #ffd98a); */
   padding: 5px 12px;
   border-radius: 999px;
 }
@@ -1314,12 +1314,12 @@
    --------------------------------------------------------------- */
 .kf-cta {
   position: relative;
-  background: linear-gradient(
+  /* background: linear-gradient(
     160deg,
     rgba(11, 18, 32, 0.82),
     rgba(20, 34, 56, 0.82) 60%,
     rgba(11, 27, 20, 0.82)
-  );
+  ); */
   overflow: hidden;
 }
 .kf-motif {
@@ -1328,7 +1328,7 @@
   pointer-events: none;
 }
 .kf-motif-cta {
-  background:
+  /* background:
     radial-gradient(
       45% 60% at 50% 0%,
       rgba(245, 166, 35, 0.14),
@@ -1338,7 +1338,7 @@
       40% 50% at 15% 100%,
       rgba(52, 211, 153, 0.12),
       transparent 70%
-    );
+    ); */
   background-size: 140% 140%;
   animation: kf-gradient-drift 14s ease-in-out infinite;
 }
@@ -1356,7 +1356,7 @@
    9. FOOTER
    --------------------------------------------------------------- */
 .kf-footer {
-  background: rgba(5, 9, 15, 0.88);
+  /* background: rgba(5, 9, 15, 0.88); */
   border-top: 1px solid var(--kf-border);
 }
 .kf-footer-brand {
@@ -1388,7 +1388,7 @@
   bottom: -2px;
   width: 0;
   height: 1px;
-  background: var(--kf-teal);
+  /* background: var(--kf-teal); */
   transition: width 0.25s var(--kf-ease);
 }
 .kf-footer-link:hover {
@@ -1633,7 +1633,7 @@
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background: var(--kf-navy-900);
+  /* background: var(--kf-navy-900); */
 }
 
 /* Everything that should sit visually "on top of" the cosmic

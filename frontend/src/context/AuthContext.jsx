@@ -61,7 +61,6 @@ export const AuthProvider = ({ children }) => {
       console.log('📤 Logging in...', username);
       console.log('📤 API URL:', apiClient.defaults.baseURL);
       
-      // ✅ Login endpoint - works with /api prefix from client.js
       const response = await apiClient.post('/auth/login', {
         username,
         password
@@ -108,12 +107,64 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isLocked, loginAttempts, lockRemaining]);
 
+  // ===== REGISTER (SELF-REGISTRATION) =====
+  const register = useCallback(async (formData) => {
+    try {
+      console.log('📤 Registering business...', formData.businessName);
+      console.log('📤 API URL:', apiClient.defaults.baseURL);
+      
+      const response = await apiClient.post('/auth/register-client', {
+        businessName: formData.businessName,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phone || '',
+        address: formData.address || '',
+        subdomain: formData.subdomain
+      });
+
+      console.log('✅ Registration response:', response.data);
+
+      const { token, user: userData, tenant } = response.data;
+
+      if (!token || !userData) {
+        throw new Error('Invalid response from server');
+      }
+
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('tenant', JSON.stringify(tenant));
+      
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      setUser(userData);
+      setIsSuperAdmin(false);
+      toast.success(`🎉 ${tenant.name} registered successfully!`);
+      
+      return { success: true, user: userData, tenant };
+      
+    } catch (error) {
+      console.error('❌ Registration error:', error);
+      console.error('❌ Error response:', error.response?.data);
+      console.error('❌ Error status:', error.response?.status);
+      
+      const errorMessage = error.response?.data?.error || error.message || 'Registration failed';
+      toast.error(`❌ ${errorMessage}`);
+      
+      return { 
+        success: false, 
+        error: errorMessage,
+        status: error.response?.status
+      };
+    }
+  }, []);
+
   // ===== LOGOUT =====
   const logout = useCallback(() => {
     console.log('📤 Logging out...');
     
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('tenant');
     localStorage.removeItem('loginAttempts');
     localStorage.removeItem('loginLockUntil');
     
@@ -133,6 +184,7 @@ export const AuthProvider = ({ children }) => {
     setUser,
     loading,
     login,
+    register, // ✅ Now exported
     logout,
     isSuperAdmin,
     loginAttempts,
