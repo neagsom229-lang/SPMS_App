@@ -18,6 +18,7 @@ router.get('/test', (req, res) => {
 });
 
 // ===== LOGIN =====
+// ===== LOGIN =====
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
   console.log('🔑 Login attempt:', username);
@@ -27,6 +28,7 @@ router.post('/login', async (req, res) => {
   }
 
   try {
+    // ✅ Optimize query - only get necessary fields
     const result = await db.query(
       `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
               u.is_super_admin, u.tenant_id,
@@ -37,19 +39,19 @@ router.post('/login', async (req, res) => {
       [username]
     );
 
-    const user = result.rows[0];
-
-    if (!user) {
+    if (result.rows.length === 0) {
       console.log('❌ User not found:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    const user = result.rows[0];
 
     if (user.status !== 'ACTIVE') {
       console.log('❌ User not active:', username);
       return res.status(403).json({ error: 'Account is not active' });
     }
 
-    // Use bcrypt to compare password
+    // ✅ Use bcrypt to compare password
     const isValidPassword = await bcrypt.compare(password, user.password);
     console.log('🔑 Password valid:', isValidPassword);
 
@@ -58,8 +60,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    console.log('✅ Login successful:', username);
-
+    // ✅ Generate token
     const token = jwt.sign(
       {
         userId: user.userid,
@@ -72,6 +73,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // ✅ Build response
     const userResponse = {
       user_id: user.userid,
       username: user.username,
@@ -95,6 +97,7 @@ router.post('/login', async (req, res) => {
       userResponse.accessLevel = 'tenant';
     }
 
+    // ✅ Send response quickly
     res.json({
       token,
       user: userResponse,

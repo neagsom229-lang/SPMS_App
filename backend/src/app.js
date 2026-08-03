@@ -139,6 +139,10 @@ const corsOptions = {
     "Authorization",
     "Accept",
     "X-Requested-With",
+    'x-tenant-id',        // ✅ Add this
+    'x-tenant-subdomain', // ✅ Add this
+    'X-Tenant-Id',        // ✅ Add this
+    'X-Tenant-Subdomain', // ✅ Add this
   ],
 };
 

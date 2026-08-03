@@ -63,78 +63,104 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ===== LOGIN =====
-  // ===== LOGIN =====
-const login = useCallback(async (username, password) => {
-  if (isLocked) {
-    toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
-    return { success: false, error: 'Account locked' };
-  }
-
-  try {
-    console.log('📤 Logging in...', username);
-    console.log('📤 API URL:', apiClient.defaults.baseURL);
-    
-    // ✅ Add timeout handling
-    const response = await apiClient.post('/auth/login', {
-      username,
-      password
-    }, {
-      timeout: 60000 // ✅ 60 seconds timeout
-    });
-
-    console.log('✅ Login response:', response.data);
-
-    const { token, user: userData } = response.data;
-
-    if (!token || !userData) {
-      throw new Error('Invalid response from server');
+  const login = useCallback(async (username, password) => {
+    if (isLocked) {
+      toast.error(`⛔ Account locked. Please wait ${Math.ceil(lockRemaining / 60000)} minutes.`);
+      return { success: false, error: 'Account locked' };
     }
 
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    
-    if (userData.tenant) {
-      localStorage.setItem('tenant', JSON.stringify(userData.tenant));
-      setTenant(userData.tenant);
-    }
-    
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    
-    setLoginAttempts(0);
-    localStorage.removeItem('loginAttempts');
-    localStorage.removeItem('loginLockUntil');
-    setIsLocked(false);
-    setLockRemaining(0);
-    
-    setUser(userData);
-    setIsSuperAdmin(userData.isSuperAdmin || false);
-    toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
-    
-    return { success: true, user: userData };
-    
-  } catch (error) {
-    console.error('❌ Login error:', error);
-    
-    // ✅ Check if it's a timeout error
-    if (error.isTimeout || error.message?.includes('timeout')) {
-      toast.error('⏱️ Server is waking up. Please wait a moment and try again.');
+    try {
+      console.log('📤 Logging in...', username);
+      console.log('📤 API URL:', apiClient.defaults.baseURL);
+      
+      const response = await apiClient.post('/auth/login', {
+        username,
+        password
+      }, {
+        timeout: 60000 // 60 seconds timeout
+      });
+
+      console.log('✅ Login response:', response.data);
+
+      const { token, user: userData } = response.data;
+
+      if (!token || !userData) {
+        throw new Error('Invalid response from server');
+      }
+
+      // ✅ Store token
+      localStorage.setItem('token', token);
+      
+      // ✅ Store user
+      localStorage.setItem('user', JSON.stringify(userData));
+      
+      // ✅ Store tenant separately
+      if (userData.tenant) {
+        localStorage.setItem('tenant', JSON.stringify(userData.tenant));
+        setTenant(userData.tenant);
+      } else {
+        // Super admin has no tenant
+        localStorage.setItem('tenant', JSON.stringify({ id: null, isSuperAdmin: true }));
+        setTenant(null);
+      }
+      
+      // ✅ Set authorization header
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      // ✅ Reset login attempts
+      setLoginAttempts(0);
+      localStorage.removeItem('loginAttempts');
+      localStorage.removeItem('loginLockUntil');
+      setIsLocked(false);
+      setLockRemaining(0);
+      
+      // ✅ Set user state
+      setUser(userData);
+      setIsSuperAdmin(userData.isSuperAdmin || false);
+      
+      toast.success(`👋 Welcome back, ${userData.fullname || userData.username}!`);
+      
+      return { success: true, user: userData };
+      
+    } catch (error) {
+      console.error('❌ Login error:', error);
+      
+      // ✅ Check if it's a timeout error
+      if (error.isTimeout || error.message?.includes('timeout')) {
+        toast.error('⏱️ Server is waking up. Please wait a moment and try again.');
+        return { 
+          success: false, 
+          error: 'Server is starting up. Please try again in a few seconds.',
+          isTimeout: true
+        };
+      }
+      
+      // ✅ Get error message
+      const errorMessage = error.data?.error || error.response?.data?.error || error.message || 'Login failed';
+      
+      // ✅ Increment login attempts
+      const newAttempts = loginAttempts + 1;
+      setLoginAttempts(newAttempts);
+      localStorage.setItem('loginAttempts', String(newAttempts));
+      
+      // ✅ Lock after 5 attempts
+      if (newAttempts >= 5) {
+        setIsLocked(true);
+        const lockDuration = 15 * 60 * 1000;
+        setLockRemaining(lockDuration);
+        localStorage.setItem('loginLockUntil', String(Date.now() + lockDuration));
+        toast.error('⛔ Too many failed attempts. Account locked for 15 minutes.');
+      } else {
+        toast.error(`❌ ${errorMessage}`);
+      }
+      
       return { 
         success: false, 
-        error: 'Server is starting up. Please try again in a few seconds.',
-        isTimeout: true
+        error: errorMessage,
+        status: error.status || error.response?.status
       };
     }
-    
-    const errorMessage = error.data?.error || error.message || 'Login failed';
-    toast.error(`❌ ${errorMessage}`);
-    
-    return { 
-      success: false, 
-      error: errorMessage,
-      status: error.status
-    };
-  }
-}, [isLocked, loginAttempts, lockRemaining]);
+  }, [isLocked, loginAttempts, lockRemaining]);
 
   // ===== LOGOUT =====
   const logout = useCallback(() => {
@@ -158,6 +184,34 @@ const login = useCallback(async (username, password) => {
     toast.success('👋 Logged out successfully');
   }, []);
 
+  // ===== CHECK IF AUTHENTICATED =====
+  const isAuthenticated = useCallback(() => {
+    const token = localStorage.getItem('token');
+    return !!token && !!user;
+  }, [user]);
+
+  // ===== GET USER ROLE =====
+  const getUserRole = useCallback(() => {
+    if (isSuperAdmin) return 'superadmin';
+    if (user?.role) return user.role.toLowerCase();
+    return 'user';
+  }, [isSuperAdmin, user]);
+
+  // ===== GET TENANT ID =====
+  const getTenantId = useCallback(() => {
+    return tenant?.id || user?.tenant?.id || null;
+  }, [tenant, user]);
+
+  // ===== GET TENANT NAME =====
+  const getTenantName = useCallback(() => {
+    return tenant?.name || user?.tenant?.name || 'My Business';
+  }, [tenant, user]);
+
+  // ===== GET SUBDOMAIN =====
+  const getSubdomain = useCallback(() => {
+    return tenant?.subdomain || user?.tenant?.subdomain || '';
+  }, [tenant, user]);
+
   const value = {
     user,
     setUser,
@@ -170,6 +224,11 @@ const login = useCallback(async (username, password) => {
     loginAttempts,
     isLocked,
     lockRemaining,
+    isAuthenticated,
+    getUserRole,
+    getTenantId,
+    getTenantName,
+    getSubdomain,
   };
 
   if (loading) {
