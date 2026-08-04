@@ -32,14 +32,14 @@ router.post('/login', async (req, res) => {
 
   try {
     const result = await db.query(
-      `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
-              u.is_super_admin, u.tenant_id,
-              t.id as tenant_id, t.name as tenant_name, t.subdomain
-       FROM tbl_users u
-       LEFT JOIN tenants t ON u.tenant_id = t.id
-       WHERE LOWER(u.username) = LOWER($1)`,
-      [username]
-    );
+  `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
+          u.is_super_admin, u.tenant_id as user_tenant_id,
+          t.id as tenant_row_id, t.name as tenant_name, t.subdomain
+   FROM tbl_users u
+   LEFT JOIN tenants t ON u.tenant_id = t.id
+   WHERE LOWER(u.username) = LOWER($1)`,
+  [username]
+);
 
     if (result.rows.length === 0) {
       console.log('❌ User not found:', username);
@@ -68,7 +68,7 @@ router.post('/login', async (req, res) => {
         userId: user.userid,
         username: user.username,
         role: user.role || 'Admin',
-        tenantId: user.is_super_admin ? null : user.tenant_id,
+        tenantId: user.is_super_admin ? null : user.user_tenant_id,
         isSuperAdmin: user.is_super_admin || false,
       },
       JWT_SECRET,
