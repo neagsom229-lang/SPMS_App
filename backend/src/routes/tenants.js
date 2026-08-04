@@ -1,3 +1,4 @@
+// backend/src/routes/tenants.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const pool = require('../config/postgres');
@@ -70,82 +71,9 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
   }
 });
 
-// ===== SYSTEM STATS =====
-router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) => {
-  try {
-    // ✅ CORRECTED: Read tenantId from the headers (sent by your frontend interceptor)
-    const tenantId = req.headers['x-tenant-id'] || null;
-
-    let totalTenants = 0;
-    let totalUsers = 0;
-    let totalProducts = 0;
-    let totalOrders = 0;
-    let totalRevenue = 0;
-    let totalCustomers = 0;
-
-    if (tenantId) {
-      // Fetch stats for the SPECIFIC tenant (Regular Admin)
-      const tenantsResult = await pool.query('SELECT COUNT(*) as count FROM tenants WHERE id = $1', [tenantId]);
-      totalTenants = parseInt(tenantsResult.rows[0]?.count || 0);
-
-      const usersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_users WHERE tenant_id = $1', [tenantId]);
-      totalUsers = parseInt(usersResult.rows[0]?.count || 0);
-
-      const productsResult = await pool.query('SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1', [tenantId]);
-      totalProducts = parseInt(productsResult.rows[0]?.count || 0);
-
-      const ordersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1', [tenantId]);
-      totalOrders = parseInt(ordersResult.rows[0]?.count || 0);
-
-      const revenueResult = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders WHERE tenant_id = $1', [tenantId]);
-      totalRevenue = parseFloat(revenueResult.rows[0]?.total || 0);
-
-      const customersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1', [tenantId]);
-      totalCustomers = parseInt(customersResult.rows[0]?.count || 0);
-    } else {
-      // Fetch stats for ALL tenants (Super Admin)
-      const tenantsResult = await pool.query('SELECT COUNT(*) as count FROM tenants');
-      totalTenants = parseInt(tenantsResult.rows[0]?.count || 0);
-
-      const usersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
-      totalUsers = parseInt(usersResult.rows[0]?.count || 0);
-
-      const productsResult = await pool.query('SELECT COUNT(*) as count FROM tbl_products');
-      totalProducts = parseInt(productsResult.rows[0]?.count || 0);
-
-      const ordersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_orders');
-      totalOrders = parseInt(ordersResult.rows[0]?.count || 0);
-
-      const revenueResult = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
-      totalRevenue = parseFloat(revenueResult.rows[0]?.total || 0);
-
-      const customersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_customers');
-      totalCustomers = parseInt(customersResult.rows[0]?.count || 0);
-    }
-
-    res.json({
-      totalTenants,
-      totalUsers,
-      totalProducts,
-      totalOrders,
-      totalRevenue,
-      totalCustomers,
-    });
-  } catch (error) {
-    console.error('❌ System stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch system stats' });
-  }
-});
-
 // ===== GET SINGLE TENANT DETAILS =====
 router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   try {
-    // Prevent "stats" string from crashing the DB query
-    const tenantId = parseInt(req.params.id);
-    if (isNaN(tenantId)) {
-      return res.status(400).json({ error: 'Invalid tenant ID format' });
-    }
-
     const result = await pool.query(
       `SELECT 
         t.*,
@@ -160,7 +88,7 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
        LEFT JOIN tbl_orders o ON o.tenant_id = t.id
        WHERE t.id = $1
        GROUP BY t.id`,
-      [tenantId]
+      [req.params.id]
     );
 
     if (result.rows.length === 0) {
@@ -321,5 +249,33 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
     client.release();
   }
 });
+
+// ===== SYSTEM STATS (standalone handler, also exposed for direct mounting) =====
+const systemStatsHandler = async (req, res) => {
+  try {
+    const stats = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM tenants) as total_tenants,
+        (SELECT COUNT(*) FROM tbl_users) as total_users,
+        (SELECT COUNT(*) FROM tbl_products) as total_products,
+        (SELECT COUNT(*) FROM tbl_orders) as total_orders,
+        (SELECT COALESCE(SUM(amount_us), 0) FROM tbl_orders) as total_revenue,
+        (SELECT COUNT(*) FROM tbl_customers) as total_customers
+    `);
+
+    res.json(stats.rows[0]);
+  } catch (error) {
+    console.error('❌ System stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch system stats' });
+  }
+};
+
+// Keep it reachable at /api/tenants/system/stats too, for backward compatibility
+router.get('/system/stats', authenticate, requireSuperAdmin, systemStatsHandler);
+
+// Expose the handler itself so app.js can bind it directly to /api/system/stats
+// (router is a function, so attaching a property to it is safe and doesn't
+// change how existing `app.use('/api/tenants', tenantRoutes)` calls work)
+router.systemStatsHandler = systemStatsHandler;
 
 module.exports = router;
