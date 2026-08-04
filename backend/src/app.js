@@ -139,10 +139,10 @@ const corsOptions = {
     "Authorization",
     "Accept",
     "X-Requested-With",
-    'x-tenant-id',        // ✅ Add this
-    'x-tenant-subdomain', // ✅ Add this
-    'X-Tenant-Id',        // ✅ Add this
-    'X-Tenant-Subdomain', // ✅ Add this
+    'x-tenant-id',
+    'x-tenant-subdomain',
+    'X-Tenant-Id',
+    'X-Tenant-Subdomain',
   ],
 };
 
@@ -352,7 +352,7 @@ app.get("/", (req, res) => {
       warranties: "GET/POST/PUT/DELETE /api/warranties",
       services: "GET/POST/PUT/DELETE /api/services",
       tenants: "GET/POST/PUT/DELETE /api/tenants",
-      systemStats: "GET /api/system/stats",
+      systemStats: "GET /api/tenants/system/stats", // <-- Updated this to show correct path
       payment: {
         khqr: "GET /api/payment/khqr",
         status: "GET /api/payment/status/:sessionId",
@@ -2281,8 +2281,7 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stock', stockRoutes);
-app.use('/api/tenants', tenantRoutes);
-app.use('/api/system', tenantRoutes);
+app.use('/api/tenants', tenantRoutes); // <-- REMOVED DUPLICATE LINE HERE (app.use('/api/system', tenantRoutes);)
 app.use('/api/categories', categoryRoutes);
 // ============================================
 // DEBUG ROUTE - Log all requests
@@ -2355,7 +2354,7 @@ async function startServer() {
       console.log("  📱 KHQR:          GET /api/payment/khqr");
       console.log("  📄 Invoice:       GET /api/orders/:id/invoice");
       console.log("  🏢 Tenants:       GET/POST/PUT/DELETE /api/tenants");
-      console.log("  📊 System Stats:  GET /api/system/stats");
+      console.log("  📊 System Stats:  GET /api/tenants/system/stats"); // <-- Updated path
       console.log("  💚 Health:        GET /health");
     });
 

@@ -1,4 +1,3 @@
-// backend/src/routes/tenants.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const pool = require('../config/postgres');
@@ -68,6 +67,32 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
   } catch (error) {
     console.error('❌ Get tenants error:', error);
     res.status(500).json({ error: 'Failed to fetch tenants' });
+  }
+});
+
+// ===== SYSTEM STATS =====
+// THIS IS NOW PLACED ABOVE THE /:id ROUTE TO PREVENT THE "stats" STRING ERROR
+router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    // ✅ Simple queries that work
+    const tenantsCount = await pool.query('SELECT COUNT(*) as count FROM tenants');
+    const usersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
+    const productsCount = await pool.query('SELECT COUNT(*) as count FROM tbl_products');
+    const ordersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_orders');
+    const revenueCount = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
+    const customersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_customers');
+
+    res.json({
+      totalTenants: parseInt(tenantsCount.rows[0]?.count || 0),
+      totalUsers: parseInt(usersCount.rows[0]?.count || 0),
+      totalProducts: parseInt(productsCount.rows[0]?.count || 0),
+      totalOrders: parseInt(ordersCount.rows[0]?.count || 0),
+      totalRevenue: parseFloat(revenueCount.rows[0]?.total || 0),
+      totalCustomers: parseInt(customersCount.rows[0]?.count || 0),
+    });
+  } catch (error) {
+    console.error('❌ System stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch system stats' });
   }
 });
 
@@ -247,32 +272,6 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete tenant' });
   } finally {
     client.release();
-  }
-});
-
-// ===== SYSTEM STATS =====
-// ===== SYSTEM STATS =====
-router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) => {
-  try {
-    // ✅ Simple queries that work
-    const tenantsCount = await pool.query('SELECT COUNT(*) as count FROM tenants');
-    const usersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
-    const productsCount = await pool.query('SELECT COUNT(*) as count FROM tbl_products');
-    const ordersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_orders');
-    const revenueCount = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
-    const customersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_customers');
-
-    res.json({
-      totalTenants: parseInt(tenantsCount.rows[0]?.count || 0),
-      totalUsers: parseInt(usersCount.rows[0]?.count || 0),
-      totalProducts: parseInt(productsCount.rows[0]?.count || 0),
-      totalOrders: parseInt(ordersCount.rows[0]?.count || 0),
-      totalRevenue: parseFloat(revenueCount.rows[0]?.total || 0),
-      totalCustomers: parseInt(customersCount.rows[0]?.count || 0),
-    });
-  } catch (error) {
-    console.error('❌ System stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch system stats' });
   }
 });
 
