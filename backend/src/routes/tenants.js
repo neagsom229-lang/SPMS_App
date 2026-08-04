@@ -71,24 +71,65 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
 });
 
 // ===== SYSTEM STATS =====
-// THIS IS NOW PLACED ABOVE THE /:id ROUTE TO PREVENT THE "stats" STRING ERROR
 router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) => {
   try {
-    // ✅ Simple queries that work
-    const tenantsCount = await pool.query('SELECT COUNT(*) as count FROM tenants');
-    const usersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
-    const productsCount = await pool.query('SELECT COUNT(*) as count FROM tbl_products');
-    const ordersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_orders');
-    const revenueCount = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
-    const customersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_customers');
+    // ✅ CORRECTED: Read tenantId from the headers (sent by your frontend interceptor)
+    const tenantId = req.headers['x-tenant-id'] || null;
+
+    let totalTenants = 0;
+    let totalUsers = 0;
+    let totalProducts = 0;
+    let totalOrders = 0;
+    let totalRevenue = 0;
+    let totalCustomers = 0;
+
+    if (tenantId) {
+      // Fetch stats for the SPECIFIC tenant (Regular Admin)
+      const tenantsResult = await pool.query('SELECT COUNT(*) as count FROM tenants WHERE id = $1', [tenantId]);
+      totalTenants = parseInt(tenantsResult.rows[0]?.count || 0);
+
+      const usersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_users WHERE tenant_id = $1', [tenantId]);
+      totalUsers = parseInt(usersResult.rows[0]?.count || 0);
+
+      const productsResult = await pool.query('SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1', [tenantId]);
+      totalProducts = parseInt(productsResult.rows[0]?.count || 0);
+
+      const ordersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1', [tenantId]);
+      totalOrders = parseInt(ordersResult.rows[0]?.count || 0);
+
+      const revenueResult = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders WHERE tenant_id = $1', [tenantId]);
+      totalRevenue = parseFloat(revenueResult.rows[0]?.total || 0);
+
+      const customersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1', [tenantId]);
+      totalCustomers = parseInt(customersResult.rows[0]?.count || 0);
+    } else {
+      // Fetch stats for ALL tenants (Super Admin)
+      const tenantsResult = await pool.query('SELECT COUNT(*) as count FROM tenants');
+      totalTenants = parseInt(tenantsResult.rows[0]?.count || 0);
+
+      const usersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
+      totalUsers = parseInt(usersResult.rows[0]?.count || 0);
+
+      const productsResult = await pool.query('SELECT COUNT(*) as count FROM tbl_products');
+      totalProducts = parseInt(productsResult.rows[0]?.count || 0);
+
+      const ordersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_orders');
+      totalOrders = parseInt(ordersResult.rows[0]?.count || 0);
+
+      const revenueResult = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
+      totalRevenue = parseFloat(revenueResult.rows[0]?.total || 0);
+
+      const customersResult = await pool.query('SELECT COUNT(*) as count FROM tbl_customers');
+      totalCustomers = parseInt(customersResult.rows[0]?.count || 0);
+    }
 
     res.json({
-      totalTenants: parseInt(tenantsCount.rows[0]?.count || 0),
-      totalUsers: parseInt(usersCount.rows[0]?.count || 0),
-      totalProducts: parseInt(productsCount.rows[0]?.count || 0),
-      totalOrders: parseInt(ordersCount.rows[0]?.count || 0),
-      totalRevenue: parseFloat(revenueCount.rows[0]?.total || 0),
-      totalCustomers: parseInt(customersCount.rows[0]?.count || 0),
+      totalTenants,
+      totalUsers,
+      totalProducts,
+      totalOrders,
+      totalRevenue,
+      totalCustomers,
     });
   } catch (error) {
     console.error('❌ System stats error:', error);
@@ -99,6 +140,12 @@ router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) =>
 // ===== GET SINGLE TENANT DETAILS =====
 router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   try {
+    // Prevent "stats" string from crashing the DB query
+    const tenantId = parseInt(req.params.id);
+    if (isNaN(tenantId)) {
+      return res.status(400).json({ error: 'Invalid tenant ID format' });
+    }
+
     const result = await pool.query(
       `SELECT 
         t.*,
@@ -113,7 +160,7 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
        LEFT JOIN tbl_orders o ON o.tenant_id = t.id
        WHERE t.id = $1
        GROUP BY t.id`,
-      [req.params.id]
+      [tenantId]
     );
 
     if (result.rows.length === 0) {
