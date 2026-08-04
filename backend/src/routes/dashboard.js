@@ -10,55 +10,86 @@ const getTenantId = (req) => {
 };
 
 // ===== SYSTEM STATS FOR SUPER ADMIN =====
+// backend/src/routes/dashboard.js - Update the system/stats route
 router.get('/system/stats', authenticate, async (req, res) => {
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   
-  // ✅ Only super admin can access system stats
   if (!isSuperAdmin) {
     return res.status(403).json({ error: 'Access denied. Super admin only.' });
   }
 
   try {
-    // Check if tenants table exists
-    const tableCheck = await pool.query(`
-      SELECT EXISTS (
-        SELECT 1 FROM information_schema.tables 
-        WHERE table_name = 'tbl_tenants'
-      )
-    `);
-    
-    if (!tableCheck.rows[0].exists) {
-      return res.json({
-        totalTenants: 0,
-        totalUsers: 0,
-        totalProducts: 0,
-        totalOrders: 0,
-        totalRevenue: 0,
-        totalCustomers: 0
-      });
+    // Use a more flexible query that works even if table is missing
+    let totalTenants = 0;
+    let totalUsers = 0;
+    let totalProducts = 0;
+    let totalOrders = 0;
+    let totalRevenue = 0;
+    let totalCustomers = 0;
+
+    // Check if tenants table exists and has data
+    try {
+      const tenantCheck = await pool.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM information_schema.tables 
+          WHERE table_name = 'tbl_tenants'
+        )
+      `);
+      
+      if (tenantCheck.rows[0].exists) {
+        const tenantResult = await pool.query('SELECT COUNT(*) as count FROM tbl_tenants');
+        totalTenants = parseInt(tenantResult.rows[0]?.count || 0);
+      }
+    } catch (e) {
+      console.warn('Tenants table query failed:', e.message);
     }
 
-    // Get all system-wide statistics
-    const results = await Promise.all([
-      pool.query('SELECT COUNT(*) as count FROM tbl_tenants'),
-      pool.query('SELECT COUNT(*) as count FROM tbl_users'),
-      pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'"),
-      pool.query('SELECT COUNT(*) as count FROM tbl_orders'),
-      pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders'),
-      pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'"),
-    ]);
+    // Get users count
+    try {
+      const userResult = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
+      totalUsers = parseInt(userResult.rows[0]?.count || 0);
+    } catch (e) {
+      console.warn('Users query failed:', e.message);
+    }
 
+    // Get products count
+    try {
+      const productResult = await pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'");
+      totalProducts = parseInt(productResult.rows[0]?.count || 0);
+    } catch (e) {
+      console.warn('Products query failed:', e.message);
+    }
+
+    // Get orders count and revenue
+    try {
+      const orderResult = await pool.query('SELECT COUNT(*) as count, COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
+      totalOrders = parseInt(orderResult.rows[0]?.count || 0);
+      totalRevenue = parseFloat(orderResult.rows[0]?.total || 0);
+    } catch (e) {
+      console.warn('Orders query failed:', e.message);
+    }
+
+    // Get customers count
+    try {
+      const customerResult = await pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'");
+      totalCustomers = parseInt(customerResult.rows[0]?.count || 0);
+    } catch (e) {
+      console.warn('Customers query failed:', e.message);
+    }
+
+    // Return the stats
     res.json({
-      totalTenants: parseInt(results[0].rows[0]?.count || 0),
-      totalUsers: parseInt(results[1].rows[0]?.count || 0),
-      totalProducts: parseInt(results[2].rows[0]?.count || 0),
-      totalOrders: parseInt(results[3].rows[0]?.count || 0),
-      totalRevenue: parseFloat(results[4].rows[0]?.total || 0),
-      totalCustomers: parseInt(results[5].rows[0]?.count || 0),
+      totalTenants,
+      totalUsers,
+      totalProducts,
+      totalOrders,
+      totalRevenue,
+      totalCustomers
     });
+    
   } catch (error) {
     console.error('❌ System stats error:', error);
-    // Return default values instead of failing
+    // Always return default values instead of failing
     res.json({
       totalTenants: 0,
       totalUsers: 0,
@@ -69,7 +100,6 @@ router.get('/system/stats', authenticate, async (req, res) => {
     });
   }
 });
-
 // ===== DASHBOARD STATS =====
 router.get('/stats', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
