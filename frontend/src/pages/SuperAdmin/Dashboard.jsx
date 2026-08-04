@@ -11,6 +11,7 @@ import {
 const SuperAdminDashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [stats, setStats] = useState({
     totalTenants: 0,
     totalUsers: 0,
@@ -28,8 +29,9 @@ const SuperAdminDashboard = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // ✅ CORRECT: Use /system/stats
+      // Fetch system stats and tenants
       const [statsRes, tenantsRes] = await Promise.all([
         apiClient.get('/system/stats'),
         apiClient.get('/tenants?limit=5')
@@ -38,8 +40,19 @@ const SuperAdminDashboard = () => {
       setStats(statsRes.data);
       setTenants(tenantsRes.data.tenants || []);
     } catch (error) {
-      console.error('Fetch data error:', error);
-      toast.error('Failed to load data');
+      console.error('❌ Fetch data error:', error);
+      setError(error.response?.data?.error || 'Failed to load dashboard data');
+      toast.error('Failed to load dashboard data');
+      
+      // Set default values so UI doesn't break
+      setStats({
+        totalTenants: 0,
+        totalUsers: 0,
+        totalProducts: 0,
+        totalOrders: 0,
+        totalRevenue: 0,
+        totalCustomers: 0
+      });
     } finally {
       setLoading(false);
     }
@@ -100,18 +113,33 @@ const SuperAdminDashboard = () => {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">System Admin</h1>
-        <p className="text-gray-400">
-          Welcome back, {user?.fullname || 'Super Admin'}!
-        </p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">System Admin Dashboard</h1>
+          <p className="text-gray-400">
+            Welcome back, {user?.fullname || 'Super Admin'}!
+          </p>
+        </div>
+        <button
+          onClick={fetchData}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-white text-sm flex items-center gap-2 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
       </div>
+
+      {error && (
+        <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400">
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {statCards.map((stat, index) => (
           <div
             key={index}
-            className={`bg-white/5 backdrop-blur-sm border ${stat.border} rounded-xl p-4`}
+            className={`bg-white/5 backdrop-blur-sm border ${stat.border} rounded-xl p-4 transition-all hover:scale-105 hover:shadow-lg`}
           >
             <div className="flex items-center justify-between">
               <div>
@@ -133,7 +161,7 @@ const SuperAdminDashboard = () => {
         ) : (
           <div className="space-y-3">
             {tenants.map((tenant) => (
-              <div key={tenant.id} className="flex items-center justify-between border-b border-white/5 pb-2">
+              <div key={tenant.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
                 <div>
                   <p className="text-white font-medium">{tenant.name}</p>
                   <p className="text-gray-400 text-xs">{tenant.subdomain} • {tenant.email}</p>

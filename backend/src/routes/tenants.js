@@ -251,19 +251,25 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
 });
 
 // ===== SYSTEM STATS =====
+// ===== SYSTEM STATS =====
 router.get('/system/stats', authenticate, requireSuperAdmin, async (req, res) => {
   try {
-    const stats = await pool.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM tenants) as total_tenants,
-        (SELECT COUNT(*) FROM tbl_users) as total_users,
-        (SELECT COUNT(*) FROM tbl_products) as total_products,
-        (SELECT COUNT(*) FROM tbl_orders) as total_orders,
-        (SELECT COALESCE(SUM(amount_us), 0) FROM tbl_orders) as total_revenue,
-        (SELECT COUNT(*) FROM tbl_customers) as total_customers
-    `);
+    // ✅ Simple queries that work
+    const tenantsCount = await pool.query('SELECT COUNT(*) as count FROM tenants');
+    const usersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
+    const productsCount = await pool.query('SELECT COUNT(*) as count FROM tbl_products');
+    const ordersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_orders');
+    const revenueCount = await pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders');
+    const customersCount = await pool.query('SELECT COUNT(*) as count FROM tbl_customers');
 
-    res.json(stats.rows[0]);
+    res.json({
+      totalTenants: parseInt(tenantsCount.rows[0]?.count || 0),
+      totalUsers: parseInt(usersCount.rows[0]?.count || 0),
+      totalProducts: parseInt(productsCount.rows[0]?.count || 0),
+      totalOrders: parseInt(ordersCount.rows[0]?.count || 0),
+      totalRevenue: parseFloat(revenueCount.rows[0]?.total || 0),
+      totalCustomers: parseInt(customersCount.rows[0]?.count || 0),
+    });
   } catch (error) {
     console.error('❌ System stats error:', error);
     res.status(500).json({ error: 'Failed to fetch system stats' });

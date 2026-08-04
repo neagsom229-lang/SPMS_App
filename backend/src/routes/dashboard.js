@@ -9,35 +9,57 @@ const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
 
+// ===== SYSTEM STATS FOR SUPER ADMIN =====
+router.get('/system/stats', authenticate, async (req, res) => {
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  
+  // ✅ Only super admin can access system stats
+  if (!isSuperAdmin) {
+    return res.status(403).json({ error: 'Access denied. Super admin only.' });
+  }
+
+  try {
+    // Get all system-wide statistics
+    const results = await Promise.all([
+      pool.query('SELECT COUNT(*) as count FROM tbl_tenants'),
+      pool.query('SELECT COUNT(*) as count FROM tbl_users'),
+      pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'"),
+      pool.query('SELECT COUNT(*) as count FROM tbl_orders'),
+      pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders'),
+      pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'"),
+    ]);
+
+    res.json({
+      totalTenants: parseInt(results[0].rows[0]?.count || 0),
+      totalUsers: parseInt(results[1].rows[0]?.count || 0),
+      totalProducts: parseInt(results[2].rows[0]?.count || 0),
+      totalOrders: parseInt(results[3].rows[0]?.count || 0),
+      totalRevenue: parseFloat(results[4].rows[0]?.total || 0),
+      totalCustomers: parseInt(results[5].rows[0]?.count || 0),
+    });
+  } catch (error) {
+    console.error('❌ System stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch system stats' });
+  }
+});
+
 // ===== DASHBOARD STATS =====
 router.get('/stats', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    let productQuery = 'SELECT COUNT(*) as count FROM tbl_products WHERE status = $1';
-    let orderQuery = 'SELECT COUNT(*) as count FROM tbl_orders';
-    let customerQuery = 'SELECT COUNT(*) as count FROM tbl_customers WHERE status = $1';
-    let supplierQuery = 'SELECT COUNT(*) as count FROM tbl_suppliers WHERE status = $1';
-    // ✅ FIX: Use amount_us instead of total_amount
-    let revenueQuery = 'SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders';
-    let lowStockQuery = 'SELECT COUNT(*) as count FROM tbl_products WHERE qty_instock <= qty_alert AND status = $1';
-    let pendingQuery = 'SELECT COUNT(*) as count FROM tbl_orders WHERE status = $1';
-    let recentQuery = 'SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= NOW() - INTERVAL \'7 days\'';
-
-    const baseParams = ['Active'];
-    const pendingParams = ['Pending'];
-
+    // ✅ Super Admin sees ALL data
     if (isSuperAdmin) {
       const results = await Promise.all([
-        pool.query(productQuery, baseParams),
-        pool.query(orderQuery, []),
-        pool.query(customerQuery, baseParams),
-        pool.query(supplierQuery, baseParams),
-        pool.query(revenueQuery, []),
-        pool.query(lowStockQuery, baseParams),
-        pool.query(pendingQuery, pendingParams),
-        pool.query(recentQuery, []),
+        pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'"),
+        pool.query('SELECT COUNT(*) as count FROM tbl_orders'),
+        pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'"),
+        pool.query("SELECT COUNT(*) as count FROM tbl_suppliers WHERE status = 'Active'"),
+        pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders'),
+        pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE qty_instock <= qty_alert AND status = 'Active'"),
+        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE status = 'Pending'"),
+        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= NOW() - INTERVAL '7 days'"),
       ]);
 
       return res.json({
@@ -52,6 +74,7 @@ router.get('/stats', authenticate, async (req, res) => {
       });
     }
 
+    // ✅ Regular user sees ONLY their tenant
     if (!tenantId) {
       return res.json({
         totalProducts: 0,
@@ -66,15 +89,14 @@ router.get('/stats', authenticate, async (req, res) => {
     }
 
     const results = await Promise.all([
-      pool.query(productQuery + ' AND tenant_id = $2', [...baseParams, tenantId]),
-      pool.query(orderQuery + ' WHERE tenant_id = $1', [tenantId]),
-      pool.query(customerQuery + ' AND tenant_id = $2', [...baseParams, tenantId]),
-      pool.query(supplierQuery + ' AND tenant_id = $2', [...baseParams, tenantId]),
-      // ✅ FIX: Use amount_us instead of total_amount
-      pool.query(revenueQuery + ' WHERE tenant_id = $1', [tenantId]),
-      pool.query(lowStockQuery + ' AND tenant_id = $2', [...baseParams, tenantId]),
-      pool.query(pendingQuery + ' AND tenant_id = $2', ['Pending', tenantId]),
-      pool.query(recentQuery + ' WHERE tenant_id = $1', [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1 AND status = 'Active'", [tenantId]),
+      pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1 AND status = 'Active'", [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_suppliers WHERE tenant_id = $1 AND status = 'Active'", [tenantId]),
+      pool.query('SELECT COALESCE(SUM(amount_us), 0) as total FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1 AND qty_instock <= qty_alert AND status = 'Active'", [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = 'Pending'", [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '7 days'", [tenantId]),
     ]);
 
     res.json({
