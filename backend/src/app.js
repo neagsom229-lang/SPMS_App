@@ -2283,6 +2283,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/tenants', tenantRoutes); // <-- REMOVED DUPLICATE LINE HERE (app.use('/api/system', tenantRoutes);)
 app.use('/api/categories', categoryRoutes);
+app.use('/api/system', tenantRoutes); 
+
 // ============================================
 // DEBUG ROUTE - Log all requests
 // ============================================
