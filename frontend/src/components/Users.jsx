@@ -3,17 +3,14 @@ import apiClient from '../api/client';
 import { 
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw,
   User, Users as UsersIcon, CheckCircle, AlertCircle,
-  Clock, Award, Star, Zap, Activity, Search,
-  Filter, ArrowUp, ArrowDown, Grid3x3, List,
-  Eye, Lock, Key, Phone, Mail, Calendar,
-  Crown, Briefcase, UserCheck, UserX,
-  Loader2, AlertTriangle, ChevronRight,
-  Sparkles, Gift, Heart
+  Clock, Crown, Briefcase, Eye, Lock, Key, Phone, Mail, Calendar,
+  UserCheck, Loader2, AlertTriangle, Search, Filter, 
+  ArrowUp, ArrowDown, Grid3x3, List
 } from 'lucide-react';
 import '../styles/users.css'
 
 // ============================================
-// API INTERCEPTORS — FIXED ✅
+// API INTERCEPTORS
 // ============================================
 apiClient.interceptors.request.use(
   config => {
@@ -32,7 +29,6 @@ apiClient.interceptors.response.use(
   error => {
     console.error('❌ API Error:', error.response?.status);
     console.error('❌ Error Data:', error.response?.data);
-    console.error('❌ Error Data Stringified:', JSON.stringify(error.response?.data, null, 2));
     console.error('❌ Error Message:', error.message);
     return Promise.reject(error);
   }
@@ -60,7 +56,6 @@ const Users = () => {
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedUserDetail, setSelectedUserDetail] = useState(null);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [userStats, setUserStats] = useState({
     total: 0,
     active: 0,
@@ -84,19 +79,9 @@ const Users = () => {
   // ===== REFS =====
   const isMounted = useRef(true);
   const searchTimeout = useRef(null);
-  const headerRef = useRef(null);
   const submitTimeoutRef = useRef(null);
 
-  // ===== MOUSE TRACKING =====
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
-
-  // ===== FETCH USERS =====
+  // ===== FETCH USERS (REAL DATA ONLY - NO MOCK FALLBACK) =====
   const fetchUsers = useCallback(async () => {
     if (!isMounted.current) return;
     
@@ -105,8 +90,12 @@ const Users = () => {
       const res = await apiClient.get('/users', {
         params: { search: searchTerm || undefined }
       });
+      
       if (isMounted.current) {
-        const data = res.data?.data || res.data || [];
+        // ✅ Extract real data from API response
+        const raw = res.data?.data || res.data || [];
+        // Normalize id field in case the API returns `id` instead of `user_id`
+        const data = raw.map(u => ({ ...u, user_id: u.user_id ?? u.id }));
         setUsers(data);
         calculateStats(data);
         if (data.length > 0) {
@@ -116,17 +105,10 @@ const Users = () => {
     } catch (error) {
       console.error('Error fetching users:', error);
       if (isMounted.current) {
-        showMessage('❌ Failed to load users', 'error');
-        // Fallback mock data
-        const fallbackData = [
-          { user_id: 1, username: 'admin', fullname: 'Administrator', role_id: 1, role: 'Admin', status: 'ACTIVE', email: 'admin@example.com', phone: '555-0001', created_at: '2026-01-01' },
-          { user_id: 2, username: 'cashier1', fullname: 'John Doe', role_id: 2, role: 'Cashier', status: 'ACTIVE', email: 'john@example.com', phone: '555-0002', created_at: '2026-01-15' },
-          { user_id: 3, username: 'cashier2', fullname: 'Jane Smith', role_id: 2, role: 'Cashier', status: 'ACTIVE', email: 'jane@example.com', phone: '555-0003', created_at: '2026-02-01' },
-          { user_id: 4, username: 'viewer1', fullname: 'Robert Johnson', role_id: 3, role: 'Viewer', status: 'ACTIVE', email: 'robert@example.com', phone: '555-0004', created_at: '2026-02-15' },
-          { user_id: 5, username: 'cashier3', fullname: 'Mary Williams', role_id: 2, role: 'Cashier', status: 'INACTIVE', email: 'mary@example.com', phone: '555-0005', created_at: '2026-03-01' },
-        ];
-        setUsers(fallbackData);
-        calculateStats(fallbackData);
+        showMessage('❌ Failed to load users from database', 'error');
+        // Set empty array so UI shows "No users found" instead of mock data
+        setUsers([]);
+        setUserStats({ total: 0, active: 0, admins: 0, cashiers: 0 });
       }
     } finally {
       if (isMounted.current) {
@@ -140,8 +122,14 @@ const Users = () => {
     const stats = {
       total: data.length,
       active: data.filter(u => (u.status || 'ACTIVE').toUpperCase() === 'ACTIVE').length,
-      admins: data.filter(u => u.role_id === 1 || u.role === 'Admin').length,
-      cashiers: data.filter(u => u.role_id === 2 || u.role === 'Cashier').length
+      admins: data.filter(u => {
+        const role = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
+        return role === 'Admin';
+      }).length,
+      cashiers: data.filter(u => {
+        const role = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
+        return role === 'Cashier';
+      }).length
     };
     setUserStats(stats);
   }, []);
@@ -193,15 +181,11 @@ const Users = () => {
     let result = [...users];
 
     if (filterRole !== 'all') {
-      const roleMap = {
-        'admin': [1, 'Admin'],
-        'cashier': [2, 'Cashier'],
-        'viewer': [3, 'Viewer']
-      };
-      const roles = roleMap[filterRole] || [];
       result = result.filter(u => {
-        const userRole = u.role_id || (u.role === 'Admin' ? 1 : u.role === 'Cashier' ? 2 : 3);
-        return roles.includes(userRole) || roles.includes(u.role);
+        const userRole = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
+        return filterRole === 'admin' ? userRole === 'Admin' :
+               filterRole === 'cashier' ? userRole === 'Cashier' :
+               userRole === 'Viewer';
       });
     }
 
@@ -263,13 +247,11 @@ const Users = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Prevent duplicate submissions
     if (isSubmittingRef || submitting) {
       console.log('⏳ Submission already in progress');
       return;
     }
     
-    // Validate form
     if (!validateForm()) {
       showMessage('❌ Please fix the errors in the form', 'error');
       return;
@@ -279,7 +261,6 @@ const Users = () => {
     setSubmitting(true);
     
     try {
-      // Prepare submit data - only include fields that have values
       const submitData = {
         username: formData.username.trim(),
         fullname: formData.fullname?.trim() || formData.username.trim(),
@@ -287,37 +268,21 @@ const Users = () => {
         status: formData.status || 'ACTIVE'
       };
       
-      // Only add email if it's provided
-      if (formData.email?.trim()) {
-        submitData.email = formData.email.trim();
-      }
-      
-      // Only add phone if it's provided
-      if (formData.phone?.trim()) {
-        submitData.phone = formData.phone.trim();
-      }
-      
-      // Only include password if it's provided
-      if (formData.password) {
-        submitData.password = formData.password;
-      }
+      if (formData.email?.trim()) submitData.email = formData.email.trim();
+      if (formData.phone?.trim()) submitData.phone = formData.phone.trim();
+      if (formData.password) submitData.password = formData.password;
       
       console.log('📤 Submitting data:', JSON.stringify(submitData, null, 2));
       
       let response;
       if (editingUser) {
-        // For updates, only send fields that should be updated
         const updateData = { ...submitData };
-        // If password is empty, don't send it
-        if (!formData.password) {
-          delete updateData.password;
-        }
+        if (!formData.password) delete updateData.password;
         
         console.log(`📤 Updating user ${editingUser.user_id} with:`, updateData);
         response = await apiClient.put(`/users/${editingUser.user_id}`, updateData);
         showMessage('✅ User updated successfully!');
       } else {
-        // For new users, password is required
         if (!submitData.password) {
           showMessage('❌ Password is required for new users', 'error');
           setIsSubmittingRef(false);
@@ -331,60 +296,30 @@ const Users = () => {
       
       console.log('✅ Success response:', response.data);
       
-      // Reset form and close modal
       setShowModal(false);
       setEditingUser(null);
       resetForm();
       setFieldErrors({});
-      
-      // Refresh user list
       await fetchUsers();
       
     } catch (error) {
       console.error('❌ Submit error:', error);
       
-      // Log the full error for debugging
       if (error.response?.data) {
         console.log('📋 Full server error:', JSON.stringify(error.response.data, null, 2));
         
-        // Try to parse the errors array
+        // Handle specific error messages
         if (error.response.data.errors) {
           const errors = error.response.data.errors;
-          console.log('📋 Errors array:', errors);
-          
-          // If errors is an array of objects with msg property
           if (Array.isArray(errors) && errors.length > 0) {
             const firstError = errors[0];
-            console.log('📋 First error object:', firstError);
-            
-            // Extract error message
-            let errorMessage = '';
-            if (typeof firstError === 'string') {
-              errorMessage = firstError;
-            } else if (firstError.msg) {
-              errorMessage = firstError.msg;
-            } else if (firstError.message) {
-              errorMessage = firstError.message;
-            } else if (firstError.error) {
-              errorMessage = firstError.error;
-            } else {
-              errorMessage = JSON.stringify(firstError);
-            }
-            
-            showMessage(`❌ ${errorMessage}`, 'error');
+            showMessage(`❌ ${firstError.msg || firstError.message || JSON.stringify(firstError)}`, 'error');
+          } else if (typeof errors === 'string') {
+            showMessage(`❌ ${errors}`, 'error');
+          } else if (errors.msg || errors.message) {
+            showMessage(`❌ ${errors.msg || errors.message}`, 'error');
           } else {
-            // Handle other error formats
-            let errorMessage = '';
-            if (typeof errors === 'string') {
-              errorMessage = errors;
-            } else if (errors.msg) {
-              errorMessage = errors.msg;
-            } else if (errors.message) {
-              errorMessage = errors.message;
-            } else {
-              errorMessage = JSON.stringify(errors);
-            }
-            showMessage(`❌ ${errorMessage}`, 'error');
+            showMessage(`❌ ${JSON.stringify(errors)}`, 'error');
           }
         } else if (error.response.data.error) {
           showMessage(`❌ ${error.response.data.error}`, 'error');
@@ -406,8 +341,9 @@ const Users = () => {
 
   // ===== HANDLE DELETE =====
   const handleDelete = useCallback(async (id) => {
+    // Check if this is the main admin (protect against deletion)
     if (id === 1) {
-      showMessage('❌ Cannot delete the admin user', 'error');
+      showMessage('❌ Cannot delete the default admin user', 'error');
       return;
     }
     if (!window.confirm('Are you sure you want to delete this user?')) return;
@@ -426,7 +362,7 @@ const Users = () => {
   const handleBulkDelete = useCallback(async () => {
     if (selectedUsers.length === 0) return;
     if (selectedUsers.includes(1)) {
-      showMessage('❌ Cannot delete the admin user', 'error');
+      showMessage('❌ Cannot delete the default admin user', 'error');
       return;
     }
     if (!window.confirm(`Delete ${selectedUsers.length} selected users?`)) return;
@@ -511,22 +447,22 @@ const Users = () => {
   }, [fetchUsers]);
 
   // ===== GET ROLE BADGE =====
-  const getRoleBadge = useCallback((roleId, role) => {
-    if (typeof role === 'string') {
-      const roleMap = {
-        'Admin': 1,
-        'Cashier': 2,
-        'Viewer': 3
-      };
-      roleId = roleMap[role] || 2;
+  const getRoleBadge = useCallback((roleId, roleName) => {
+    // Determine the actual role name
+    let role = roleName;
+    if (!role && roleId) {
+      role = roleId === 1 ? 'Admin' : roleId === 2 ? 'Cashier' : 'Viewer';
     }
-    
+    // Fallback
+    if (!role) role = 'Cashier';
+
     const roles = {
-      1: { color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800', label: 'Admin', icon: Crown },
-      2: { color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800', label: 'Cashier', icon: Briefcase },
-      3: { color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800', label: 'Viewer', icon: Eye }
+      'Admin': { color: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800', label: 'Admin', icon: Crown },
+      'Cashier': { color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800', label: 'Cashier', icon: Briefcase },
+      'Viewer': { color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800', label: 'Viewer', icon: Eye }
     };
-    const roleData = roles[roleId] || roles[2];
+    
+    const roleData = roles[role] || roles['Cashier'];
     const Icon = roleData.icon;
     return (
       <span className={`px-2.5 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1.5 ${roleData.color}`}>
@@ -614,7 +550,7 @@ const Users = () => {
             <div className="w-8 h-8 rounded-full bg-indigo-500/20 animate-ping" />
           </div>
         </div>
-        <p className="text-gray-400 font-medium">Loading users...</p>
+        <p className="text-gray-400 font-medium">Loading users from database...</p>
         <div className="flex gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0s' }} />
           <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-bounce" style={{ animationDelay: '0.2s' }} />
@@ -654,19 +590,10 @@ const Users = () => {
       )}
 
       {/* ===== HEADER WITH STATS ===== */}
-      <div 
-        ref={headerRef}
-        className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-300"
-        style={{
-          transform: `perspective(1000px) rotateX(${(mousePosition.y / window.innerHeight - 0.5) * 2}deg) rotateY(${(mousePosition.x / window.innerWidth - 0.5) * 2}deg)`,
-          transition: 'transform 0.1s ease-out'
-        }}
-      >
+      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden transition-all duration-300">
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-white/10 rounded-full animate-pulse-slow" />
           <div className="absolute -bottom-20 -left-20 w-48 h-48 bg-purple-300/20 rounded-full animate-pulse-slow animation-delay-1000" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full animate-spin-slow" />
-          <div className="absolute top-10 right-20 text-4xl animate-float-delayed opacity-20">✦</div>
         </div>
 
         <div className="relative z-10 flex flex-wrap justify-between items-center">
@@ -709,8 +636,8 @@ const Users = () => {
             { label: 'Active', value: userStats.active, icon: 'active' },
             { label: 'Admins', value: userStats.admins, icon: 'admins' },
             { label: 'Cashiers', value: userStats.cashiers, icon: 'cashiers' }
-          ].map((stat, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
+          ].map((stat, idx) => (
+            <div key={stat.label} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${idx * 0.1}s` }}>
               <div className="flex items-center gap-2">
                 {getStatIcon(stat.icon)}
                 <p className="text-xs text-indigo-200">{stat.label}</p>
@@ -726,7 +653,7 @@ const Users = () => {
         <div className="flex flex-wrap justify-between items-center gap-3">
           <div className="flex flex-wrap items-center gap-3 flex-1">
             <div className="relative flex-1 min-w-[200px] group">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-indigo-500 transition-colors w-4 h-4" />
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 group-hover:text-indigo-500 transition-colors w-4 h-4"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
               <input
                 type="text"
                 value={searchTerm}
@@ -835,7 +762,7 @@ const Users = () => {
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredUsers.map((user, index) => {
-            const id = user.user_id;
+            const id = user.user_id ?? user.id ?? `row-${index}`;
             const username = user.username || 'Unknown';
             const fullname = user.fullname || '';
             const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');
@@ -985,7 +912,7 @@ const Users = () => {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {filteredUsers.map((user, index) => {
-                  const id = user.user_id;
+                  const id = user.user_id ?? user.id ?? `row-${index}`;
                   const username = user.username || 'Unknown';
                   const fullname = user.fullname || '';
                   const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');

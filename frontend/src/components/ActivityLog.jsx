@@ -1,6 +1,6 @@
 // frontend/src/pages/ActivityLog.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { toast } from 'react-hot-toast'; // ✅ Add this
+import { toast } from 'react-hot-toast';
 import { 
   Activity, Search, RefreshCw, Filter, X, 
   Clock, User, Eye, Trash2, Download, 
@@ -79,51 +79,42 @@ const ActivityLog = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // ===== GENERATE MOCK LOGS =====
-  const generateMockLogs = useCallback(() => {
-    const actions = [
-      'Login', 'Logout', 'Created customer', 'Updated customer', 
-      'Deleted customer', 'Created product', 'Updated product', 
-      'Deleted product', 'Created order', 'Updated order', 
-      'Deleted order', 'Created user', 'Updated user', 'Deleted user'
-    ];
-    const tables = ['tbl_customers', 'tbl_products', 'tbl_orders', 'tbl_users', 'tbl_suppliers'];
-    const usernames = ['admin', 'cashier1', 'cashier2', 'manager1'];
-    const mockLogs = [];
-
-    for (let i = 0; i < 50; i++) {
-      const date = new Date();
-      date.setHours(date.getHours() - Math.floor(Math.random() * 72));
-      
-      mockLogs.push({
-        log_id: Date.now() + i,
-        user_id: Math.floor(Math.random() * 4) + 1,
-        username: usernames[Math.floor(Math.random() * usernames.length)],
-        action: actions[Math.floor(Math.random() * actions.length)],
-        table_name: tables[Math.floor(Math.random() * tables.length)],
-        record_id: Math.floor(Math.random() * 100) + 1,
-        action_date: date.toISOString(),
-      });
-    }
-
-    mockLogs.sort((a, b) => new Date(b.action_date) - new Date(a.action_date));
-    return mockLogs;
-  }, []);
-
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {
     setMessage(text);
     setMessageType(type);
     if (messageTimeout.current) clearTimeout(messageTimeout.current);
     messageTimeout.current = setTimeout(() => setMessage(''), 5000);
-    // ✅ Also show toast notification
     if (type === 'success') toast.success(text);
     else if (type === 'error') toast.error(text);
     else if (type === 'warning') toast.custom(text);
     else toast(text);
   }, []);
 
-  // ===== FETCH ACTIVITY LOGS =====
+  // ===== NORMALIZE A LOG RECORD =====
+  // Different endpoints/casings can send log_id/LOG_ID/id and
+  // user_id/USER_ID — pin them down once here so every downstream
+  // use (keys, filters, selection) agrees on the same field names.
+  const normalizeLog = (log, index) => ({
+    ...log,
+    log_id: log.log_id ?? log.LOG_ID ?? log.id ?? `log-${index}`,
+    user_id: log.user_id ?? log.USER_ID,
+    username: log.username ?? log.USERNAME,
+    action: log.action ?? log.ACTION,
+    table_name: log.table_name ?? log.TABLE_NAME,
+    record_id: log.record_id ?? log.RECORD_ID,
+    action_date: log.action_date ?? log.ACTION_DATE ?? log.date,
+  });
+
+  // ===== NORMALIZE A USER RECORD =====
+  const normalizeUser = (user, index) => ({
+    ...user,
+    user_id: user.user_id ?? user.USER_ID ?? user.id ?? `user-${index}`,
+    username: user.username ?? user.USERNAME,
+    fullname: user.fullname ?? user.FULLNAME,
+  });
+
+  // ===== FETCH ACTIVITY LOGS (REAL DATA ONLY - NO MOCK FALLBACK) =====
   const fetchActivityLogs = useCallback(async () => {
     if (!isMounted.current) return;
     setLoading(true);
@@ -136,26 +127,20 @@ const ActivityLog = () => {
       
       if (isMounted.current) {
         const data = extractArrayData(res.data, ['logs', 'items', 'data']);
-        if (data === null) throw new Error('API not available');
-        
-        const logsArray = Array.isArray(data) ? data : [];
+        const rawArray = Array.isArray(data) ? data : [];
+        const logsArray = rawArray.map(normalizeLog);
         console.log(`📋 Activity logs loaded: ${logsArray.length}`);
         
+        setLogs(logsArray);
         if (logsArray.length > 0) {
-          setLogs(logsArray);
           showMessage(`✅ ${logsArray.length} logs loaded`, 'success');
-        } else {
-          const mockData = generateMockLogs();
-          setLogs(mockData);
-          showMessage('⚠️ Using sample activity data', 'warning');
         }
       }
     } catch (error) {
       console.error('❌ Error fetching activity logs:', error);
       if (isMounted.current) {
-        const mockData = generateMockLogs();
-        setLogs(mockData);
-        showMessage('⚠️ Using sample activity data (API unavailable)', 'warning');
+        setLogs([]);
+        showMessage('❌ Failed to load activity logs from database', 'error');
       }
     } finally {
       if (isMounted.current) {
@@ -163,7 +148,7 @@ const ActivityLog = () => {
         setIsRefreshing(false);
       }
     }
-  }, [generateMockLogs, showMessage]);
+  }, [showMessage]);
 
   // ===== FETCH USERS =====
   const fetchUsers = useCallback(async () => {
@@ -171,18 +156,14 @@ const ActivityLog = () => {
       const res = await apiClient.get('/users');
       if (isMounted.current) {
         const data = extractArrayData(res.data, ['users', 'items', 'data']);
-        const usersArray = Array.isArray(data) ? data : [];
+        const usersArray = Array.isArray(data) ? data.map(normalizeUser) : [];
         setUsers(usersArray);
         console.log(`👥 Users loaded: ${usersArray.length}`);
       }
     } catch (error) {
       console.error('❌ Error fetching users:', error);
       if (isMounted.current) {
-        setUsers([
-          { user_id: 1, username: 'admin', fullname: 'Administrator' },
-          { user_id: 2, username: 'cashier1', fullname: 'John Doe' },
-          { user_id: 3, username: 'cashier2', fullname: 'Jane Smith' },
-        ]);
+        setUsers([]);
       }
     }
   }, []);
@@ -236,10 +217,10 @@ const ActivityLog = () => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(log => {
-        const username = log.username || log.USERNAME || '';
-        const action = log.action || log.ACTION || '';
-        const table = log.table_name || log.TABLE_NAME || '';
-        const recordId = String(log.record_id || log.RECORD_ID || '');
+        const username = log.username || '';
+        const action = log.action || '';
+        const table = log.table_name || '';
+        const recordId = String(log.record_id || '');
         return username.toLowerCase().includes(term) ||
                action.toLowerCase().includes(term) ||
                table.toLowerCase().includes(term) ||
@@ -249,30 +230,30 @@ const ActivityLog = () => {
 
     // Action filter
     if (filterAction !== 'all') {
-      result = result.filter(log => (log.action || log.ACTION) === filterAction);
+      result = result.filter(log => log.action === filterAction);
     }
 
     // User filter
     if (filterUser !== 'all') {
-      result = result.filter(log => String(log.user_id || log.USER_ID) === filterUser);
+      result = result.filter(log => String(log.user_id) === filterUser);
     }
 
     // Table filter
     if (filterTable !== 'all') {
-      result = result.filter(log => (log.table_name || log.TABLE_NAME) === filterTable);
+      result = result.filter(log => log.table_name === filterTable);
     }
 
     // Sort
     result.sort((a, b) => {
       let comparison = 0;
-      const aDate = a.action_date || a.ACTION_DATE || a.date;
-      const bDate = b.action_date || b.ACTION_DATE || b.date;
-      const aUser = a.username || a.USERNAME || '';
-      const bUser = b.username || b.USERNAME || '';
-      const aAction = a.action || a.ACTION || '';
-      const bAction = b.action || b.ACTION || '';
-      const aTable = a.table_name || a.TABLE_NAME || '';
-      const bTable = b.table_name || b.TABLE_NAME || '';
+      const aDate = a.action_date;
+      const bDate = b.action_date;
+      const aUser = a.username || '';
+      const bUser = b.username || '';
+      const aAction = a.action || '';
+      const bAction = b.action || '';
+      const aTable = a.table_name || '';
+      const bTable = b.table_name || '';
 
       switch (sortBy) {
         case 'date':
@@ -308,9 +289,9 @@ const ActivityLog = () => {
     const tableCounts = {};
 
     logs.forEach(log => {
-      const action = log.action || log.ACTION || 'Unknown';
-      const user = log.username || log.USERNAME || 'Unknown';
-      const table = log.table_name || log.TABLE_NAME || 'Unknown';
+      const action = log.action || 'Unknown';
+      const user = log.username || 'Unknown';
+      const table = log.table_name || 'Unknown';
       
       actionCounts[action] = (actionCounts[action] || 0) + 1;
       userCounts[user] = (userCounts[user] || 0) + 1;
@@ -434,7 +415,7 @@ const ActivityLog = () => {
     if (selectedLogs.length === filteredLogs.length) {
       setSelectedLogs([]);
     } else {
-      setSelectedLogs(filteredLogs.map(log => log.log_id || log.LOG_ID || log.id));
+      setSelectedLogs(filteredLogs.map(log => log.log_id));
     }
   };
 
@@ -451,12 +432,12 @@ const ActivityLog = () => {
       
       filteredLogs.forEach(log => {
         const row = [
-          log.log_id || log.LOG_ID || log.id || '',
-          `"${log.username || log.USERNAME || 'Unknown'}"`,
-          `"${log.action || log.ACTION || ''}"`,
-          `"${log.table_name || log.TABLE_NAME || ''}"`,
-          log.record_id || log.RECORD_ID || '',
-          `"${formatDate(log.action_date || log.ACTION_DATE || log.date)}"`
+          log.log_id || '',
+          `"${log.username || 'Unknown'}"`,
+          `"${log.action || ''}"`,
+          `"${log.table_name || ''}"`,
+          log.record_id || '',
+          `"${formatDate(log.action_date)}"`
         ];
         csv += row.join(',') + '\n';
       });
@@ -489,8 +470,7 @@ const ActivityLog = () => {
     if (!Array.isArray(logs)) return [];
     const actions = new Set();
     logs.forEach(log => {
-      const action = log.action || log.ACTION;
-      if (action) actions.add(action);
+      if (log.action) actions.add(log.action);
     });
     return Array.from(actions).sort();
   }, [logs]);
@@ -500,16 +480,15 @@ const ActivityLog = () => {
     if (!Array.isArray(logs)) return [];
     const tables = new Set();
     logs.forEach(log => {
-      const table = log.table_name || log.TABLE_NAME;
-      if (table) tables.add(table);
+      if (log.table_name) tables.add(log.table_name);
     });
     return Array.from(tables).sort();
   }, [logs]);
 
   // ===== GET USER NAME =====
   const getUserName = useCallback((userId) => {
-    const user = users.find(u => String(u.user_id || u.USER_ID || u.id) === String(userId));
-    return user?.username || user?.fullname || user?.USERNAME || user?.FULLNAME || `User ${userId}`;
+    const user = users.find(u => String(u.user_id) === String(userId));
+    return user?.username || user?.fullname || `User ${userId}`;
   }, [users]);
 
   // ===== LOADING =====
@@ -656,9 +635,9 @@ const ActivityLog = () => {
               className="activitylog-filter"
             >
               <option value="all">All Users</option>
-              {users.map(user => (
-                <option key={user.user_id || user.USER_ID || user.id} value={String(user.user_id || user.USER_ID || user.id)}>
-                  {user.username || user.USERNAME || user.fullname || user.FULLNAME || `User ${user.user_id}`}
+              {users.map((user, index) => (
+                <option key={user.user_id ?? `user-opt-${index}`} value={String(user.user_id)}>
+                  {user.username || user.fullname || `User ${user.user_id}`}
                 </option>
               ))}
             </select>
@@ -742,14 +721,14 @@ const ActivityLog = () => {
               </thead>
               <tbody className="activitylog-list-tbody">
                 {filteredLogs.map((log, index) => {
-                  const id = log.log_id || log.LOG_ID || log.id;
+                  const id = log.log_id;
                   const isSelected = selectedLogs.includes(id);
-                  const actionEmoji = getActionEmoji(log.action || log.ACTION);
-                  const username = log.username || log.USERNAME || 'Unknown';
+                  const actionEmoji = getActionEmoji(log.action);
+                  const username = log.username || 'Unknown';
 
                   return (
                     <tr 
-                      key={id || index} 
+                      key={id} 
                       className={`activitylog-list-tr ${isSelected ? 'activitylog-list-tr-selected' : ''}`}
                       style={{ animationDelay: `${index * 0.03}s` }}
                     >
@@ -772,19 +751,19 @@ const ActivityLog = () => {
                         </div>
                       </td>
                       <td className="activitylog-list-td">
-                        <span className={getActionBadge(log.action || log.ACTION)}>
+                        <span className={getActionBadge(log.action)}>
                           <span className="activitylog-action-emoji">{actionEmoji}</span>
-                          {log.action || log.ACTION || 'Unknown'}
+                          {log.action || 'Unknown'}
                         </span>
                       </td>
                       <td className="activitylog-list-td hidden md:table-cell">
-                        {log.table_name || log.TABLE_NAME || '-'}
+                        {log.table_name || '-'}
                       </td>
                       <td className="activitylog-list-td hidden lg:table-cell">
-                        {log.record_id || log.RECORD_ID || '-'}
+                        {log.record_id || '-'}
                       </td>
                       <td className="activitylog-list-td hidden sm:table-cell">
-                        {timeAgo(log.action_date || log.ACTION_DATE || log.date)}
+                        {timeAgo(log.action_date)}
                       </td>
                       <td className="activitylog-list-td text-center">
                         <button
@@ -806,14 +785,14 @@ const ActivityLog = () => {
         // ===== GRID VIEW =====
         <div className="activitylog-grid-view">
           {filteredLogs.map((log, index) => {
-            const id = log.log_id || log.LOG_ID || log.id;
+            const id = log.log_id;
             const isSelected = selectedLogs.includes(id);
-            const actionEmoji = getActionEmoji(log.action || log.ACTION);
-            const username = log.username || log.USERNAME || 'Unknown';
+            const actionEmoji = getActionEmoji(log.action);
+            const username = log.username || 'Unknown';
 
             return (
               <div
-                key={id || index}
+                key={id}
                 className={`activitylog-grid-card ${isSelected ? 'activitylog-grid-card-selected' : ''}`}
                 style={{ animationDelay: `${index * 0.04}s` }}
                 onClick={() => toggleSelect(id)}
@@ -829,7 +808,7 @@ const ActivityLog = () => {
                           {username}
                         </p>
                         <p className="activitylog-grid-card-time">
-                          {timeAgo(log.action_date || log.ACTION_DATE || log.date)}
+                          {timeAgo(log.action_date)}
                         </p>
                       </div>
                     </div>
@@ -846,8 +825,8 @@ const ActivityLog = () => {
                   </div>
 
                   <div className="activitylog-grid-card-action-badge">
-                    <span className={getActionBadge(log.action || log.ACTION)}>
-                      {log.action || log.ACTION || 'Unknown'}
+                    <span className={getActionBadge(log.action)}>
+                      {log.action || 'Unknown'}
                     </span>
                   </div>
 
@@ -869,7 +848,7 @@ const ActivityLog = () => {
                   <div className="activitylog-grid-card-footer">
                     <p className="activitylog-grid-card-timestamp">
                       <Clock className="w-3 h-3" />
-                      {formatDate(log.action_date || log.ACTION_DATE || log.date)}
+                      {formatDate(log.action_date)}
                     </p>
                   </div>
                 </div>
@@ -914,14 +893,14 @@ const ActivityLog = () => {
             <div className="activitylog-modal-body">
               <div className="activitylog-modal-user">
                 <div className="activitylog-modal-avatar">
-                  {(selectedLogDetail.username || selectedLogDetail.USERNAME || '?').charAt(0).toUpperCase()}
+                  {(selectedLogDetail.username || '?').charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <p className="activitylog-modal-username">
-                    {selectedLogDetail.username || selectedLogDetail.USERNAME || 'Unknown'}
+                    {selectedLogDetail.username || 'Unknown'}
                   </p>
                   <p className="activitylog-modal-userid">
-                    User ID: {selectedLogDetail.user_id || selectedLogDetail.USER_ID || 'N/A'}
+                    User ID: {selectedLogDetail.user_id ?? 'N/A'}
                   </p>
                 </div>
               </div>
@@ -933,25 +912,25 @@ const ActivityLog = () => {
               <div className="activitylog-modal-action-details">
                 <div className="activitylog-modal-action-item">
                   <span className="activitylog-modal-action-emoji">
-                    {getActionEmoji(selectedLogDetail.action || selectedLogDetail.ACTION)}
+                    {getActionEmoji(selectedLogDetail.action)}
                   </span>
-                  <span className={`activitylog-modal-action-text ${getActionColor(selectedLogDetail.action || selectedLogDetail.ACTION)}`}>
-                    {selectedLogDetail.action || selectedLogDetail.ACTION || 'Unknown'}
+                  <span className={`activitylog-modal-action-text ${getActionColor(selectedLogDetail.action)}`}>
+                    {selectedLogDetail.action || 'Unknown'}
                   </span>
                 </div>
-                {(selectedLogDetail.table_name || selectedLogDetail.TABLE_NAME) && (
+                {selectedLogDetail.table_name && (
                   <div className="activitylog-modal-action-item">
                     <ClipboardList className="w-4 h-4 text-purple-500" />
                     <span className="activitylog-modal-action-text">
-                      Table: <span className="font-medium">{selectedLogDetail.table_name || selectedLogDetail.TABLE_NAME}</span>
+                      Table: <span className="font-medium">{selectedLogDetail.table_name}</span>
                     </span>
                   </div>
                 )}
-                {(selectedLogDetail.record_id || selectedLogDetail.RECORD_ID) && (
+                {selectedLogDetail.record_id && (
                   <div className="activitylog-modal-action-item">
                     <Key className="w-4 h-4 text-amber-500" />
                     <span className="activitylog-modal-action-text">
-                      Record ID: <span className="font-mono font-medium">{selectedLogDetail.record_id || selectedLogDetail.RECORD_ID}</span>
+                      Record ID: <span className="font-mono font-medium">{selectedLogDetail.record_id}</span>
                     </span>
                   </div>
                 )}
@@ -960,7 +939,7 @@ const ActivityLog = () => {
               <div className="activitylog-modal-timestamp">
                 <p className="activitylog-modal-timestamp-label">Timestamp</p>
                 <p className="activitylog-modal-timestamp-value">
-                  {formatDate(selectedLogDetail.action_date || selectedLogDetail.ACTION_DATE || selectedLogDetail.date)}
+                  {formatDate(selectedLogDetail.action_date)}
                 </p>
               </div>
             </div>

@@ -743,8 +743,16 @@ const Warranty = () => {
 
         if (editingItem) {
           const id = editingItem.warrantyid || editingItem.WarrantyID;
-          await apiClient.put(`/warranties/${id}`, data);
-          showMessage('✅ Warranty updated successfully!');
+          try {
+            await apiClient.put(`/warranties/${id}`, data);
+            showMessage('✅ Warranty updated successfully!');
+          } catch (putError) {
+            if (putError.response?.status === 404) {
+              showMessage('⚠️ Update endpoint not available on backend. Please check backend server.', 'warning');
+            } else {
+              throw putError;
+            }
+          }
         } else {
           await apiClient.post('/warranties', data);
           showMessage('✅ Warranty created successfully!');
@@ -758,8 +766,16 @@ const Warranty = () => {
 
         if (editingItem) {
           const id = editingItem.serviceid || editingItem.ServiceID;
-          await apiClient.put(`/services/${id}`, data);
-          showMessage('✅ Service updated successfully!');
+          try {
+            await apiClient.put(`/services/${id}`, data);
+            showMessage('✅ Service updated successfully!');
+          } catch (putError) {
+            if (putError.response?.status === 404) {
+              showMessage('⚠️ Update endpoint not available on backend. Please check backend server.', 'warning');
+            } else {
+              throw putError;
+            }
+          }
         } else {
           await apiClient.post('/services', data);
           showMessage('✅ Service created successfully!');

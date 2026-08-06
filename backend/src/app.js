@@ -1964,41 +1964,41 @@ app.delete("/api/stock/:productid", authenticate, async (req, res) => {
 // ============================================
 // ✅ WARRANTY & SERVICES
 // ============================================
-app.get("/api/warranties", authenticate, async (req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT w.*, 
-             CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-             p.name_en as product_name
-      FROM tbl_warranty w
-      LEFT JOIN tbl_customers c ON c.id = w.customerid
-      LEFT JOIN tbl_products p ON p.id = w.productid
-      ORDER BY w.warrantyid DESC
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Warranties error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+// app.get("/api/warranties", authenticate, async (req, res) => {
+//   try {
+//     const result = await db.query(`
+//       SELECT w.*, 
+//              CONCAT(c.first_name, ' ', c.last_name) as customer_name,
+//              p.name_en as product_name
+//       FROM tbl_warranty w
+//       LEFT JOIN tbl_customers c ON c.id = w.customerid
+//       LEFT JOIN tbl_products p ON p.id = w.productid
+//       ORDER BY w.warrantyid DESC
+//     `);
+//     res.json(result.rows);
+//   } catch (err) {
+//     console.error("❌ Warranties error:", err.message);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
-app.get("/api/services", authenticate, async (req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT s.*, 
-             CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-             p.name_en as product_name
-      FROM tbl_service_requests s
-      LEFT JOIN tbl_customers c ON c.id = s.customerid
-      LEFT JOIN tbl_products p ON p.id = s.productid
-      ORDER BY s.serviceid DESC
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Services error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+// app.get("/api/services", authenticate, async (req, res) => {
+//   try {
+//     const result = await db.query(`
+//       SELECT s.*, 
+//              CONCAT(c.first_name, ' ', c.last_name) as customer_name,
+//              p.name_en as product_name
+//       FROM tbl_service_requests s
+//       LEFT JOIN tbl_customers c ON c.id = s.customerid
+//       LEFT JOIN tbl_products p ON p.id = s.productid
+//       ORDER BY s.serviceid DESC
+//     `);
+//     res.json(result.rows);
+//   } catch (err) {
+//     console.error("❌ Services error:", err.message);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
 // ============================================
 // ✅ INVOICE GENERATION
@@ -2283,6 +2283,10 @@ app.use('/api/users', userRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/categories', categoryRoutes);
+const warrantyRoutes = require('./routes/warranties');
+const serviceRoutes = require('./routes/services');
+app.use('/api/warranties', warrantyRoutes);
+app.use('/api/services', serviceRoutes);
 // /api/system/stats needs its own exact-path binding — mounting tenantRoutes
 // at /api/system would make Express match "/stats" against the router's
 // "/:id" route first (treating "stats" as a tenant id) before it could ever
