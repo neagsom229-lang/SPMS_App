@@ -61,8 +61,8 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
       `INSERT INTO tbl_warranty 
-       (tenant_id, customerid, productid, serialnumber, warrantyperiod, warrantystartdate, warrantyenddate, status, notes, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+       (tenant_id, customerid, productid, serialnumber, warrantyperiod, warrantystartdate, warrantyenddate, status, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         tenantId,
@@ -114,8 +114,7 @@ router.put('/:id', authenticate, async (req, res) => {
           warrantystartdate = $5, 
           warrantyenddate = $6, 
           status = $7, 
-          notes = $8,
-          updated_at = NOW()
+          notes = $8
       WHERE warrantyid = $9
     `;
     const params = [
