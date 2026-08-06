@@ -1,4 +1,4 @@
-// Analytics.jsx - Fixed with no 404 errors
+// Analytics.jsx - Real data, computed from actual orders/customers/products
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../api/client';
 import {
@@ -12,40 +12,37 @@ import {
   User, ChevronDown, Search, AlertCircle, CheckCircle, XCircle,
   Database, Printer, ClipboardList, FileSpreadsheet,
   Zap, Activity, BarChart3, PieChart as PieChartIcon,
-  Loader2, Shield, File, Star, Target,
+  Loader2, Shield, File, Target,
   Sparkles, Rocket, Crown,
   AreaChart as AreaChartIcon, Gem, Gift, Heart,
-  Flower2, Feather
+  Flower2, Feather, Percent
 } from 'lucide-react';
 
 import '../styles/analytics.css';
 
 // ============================================
-// API INTERCEPTORS
+// DEBUG LOGGING (dev-only, no longer registered on the shared apiClient)
 // ============================================
-apiClient.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-apiClient.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status, error.response?.data || error.message);
-    return Promise.reject(error);
-  }
-);
+// FIX: previously these were axios interceptors attached directly to the
+// shared `apiClient` singleton at module scope. That meant EVERY component
+// using apiClient (Users.jsx, etc.) triggered Analytics' console logs too,
+// which is why the console showed triplicate log lines for the same
+// request. Interceptors also never got ejected, so remounts/HMR could
+// stack duplicate interceptors. We now just log locally, only in dev,
+// scoped to this component's own requests.
+const DEBUG = import.meta.env?.DEV ?? false;
+const debugLog = (...args) => { if (DEBUG) console.log(...args); };
+const debugError = (...args) => { if (DEBUG) console.error(...args); };
 
 // ============================================
 // CONSTANTS
 // ============================================
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6', '#f472b6', '#8b5cf6'];
+
+// How many most-recent orders we fetch line-item detail for, to compute
+// product-level revenue/profit. Order LIST data (date/total/customer) is
+// always complete; only per-PRODUCT breakdowns are limited by this cap.
+const DETAIL_FETCH_CAP = 200;
 
 const STAT_CARDS = [
   { id: 'revenue', icon: DollarSign, title: 'Total Revenue', format: 'currency', color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30', gradient: 'from-green-500 to-emerald-600' },
@@ -61,8 +58,15 @@ const TABS = [
   { id: 'reports', label: 'Reports', icon: File, color: 'pink' }
 ];
 
+const DATE_RANGES = {
+  last30days: { label: 'Last 30 Days', days: 30 },
+  last90days: { label: 'Last 90 Days', days: 90 },
+  last6months: { label: 'Last 6 Months', days: 182 },
+  last12months: { label: 'Last 12 Months', days: 365 }
+};
+
 // ============================================
-// NUMERIC SAFETY HELPER
+// NUMERIC / FORMAT HELPERS
 // ============================================
 const num = (value, fallback = 0) => {
   const n = Number(value);
@@ -86,149 +90,58 @@ const formatCurrencyCompact = (value) => {
   }).format(n);
 };
 
+const parseDateSafe = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 // ============================================
-// ENHANCED MOCK DATA GENERATOR - NO API CALLS
+// DATE RANGE HELPERS
 // ============================================
-const generateMockData = (customers = []) => {
-  const customerCount = Math.max(customers.length, 1);
-  
-  // Generate monthly data
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const monthlyData = months.map((month, i) => ({
-    month,
-    revenue: Math.floor(Math.random() * 5000) + 1000 + (i * 200) + (customerCount * 50),
-    orders: Math.floor(Math.random() * 50) + 10 + (i * 3) + Math.floor(customerCount / 2),
-    profit: Math.floor(Math.random() * 1500) + 300 + (i * 50) + (customerCount * 20),
-    customers: Math.floor(Math.random() * 30) + 5 + (i * 2) + Math.floor(customerCount / 3)
-  }));
+const getRangeBounds = (rangeKey) => {
+  const days = DATE_RANGES[rangeKey]?.days ?? 182;
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  return { start, end };
+};
 
-  // Generate yearly data
-  const years = ['2022', '2023', '2024', '2025'];
-  const yearlyData = years.map((year, i) => ({
-    year,
-    revenue: Math.floor(Math.random() * 50000) + 10000 + (i * 8000) + (customerCount * 2000),
-    orders: Math.floor(Math.random() * 500) + 100 + (i * 50) + (customerCount * 20),
-    profit: Math.floor(Math.random() * 15000) + 3000 + (i * 2000) + (customerCount * 500)
-  }));
+const getPreviousRangeBounds = (rangeKey) => {
+  const days = DATE_RANGES[rangeKey]?.days ?? 182;
+  const { start } = getRangeBounds(rangeKey);
+  const prevEnd = new Date(start);
+  const prevStart = new Date(start);
+  prevStart.setDate(prevStart.getDate() - days);
+  return { start: prevStart, end: prevEnd };
+};
 
-  // Generate product data
-  const productNames = ['Laptop Gaming Pro', 'iPhone 17 Pro Max', 'Vivo X200', 'Watch Rolex', 'Samsung Galaxy', 'Sony Headphones', 'Dell XPS', 'MacBook Pro'];
-  const productData = productNames.map(name => ({
-    product_name: name,
-    total_sold: Math.floor(Math.random() * 20) + 5 + Math.floor(customerCount / 3),
-    revenue: Math.floor(Math.random() * 5000) + 500 + (customerCount * 100),
-    growth: Math.floor(Math.random() * 40) - 10,
-    rating: (Math.random() * 2 + 3).toFixed(1)
-  }));
+const buildMonthBuckets = (start, end) => {
+  const buckets = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const endCursor = new Date(end.getFullYear(), end.getMonth(), 1);
+  let guard = 0;
+  while (cursor <= endCursor && guard < 60) {
+    buckets.push({
+      key: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`,
+      label: cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      year: cursor.getFullYear(),
+      monthIndex: cursor.getMonth()
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+    guard += 1;
+  }
+  return buckets;
+};
 
-  // Generate summary
-  const totalBalance = customers.reduce((sum, c) => sum + num(c.BALANCE || c.balance || 0), 0);
-  const summary = {
-    totalRevenue: 43500 + (customerCount * 500) + totalBalance,
-    totalOrders: 356 + (customerCount * 10),
-    totalProducts: productNames.length,
-    averageOrderValue: 122 + (customerCount * 2),
-    revenueGrowth: 12.5 + (customerCount * 0.1),
-    orderGrowth: 8.3 + (customerCount * 0.05),
-    customerGrowth: 5.2 + (customerCount * 0.02),
-    profitMargin: 22.4 + (customerCount * 0.05),
-    conversionRate: 3.8 + (customerCount * 0.01)
-  };
+const monthKeyOf = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-  // Generate customer analytics from real customers
-  const customerAnalytics = customers.length > 0 
-    ? customers.map(c => ({
-        name: `${c.FIRST_NAME || c.first_name || ''} ${c.LAST_NAME || c.last_name || ''}`.trim() || 'Unknown',
-        orders: Math.floor(Math.random() * 15) + 1,
-        totalSpent: num(c.BALANCE || c.balance || 0) + Math.floor(Math.random() * 1000),
-        avgOrder: (num(c.BALANCE || c.balance || 0) / 5) + 50,
-        lastOrder: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        segment: num(c.BALANCE || c.balance || 0) > 1000 ? 'VIP' : 'Regular'
-      }))
-    : [
-        { name: 'John Doe', orders: 12, totalSpent: 2450, avgOrder: 204, lastOrder: '2026-07-10', segment: 'VIP' },
-        { name: 'Jane Smith', orders: 8, totalSpent: 1800, avgOrder: 225, lastOrder: '2026-07-08', segment: 'Regular' },
-        { name: 'Robert Johnson', orders: 6, totalSpent: 1200, avgOrder: 200, lastOrder: '2026-07-05', segment: 'Regular' },
-        { name: 'Mary Williams', orders: 15, totalSpent: 3200, avgOrder: 213, lastOrder: '2026-07-12', segment: 'VIP' }
-      ];
-
-  // Generate customer history for a specific customer
-  const generateHistory = (customerId) => {
-    // Find customer in real data
-    const customer = customers.find(c => 
-      String(c.CUS_ID || c.cus_id || c.ID || c.id) === String(customerId)
-    );
-    
-    if (customer) {
-      const orderCount = Math.floor(Math.random() * 5) + 2;
-      const history = [];
-      for (let i = 0; i < orderCount; i++) {
-        const date = new Date();
-        date.setDate(date.getDate() - (i * 7) - Math.floor(Math.random() * 5));
-        history.push({
-          ORDER_NO: `ORD-${String(i + 1).padStart(3, '0')}`,
-          ORDER_DATE: date.toISOString().split('T')[0],
-          amount: Math.floor(Math.random() * 500) + 50,
-          STATUS: ['Completed', 'Pending', 'Completed', 'Completed', 'Pending'][i % 5]
-        });
-      }
-      return history;
-    }
-    
-    // Default history for unknown customers
-    return [
-      { ORDER_NO: 'ORD-001', ORDER_DATE: '2026-07-22', amount: 149.99, STATUS: 'Completed' },
-      { ORDER_NO: 'ORD-004', ORDER_DATE: '2026-07-20', amount: 234.75, STATUS: 'Completed' },
-      { ORDER_NO: 'ORD-008', ORDER_DATE: '2026-07-18', amount: 89.50, STATUS: 'Pending' },
-    ];
-  };
-
-  // Generate report data
-  const reportData = {
-    monthlySales: [
-      { month: 'Jan', revenue: 4500 + (customerCount * 50), orders: 45 + Math.floor(customerCount / 2), profit: 1200 + (customerCount * 30), customers: 38 + Math.floor(customerCount / 3) },
-      { month: 'Feb', revenue: 5200 + (customerCount * 60), orders: 52 + Math.floor(customerCount / 2), profit: 1500 + (customerCount * 40), customers: 42 + Math.floor(customerCount / 3) },
-      { month: 'Mar', revenue: 4800 + (customerCount * 50), orders: 48 + Math.floor(customerCount / 2), profit: 1300 + (customerCount * 35), customers: 40 + Math.floor(customerCount / 3) },
-      { month: 'Apr', revenue: 6100 + (customerCount * 70), orders: 61 + Math.floor(customerCount / 2), profit: 1800 + (customerCount * 45), customers: 55 + Math.floor(customerCount / 3) },
-      { month: 'May', revenue: 5800 + (customerCount * 65), orders: 58 + Math.floor(customerCount / 2), profit: 1600 + (customerCount * 40), customers: 48 + Math.floor(customerCount / 3) },
-      { month: 'Jun', revenue: 7200 + (customerCount * 80), orders: 72 + Math.floor(customerCount / 2), profit: 2100 + (customerCount * 50), customers: 62 + Math.floor(customerCount / 3) },
-      { month: 'Jul', revenue: 6800 + (customerCount * 75), orders: 68 + Math.floor(customerCount / 2), profit: 1900 + (customerCount * 45), customers: 58 + Math.floor(customerCount / 3) },
-      { month: 'Aug', revenue: 7900 + (customerCount * 85), orders: 79 + Math.floor(customerCount / 2), profit: 2300 + (customerCount * 55), customers: 70 + Math.floor(customerCount / 3) }
-    ],
-    productPerformance: productData.map(p => ({
-      name: p.product_name,
-      sales: p.total_sold,
-      revenue: p.revenue,
-      profit: Math.floor(p.revenue * 0.3),
-      rating: p.rating
-    })),
-    customerAnalytics: customerAnalytics,
-    revenueSummary: {
-      totalRevenue: summary.totalRevenue,
-      totalOrders: summary.totalOrders,
-      totalCustomers: customerCount,
-      avgOrderValue: summary.averageOrderValue,
-      revenueGrowth: summary.revenueGrowth,
-      orderGrowth: summary.orderGrowth,
-      customerGrowth: summary.customerGrowth,
-      profitMargin: summary.profitMargin,
-      conversionRate: summary.conversionRate,
-      topProduct: productData.reduce((a, b) => a.revenue > b.revenue ? a : b).product_name,
-      topCustomer: customerAnalytics.length > 0 
-        ? customerAnalytics.reduce((a, b) => a.totalSpent > b.totalSpent ? a : b).name
-        : 'N/A'
-    }
-  };
-
-  return {
-    monthlyData,
-    yearlyData,
-    productData,
-    summary,
-    customerAnalytics,
-    reportData,
-    generateHistory
-  };
+// ============================================
+// PERCENT-CHANGE HELPER
+// ============================================
+const percentChange = (current, previous) => {
+  if (!previous) return null; // no baseline to compare against
+  return ((current - previous) / previous) * 100;
 };
 
 // ============================================
@@ -306,7 +219,6 @@ const FloatingIcons = () => {
 // ============================================
 // ANIMATED SUB-COMPONENTS
 // ============================================
-
 const AnimatedCounter = ({ value, duration = 1200, format = 'number', prefix = '', suffix = '' }) => {
   const [displayValue, setDisplayValue] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
@@ -435,7 +347,7 @@ const StatCard = ({ icon: Icon, title, value, subtitle, color, bgColor, gradient
             {trend !== undefined && trend !== null && (
               <div className={`stat-card-trend ${trendColor}`}>
                 {TrendIcon && <TrendIcon className="w-4 h-4" aria-hidden="true" />}
-                {trend !== 0 && `${Math.abs(trend)}%`}
+                {trend !== 0 && `${Math.abs(trend).toFixed(1)}%`}
               </div>
             )}
           </div>
@@ -463,7 +375,7 @@ const LoadingSkeleton = () => (
       </div>
       <div className="loading-text">
         <p className="loading-title">Loading Analytics Dashboard</p>
-        <p className="loading-subtitle">Preparing your data insights...</p>
+        <p className="loading-subtitle">Pulling real order &amp; customer data...</p>
       </div>
       <div className="loading-progress">
         <div className="progress-track">
@@ -507,212 +419,103 @@ const Toast = ({ message, type, onClose }) => {
 // MAIN COMPONENT
 // ============================================
 const Analytics = () => {
-  // ===== STATE =====
-  const [monthlyData, setMonthlyData] = useState([]);
-  const [topProducts, setTopProducts] = useState([]);
-  const [yearlyData, setYearlyData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedCustomer, setSelectedCustomer] = useState('');
-  const [customerHistory, setCustomerHistory] = useState([]);
-  const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
+  // ===== RAW DATA STATE (all real, fetched from the API) =====
   const [customers, setCustomers] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [orderItemsById, setOrderItemsById] = useState({}); // orderId -> items[] (bounded by DETAIL_FETCH_CAP)
+  const [detailCoverage, setDetailCoverage] = useState({ fetched: 0, total: 0 });
+
+  // ===== UI STATE =====
+  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeView, setActiveView] = useState('overview');
+  const [reportType, setReportType] = useState('monthlySales');
   const [dateRange, setDateRange] = useState('last6months');
   const [searchQuery, setSearchQuery] = useState('');
-  const [analyticsSummary, setAnalyticsSummary] = useState({
-    totalRevenue: 0,
-    totalOrders: 0,
-    totalProducts: 0,
-    averageOrderValue: 0,
-    revenueGrowth: 0,
-    orderGrowth: 0,
-    customerGrowth: 0,
-    profitMargin: 0,
-    conversionRate: 0
-  });
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState('');
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [toast, setToast] = useState(null);
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
-  const [productsData, setProductsData] = useState([]);
-  const [reportType, setReportType] = useState('monthlySales');
-  const [reportData, setReportData] = useState(null);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportError, setReportError] = useState('');
-  const [reportsLoaded, setReportsLoaded] = useState({});
 
   // ===== REFS =====
   const statsRef = useRef(null);
   const isMounted = useRef(true);
-  const fetchInProgress = useRef(false);
   const exportMenuRef = useRef(null);
-  const didMountRef = useRef(false);
-  const mockDataCache = useRef(null);
 
-  // ============================================
-  // SHOW TOAST
-  // ============================================
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type });
   }, []);
 
   // ============================================
-  // FETCH CUSTOMERS - ONLY API CALL
+  // FETCH ALL REAL DATA
   // ============================================
-  const fetchCustomers = useCallback(async () => {
+  const fetchAllData = useCallback(async () => {
     try {
-      const res = await apiClient.get('/customers', { timeout: 10000 });
-      
-      if (isMounted.current) {
-        let customerData = [];
-        if (Array.isArray(res.data)) {
-          customerData = res.data;
-        } else if (res.data?.data && Array.isArray(res.data.data)) {
-          customerData = res.data.data;
-        } else {
-          // Fallback mock customers
-          customerData = [
-            { CUS_ID: 'CUS001', FIRST_NAME: 'John', LAST_NAME: 'Doe', PHONE: '555-0101', E_MAIL: 'john@example.com', ADDRESS: '123 Main St', BALANCE: 150.00, STATUS: 'Active' },
-            { CUS_ID: 'CUS002', FIRST_NAME: 'Jane', LAST_NAME: 'Smith', PHONE: '555-0102', E_MAIL: 'jane@example.com', ADDRESS: '456 Oak Ave', BALANCE: 0.00, STATUS: 'Active' },
-            { CUS_ID: 'CUS003', FIRST_NAME: 'Robert', LAST_NAME: 'Johnson', PHONE: '555-0103', E_MAIL: 'robert@example.com', ADDRESS: '789 Pine Rd', BALANCE: 75.50, STATUS: 'Active' },
-            { CUS_ID: 'CUS004', FIRST_NAME: 'Mary', LAST_NAME: 'Williams', PHONE: '555-0104', E_MAIL: 'mary@example.com', ADDRESS: '321 Elm St', BALANCE: 200.00, STATUS: 'Active' }
-          ];
+      const [customersRes, productsRes, ordersRes] = await Promise.all([
+        apiClient.get('/customers'),
+        apiClient.get('/products'),
+        apiClient.get('/orders', { params: { limit: 1000 } })
+      ]);
+
+      if (!isMounted.current) return;
+
+      const customersData = Array.isArray(customersRes.data)
+        ? customersRes.data
+        : (Array.isArray(customersRes.data?.data) ? customersRes.data.data : []);
+      const productsData = Array.isArray(productsRes.data)
+        ? productsRes.data
+        : (Array.isArray(productsRes.data?.data) ? productsRes.data.data : []);
+      const ordersData = Array.isArray(ordersRes.data)
+        ? ordersRes.data
+        : (Array.isArray(ordersRes.data?.data) ? ordersRes.data.data : []);
+
+      setCustomers(customersData);
+      setProducts(productsData);
+      setOrders(ordersData);
+
+      debugLog(`👥 Customers loaded: ${customersData.length}`);
+      debugLog(`📦 Products loaded: ${productsData.length}`);
+      debugLog(`🛒 Orders loaded: ${ordersData.length}`);
+
+      // Fetch line-item detail for the most recent orders only (bounded),
+      // used for product-level revenue/profit breakdowns.
+      const ordersForDetail = [...ordersData]
+        .filter(o => parseDateSafe(o.date))
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .slice(0, DETAIL_FETCH_CAP);
+
+      const detailResults = await Promise.allSettled(
+        ordersForDetail.map(o => apiClient.get(`/orders/${o.id}`))
+      );
+
+      if (!isMounted.current) return;
+
+      const detailMap = {};
+      let fetchedCount = 0;
+      detailResults.forEach((res, idx) => {
+        if (res.status === 'fulfilled') {
+          detailMap[ordersForDetail[idx].id] = Array.isArray(res.value.data?.items) ? res.value.data.items : [];
+          fetchedCount += 1;
         }
-        
-        setCustomers(customerData);
-        console.log(`👥 Customers loaded: ${customerData.length}`);
-        return customerData;
-      }
+      });
+
+      setOrderItemsById(detailMap);
+      setDetailCoverage({ fetched: fetchedCount, total: ordersData.length });
     } catch (error) {
-      console.error('❌ Error fetching customers:', error);
+      debugError('❌ Error loading analytics data:', error);
       if (isMounted.current) {
-        const fallbackCustomers = [
-          { CUS_ID: 'CUS001', FIRST_NAME: 'John', LAST_NAME: 'Doe', PHONE: '555-0101', E_MAIL: 'john@example.com', ADDRESS: '123 Main St', BALANCE: 150.00, STATUS: 'Active' },
-          { CUS_ID: 'CUS002', FIRST_NAME: 'Jane', LAST_NAME: 'Smith', PHONE: '555-0102', E_MAIL: 'jane@example.com', ADDRESS: '456 Oak Ave', BALANCE: 0.00, STATUS: 'Active' },
-          { CUS_ID: 'CUS003', FIRST_NAME: 'Robert', LAST_NAME: 'Johnson', PHONE: '555-0103', E_MAIL: 'robert@example.com', ADDRESS: '789 Pine Rd', BALANCE: 75.50, STATUS: 'Active' },
-          { CUS_ID: 'CUS004', FIRST_NAME: 'Mary', LAST_NAME: 'Williams', PHONE: '555-0104', E_MAIL: 'mary@example.com', ADDRESS: '321 Elm St', BALANCE: 200.00, STATUS: 'Active' }
-        ];
-        setCustomers(fallbackCustomers);
-        return fallbackCustomers;
+        showToast('Failed to load analytics data from the server', 'error');
       }
     }
-    return [];
-  }, []);
+  }, [showToast]);
 
-  // ============================================
-  // GENERATE ALL ANALYTICS FROM MOCK DATA
-  // ============================================
-  const generateAllAnalytics = useCallback((customerData) => {
-    const currentCustomers = customerData || customers;
-    
-    // Generate or retrieve cached mock data
-    if (!mockDataCache.current) {
-      mockDataCache.current = generateMockData(currentCustomers);
-    }
-    
-    const data = mockDataCache.current;
-    
-    setMonthlyData(data.monthlyData);
-    setYearlyData(data.yearlyData);
-    setTopProducts(data.productData);
-    setProductsData(data.productData);
-    setAnalyticsSummary(data.summary);
-    
-    return data;
-  }, [customers]);
-
-  // ============================================
-  // GET CUSTOMER HISTORY - FROM MOCK DATA
-  // ============================================
-  const getCustomerHistory = useCallback((customerId) => {
-    if (!customerId) {
-      setCustomerHistory([]);
-      return;
-    }
-
-    console.log(`🔍 Getting history for customer: ${customerId}`);
-    setCustomerHistoryLoading(true);
-
-    try {
-      // Generate history from mock data
-      if (!mockDataCache.current) {
-        mockDataCache.current = generateMockData(customers);
-      }
-      
-      const history = mockDataCache.current.generateHistory(customerId);
-      setCustomerHistory(history);
-      console.log(`📋 History loaded: ${history.length} orders`);
-    } catch (error) {
-      console.error('❌ Error getting customer history:', error);
-      setCustomerHistory([]);
-    } finally {
-      setCustomerHistoryLoading(false);
-    }
-  }, [customers]);
-
-  // ============================================
-  // GET REPORT DATA - FROM MOCK DATA
-  // ============================================
-  const getReportData = useCallback((type) => {
-    if (reportsLoaded[type]) {
-      console.log(`📊 Report ${type} already loaded, skipping`);
-      return;
-    }
-
-    setReportLoading(true);
-    setReportError('');
-
-    try {
-      if (!mockDataCache.current) {
-        mockDataCache.current = generateMockData(customers);
-      }
-      
-      const data = mockDataCache.current.reportData[type];
-      
-      if (isMounted.current) {
-        setReportData(data);
-        setReportsLoaded(prev => ({ ...prev, [type]: true }));
-        console.log(`✅ Report ${type} generated successfully`);
-      }
-    } catch (error) {
-      console.warn(`⚠️ Report ${type} generation failed:`, error.message);
-      if (isMounted.current) {
-        setReportData([]);
-        setReportsLoaded(prev => ({ ...prev, [type]: true }));
-      }
-    } finally {
-      if (isMounted.current) setReportLoading(false);
-    }
-  }, [customers, reportsLoaded]);
-
-  // ============================================
-  // LOAD ALL DATA
-  // ============================================
   const loadAllData = useCallback(async () => {
     setLoading(true);
-    
-    try {
-      // 1. Fetch customers from API
-      const customerData = await fetchCustomers();
-      
-      // 2. Generate all analytics from mock data
-      const data = generateAllAnalytics(customerData);
-      
-      // 3. Pre-load all reports
-      const reportTypes = ['monthlySales', 'productPerformance', 'customerAnalytics', 'revenueSummary'];
-      for (const type of reportTypes) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        getReportData(type);
-      }
-      
-      setLoading(false);
-    } catch (error) {
-      console.error('❌ Error loading data:', error);
-      setLoading(false);
-    }
-  }, [fetchCustomers, generateAllAnalytics, getReportData]);
+    await fetchAllData();
+    if (isMounted.current) setLoading(false);
+  }, [fetchAllData]);
 
   // ============================================
   // EFFECTS
@@ -720,37 +523,19 @@ const Analytics = () => {
   useEffect(() => {
     isMounted.current = true;
     loadAllData();
-
     return () => {
       isMounted.current = false;
-      fetchInProgress.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Date range change - refresh data
-  useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
-    // Clear cache and reload
-    mockDataCache.current = null;
-    setReportsLoaded({});
-    loadAllData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange]);
-
-  // Debounce search
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedSearchQuery(searchQuery), 200);
     return () => clearTimeout(handle);
   }, [searchQuery]);
 
-  // Close export dropdown
   useEffect(() => {
     if (!showExportMenu) return;
-
     const handleClickOutside = (event) => {
       if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
         setShowExportMenu(false);
@@ -759,7 +544,6 @@ const Analytics = () => {
     const handleEscape = (event) => {
       if (event.key === 'Escape') setShowExportMenu(false);
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
     return () => {
@@ -771,31 +555,266 @@ const Analytics = () => {
   // ===== HANDLERS =====
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    mockDataCache.current = null;
-    setReportsLoaded({});
-    await loadAllData();
+    await fetchAllData();
     setIsRefreshing(false);
     showToast('Data refreshed successfully', 'success');
-  }, [loadAllData, showToast]);
+  }, [fetchAllData, showToast]);
 
   const handleCustomerSelect = useCallback((e) => {
-    const id = e.target.value;
-    console.log(`👤 Customer selected: ${id}`);
-    setSelectedCustomer(id);
-    if (id) {
-      getCustomerHistory(id);
-    } else {
-      setCustomerHistory([]);
-    }
-  }, [getCustomerHistory]);
+    setSelectedCustomer(e.target.value);
+  }, []);
 
-  const handleReportTypeChange = useCallback((type) => {
-    setReportType(type);
-    setReportsLoaded(prev => ({ ...prev, [type]: false }));
-    getReportData(type);
-  }, [getReportData]);
+  // ============================================
+  // LOOKUP MAPS (products / customers keyed by numeric id)
+  // ============================================
+  const productsById = useMemo(() => {
+    const map = {};
+    products.forEach(p => { map[p.id] = p; });
+    return map;
+  }, [products]);
 
-  // ===== EXPORT FUNCTIONS =====
+  const customersById = useMemo(() => {
+    const map = {};
+    customers.forEach(c => { map[c.id] = c; });
+    return map;
+  }, [customers]);
+
+  // ============================================
+  // DATE-RANGE-FILTERED ORDERS
+  // ============================================
+  const { ordersInRange, ordersInPrevRange } = useMemo(() => {
+    const { start, end } = getRangeBounds(dateRange);
+    const { start: prevStart, end: prevEnd } = getPreviousRangeBounds(dateRange);
+
+    const inRange = [];
+    const inPrevRange = [];
+
+    orders.forEach(o => {
+      const d = parseDateSafe(o.date);
+      if (!d) return;
+      if (d >= start && d <= end) inRange.push(o);
+      else if (d >= prevStart && d < prevEnd) inPrevRange.push(o);
+    });
+
+    return { ordersInRange: inRange, ordersInPrevRange: inPrevRange };
+  }, [orders, dateRange]);
+
+  // ============================================
+  // PRODUCT-LEVEL ITEMS WITHIN RANGE (from the bounded detail fetch)
+  // ============================================
+  const itemsInRange = useMemo(() => {
+    const items = [];
+    ordersInRange.forEach(o => {
+      const orderItems = orderItemsById[o.id];
+      if (!orderItems) return; // detail not fetched for this order (outside cap)
+      orderItems.forEach(it => items.push({ ...it, __orderId: o.id }));
+    });
+    return items;
+  }, [ordersInRange, orderItemsById]);
+
+  // ============================================
+  // SUMMARY METRICS (all real, with real period-over-period growth)
+  // ============================================
+  const summary = useMemo(() => {
+    const totalRevenue = ordersInRange.reduce((sum, o) => sum + num(o.total), 0);
+    const totalOrders = ordersInRange.length;
+    const prevRevenue = ordersInPrevRange.reduce((sum, o) => sum + num(o.total), 0);
+    const prevOrders = ordersInPrevRange.length;
+
+    const distinctProductIds = new Set(itemsInRange.map(it => it.product_id));
+    const totalProductsSold = distinctProductIds.size;
+
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    let totalCost = 0;
+    itemsInRange.forEach(it => {
+      const cost = num(productsById[it.product_id]?.buyin_price);
+      totalCost += num(it.qty) * cost;
+    });
+    const profit = totalRevenue - totalCost;
+    const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+
+    const distinctCustomersInRange = new Set(ordersInRange.map(o => o.customer_id));
+    const distinctCustomersInPrevRange = new Set(ordersInPrevRange.map(o => o.customer_id));
+
+    const customerOrderCounts = {};
+    ordersInRange.forEach(o => {
+      customerOrderCounts[o.customer_id] = (customerOrderCounts[o.customer_id] || 0) + 1;
+    });
+    const repeatCustomers = Object.values(customerOrderCounts).filter(c => c > 1).length;
+    const repeatCustomerRate = distinctCustomersInRange.size > 0
+      ? (repeatCustomers / distinctCustomersInRange.size) * 100
+      : 0;
+
+    // FIX: previous formula returned 0% coverage whenever itemsInRange was
+    // empty even if every in-range order legitimately HAD its detail
+    // fetched (e.g. orders with zero line items, or simply no orders in
+    // range). Now we directly measure how many in-range orders have an
+    // entry in orderItemsById, regardless of whether that entry is empty.
+    const itemDetailCoverage = ordersInRange.length === 0
+      ? 100
+      : Math.round(
+          (ordersInRange.filter(o => orderItemsById[o.id] !== undefined).length / ordersInRange.length) * 100
+        );
+
+    return {
+      totalRevenue,
+      totalOrders,
+      totalProductsSold,
+      averageOrderValue,
+      profit,
+      profitMargin,
+      revenueGrowth: percentChange(totalRevenue, prevRevenue),
+      orderGrowth: percentChange(totalOrders, prevOrders),
+      customerGrowth: percentChange(distinctCustomersInRange.size, distinctCustomersInPrevRange.size),
+      repeatCustomerRate,
+      totalCustomersInRange: distinctCustomersInRange.size,
+      itemDetailCoverage
+    };
+  }, [ordersInRange, ordersInPrevRange, itemsInRange, productsById, orderItemsById]);
+
+  // ============================================
+  // MONTHLY CHART DATA (revenue / orders / profit / customers per month, in-range)
+  // ============================================
+  const monthlyChartData = useMemo(() => {
+    const { start, end } = getRangeBounds(dateRange);
+    const buckets = buildMonthBuckets(start, end);
+    const bucketMap = {};
+    buckets.forEach(b => {
+      bucketMap[b.key] = { month: b.label, revenue: 0, orders: 0, profit: 0, customerSet: new Set() };
+    });
+
+    ordersInRange.forEach(o => {
+      const d = parseDateSafe(o.date);
+      if (!d) return;
+      const key = monthKeyOf(d);
+      if (!bucketMap[key]) return;
+      bucketMap[key].revenue += num(o.total);
+      bucketMap[key].orders += 1;
+      bucketMap[key].customerSet.add(o.customer_id);
+
+      const items = orderItemsById[o.id];
+      if (items) {
+        items.forEach(it => {
+          const cost = num(productsById[it.product_id]?.buyin_price);
+          bucketMap[key].profit += num(it.subtotal) - (num(it.qty) * cost);
+        });
+      }
+    });
+
+    return buckets.map(b => ({
+      month: bucketMap[b.key].month,
+      revenue: Math.round(bucketMap[b.key].revenue * 100) / 100,
+      orders: bucketMap[b.key].orders,
+      profit: Math.round(bucketMap[b.key].profit * 100) / 100,
+      customers: bucketMap[b.key].customerSet.size
+    }));
+  }, [ordersInRange, orderItemsById, productsById, dateRange]);
+
+  // ============================================
+  // YEARLY CHART DATA (all orders, grouped by year — not range-limited)
+  // ============================================
+  const yearlyChartData = useMemo(() => {
+    const byYear = {};
+    orders.forEach(o => {
+      const d = parseDateSafe(o.date);
+      if (!d) return;
+      const year = d.getFullYear();
+      if (!byYear[year]) byYear[year] = { year: String(year), revenue: 0, orders: 0 };
+      byYear[year].revenue += num(o.total);
+      byYear[year].orders += 1;
+    });
+    return Object.values(byYear)
+      .sort((a, b) => Number(a.year) - Number(b.year))
+      .map(y => ({ ...y, revenue: Math.round(y.revenue * 100) / 100 }));
+  }, [orders]);
+
+  // ============================================
+  // PRODUCT PERFORMANCE (from item-level detail, in-range)
+  // ============================================
+  const productPerformance = useMemo(() => {
+    const byProduct = {};
+    itemsInRange.forEach(it => {
+      const pid = it.product_id;
+      const name = it.product_name || productsById[pid]?.name_en || 'Unknown Product';
+      if (!byProduct[pid]) {
+        byProduct[pid] = { product_id: pid, product_name: name, total_sold: 0, revenue: 0, profit: 0 };
+      }
+      const cost = num(productsById[pid]?.buyin_price);
+      byProduct[pid].total_sold += num(it.qty);
+      byProduct[pid].revenue += num(it.subtotal);
+      byProduct[pid].profit += num(it.subtotal) - (num(it.qty) * cost);
+    });
+
+    return Object.values(byProduct)
+      .map(p => ({
+        ...p,
+        revenue: Math.round(p.revenue * 100) / 100,
+        profit: Math.round(p.profit * 100) / 100,
+        marginPct: p.revenue > 0 ? Math.round((p.profit / p.revenue) * 1000) / 10 : 0
+      }))
+      .sort((a, b) => b.revenue - a.revenue);
+  }, [itemsInRange, productsById]);
+
+  const filteredProducts = useMemo(() => {
+    if (!debouncedSearchQuery) return productPerformance;
+    const query = debouncedSearchQuery.toLowerCase();
+    return productPerformance.filter(p => p.product_name?.toLowerCase().includes(query));
+  }, [productPerformance, debouncedSearchQuery]);
+
+  // ============================================
+  // CUSTOMER ANALYTICS (from real orders, in-range)
+  // ============================================
+  const customerAnalytics = useMemo(() => {
+    const byCustomer = {};
+    ordersInRange.forEach(o => {
+      const cid = o.customer_id;
+      if (!byCustomer[cid]) {
+        const customer = customersById[cid];
+        const name = o.customer_name
+          || (customer ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() : null)
+          || 'Unknown Customer';
+        byCustomer[cid] = { customer_id: cid, name, orders: 0, totalSpent: 0, lastOrder: null };
+      }
+      byCustomer[cid].orders += 1;
+      byCustomer[cid].totalSpent += num(o.total);
+      const d = parseDateSafe(o.date);
+      if (d && (!byCustomer[cid].lastOrder || d > byCustomer[cid].lastOrder)) {
+        byCustomer[cid].lastOrder = d;
+      }
+    });
+
+    const list = Object.values(byCustomer);
+    const avgSpent = list.length > 0
+      ? list.reduce((s, c) => s + c.totalSpent, 0) / list.length
+      : 0;
+
+    return list
+      .map(c => ({
+        ...c,
+        avgOrder: c.orders > 0 ? c.totalSpent / c.orders : 0,
+        lastOrder: c.lastOrder ? c.lastOrder.toISOString().split('T')[0] : null,
+        segment: c.totalSpent >= avgSpent * 1.5 ? 'VIP' : (c.orders > 1 ? 'Regular' : 'New')
+      }))
+      .sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [ordersInRange, customersById]);
+
+  // ============================================
+  // SELECTED CUSTOMER PURCHASE HISTORY (real, unfiltered by date range)
+  // ============================================
+  const selectedCustomerRecord = useMemo(
+    () => customers.find(c => String(c.id ?? c.cus_id) === String(selectedCustomer)),
+    [customers, selectedCustomer]
+  );
+
+  const customerHistory = useMemo(() => {
+    if (!selectedCustomer) return [];
+    return orders
+      .filter(o => String(o.customer_id) === String(selectedCustomer))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [orders, selectedCustomer]);
+
+  // ===== EXPORT HELPERS =====
   const escapeCsvField = (value) => {
     const str = String(value ?? '');
     return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
@@ -813,7 +832,7 @@ const Analytics = () => {
   };
 
   const handleExport = useCallback(async () => {
-    const data = activeView === 'products' ? topProducts : monthlyData;
+    const data = activeView === 'products' ? filteredProducts : monthlyChartData;
     if (!data || data.length === 0) {
       showToast('No data to export', 'warning');
       return;
@@ -825,13 +844,13 @@ const Analytics = () => {
     try {
       const isProductData = activeView === 'products';
       const headers = isProductData
-        ? ['Product Name', 'Units Sold', 'Revenue', 'Growth %', 'Rating']
+        ? ['Product Name', 'Units Sold', 'Revenue', 'Profit', 'Margin %']
         : ['Month', 'Revenue', 'Orders', 'Profit', 'Customers'];
 
       let csv = headers.join(',') + '\n';
       data.forEach(item => {
         const row = isProductData
-          ? [escapeCsvField(item.product_name), num(item.total_sold), num(item.revenue), num(item.growth), item.rating || 'N/A']
+          ? [escapeCsvField(item.product_name), num(item.total_sold), num(item.revenue), num(item.profit), num(item.marginPct)]
           : [escapeCsvField(item.month), num(item.revenue), num(item.orders), num(item.profit), num(item.customers)];
         csv += row.join(',') + '\n';
       });
@@ -839,91 +858,55 @@ const Analytics = () => {
       downloadCsv(csv, `${activeView}_data_${new Date().toISOString().slice(0, 10)}.csv`);
       showToast('Export successful', 'success');
     } catch (error) {
-      console.error('❌ Export error:', error);
+      debugError('❌ Export error:', error);
       showToast('Export failed', 'error');
     } finally {
       setExportLoading(false);
     }
-  }, [activeView, topProducts, monthlyData, showToast]);
+  }, [activeView, filteredProducts, monthlyChartData, showToast]);
 
   const exportReport = useCallback(() => {
-    if (!reportData) {
-      showToast('No report data to export', 'warning');
-      return;
-    }
-
     setExportLoading(true);
-
     try {
-      let data = [];
-      let headers = [];
+      let csv = '';
       let filename = reportType;
 
-      switch (reportType) {
-        case 'monthlySales':
-          data = reportData;
-          headers = ['Month', 'Revenue', 'Orders', 'Profit', 'Customers'];
-          filename = 'monthly_sales_report';
-          break;
-        case 'productPerformance':
-          data = reportData;
-          headers = ['Product', 'Units Sold', 'Revenue', 'Profit', 'Rating'];
-          filename = 'product_performance_report';
-          break;
-        case 'customerAnalytics':
-          data = reportData;
-          headers = ['Customer', 'Orders', 'Total Spent', 'Avg Order', 'Segment'];
-          filename = 'customer_analytics_report';
-          break;
-        case 'revenueSummary':
-          data = [reportData];
-          headers = ['Total Revenue', 'Total Orders', 'Total Customers', 'Avg Order Value', 'Profit Margin', 'Conversion Rate'];
-          filename = 'revenue_summary';
-          break;
-        default:
-          data = Array.isArray(reportData) ? reportData : [reportData];
-          headers = Object.keys(data[0] || {});
-      }
-
-      let csv = headers.join(',') + '\n';
-
-      if (reportType === 'revenueSummary') {
-        const row = [
-          num(reportData.totalRevenue),
-          num(reportData.totalOrders),
-          num(reportData.totalCustomers),
-          num(reportData.avgOrderValue),
-          num(reportData.profitMargin),
-          num(reportData.conversionRate)
-        ];
-        csv += row.join(',') + '\n';
-      } else {
-        data.forEach(item => {
-          const row = headers.map(h => {
-            const key = h.toLowerCase().replace(/ /g, '');
-            const value = item[key] ?? item[h] ?? '';
-            return escapeCsvField(value);
-          });
-          csv += row.join(',') + '\n';
+      if (reportType === 'monthlySales') {
+        csv = ['Month', 'Revenue', 'Orders', 'Profit', 'Customers'].join(',') + '\n';
+        monthlyChartData.forEach(item => {
+          csv += [escapeCsvField(item.month), num(item.revenue), num(item.orders), num(item.profit), num(item.customers)].join(',') + '\n';
         });
+        filename = 'monthly_sales_report';
+      } else if (reportType === 'productPerformance') {
+        csv = ['Product', 'Units Sold', 'Revenue', 'Profit', 'Margin %'].join(',') + '\n';
+        productPerformance.forEach(item => {
+          csv += [escapeCsvField(item.product_name), num(item.total_sold), num(item.revenue), num(item.profit), num(item.marginPct)].join(',') + '\n';
+        });
+        filename = 'product_performance_report';
+      } else if (reportType === 'customerAnalytics') {
+        csv = ['Customer', 'Orders', 'Total Spent', 'Avg Order', 'Segment'].join(',') + '\n';
+        customerAnalytics.forEach(item => {
+          csv += [escapeCsvField(item.name), num(item.orders), num(item.totalSpent), num(item.avgOrder), item.segment].join(',') + '\n';
+        });
+        filename = 'customer_analytics_report';
+      } else if (reportType === 'revenueSummary') {
+        csv = ['Total Revenue', 'Total Orders', 'Total Customers', 'Avg Order Value', 'Profit Margin %', 'Repeat Customer %'].join(',') + '\n';
+        csv += [
+          num(summary.totalRevenue), num(summary.totalOrders), num(summary.totalCustomersInRange),
+          num(summary.averageOrderValue), num(summary.profitMargin).toFixed(1), num(summary.repeatCustomerRate).toFixed(1)
+        ].join(',') + '\n';
+        filename = 'revenue_summary';
       }
 
       downloadCsv(csv, `${filename}_${new Date().toISOString().slice(0, 10)}.csv`);
       showToast('Report exported successfully', 'success');
     } catch (error) {
-      console.error('❌ Export error:', error);
+      debugError('❌ Export error:', error);
       showToast('Export failed', 'error');
     } finally {
       setExportLoading(false);
     }
-  }, [reportType, reportData, showToast]);
-
-  // ===== MEMOIZED DATA =====
-  const filteredProducts = useMemo(() => {
-    if (!debouncedSearchQuery) return topProducts;
-    const query = debouncedSearchQuery.toLowerCase();
-    return topProducts.filter(p => p.product_name?.toLowerCase().includes(query));
-  }, [topProducts, debouncedSearchQuery]);
+  }, [reportType, monthlyChartData, productPerformance, customerAnalytics, summary, showToast]);
 
   const chartTooltipStyle = {
     backgroundColor: '#1f2937',
@@ -933,38 +916,33 @@ const Analytics = () => {
     boxShadow: '0 10px 25px -5px rgba(0,0,0,0.35)'
   };
 
-  // ===== REPORT RENDERERS =====
+  // ===== REPORT RENDERERS (pure, synchronous — driven by useMemo above) =====
   const renderMonthlySales = () => {
-    const data = reportData || [];
-    if (!data.length) return <div className="empty-state">No data available</div>;
-
-    const totalRevenue = data.reduce((sum, d) => sum + num(d.revenue), 0);
-    const totalOrders = data.reduce((sum, d) => sum + num(d.orders), 0);
-    const avgProfit = data.reduce((sum, d) => sum + num(d.profit), 0) / data.length;
+    if (!monthlyChartData.length) return <div className="empty-state">No orders in this date range</div>;
 
     return (
       <div className="report-content-area">
         <div className="metric-grid">
           <div className="metric-tile metric-tile-green">
             <p className="metric-tile-label">Total Revenue</p>
-            <p className="metric-tile-value">{formatCurrency(totalRevenue)}</p>
+            <p className="metric-tile-value">{formatCurrency(summary.totalRevenue)}</p>
           </div>
           <div className="metric-tile metric-tile-blue">
             <p className="metric-tile-label">Total Orders</p>
-            <p className="metric-tile-value">{totalOrders}</p>
+            <p className="metric-tile-value">{summary.totalOrders}</p>
           </div>
           <div className="metric-tile metric-tile-purple">
-            <p className="metric-tile-label">Avg Profit</p>
-            <p className="metric-tile-value">{formatCurrency(avgProfit)}</p>
+            <p className="metric-tile-label">Profit</p>
+            <p className="metric-tile-value">{formatCurrency(summary.profit)}</p>
           </div>
           <div className="metric-tile metric-tile-indigo">
-            <p className="metric-tile-label">Data Points</p>
-            <p className="metric-tile-value">{data.length}</p>
+            <p className="metric-tile-label">Months Shown</p>
+            <p className="metric-tile-value">{monthlyChartData.length}</p>
           </div>
         </div>
         <div className="chart-wrapper">
           <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={data}>
+            <ComposedChart data={monthlyChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
               <XAxis dataKey="month" stroke="#9ca3af" fontSize={11} />
               <YAxis yAxisId="left" stroke="#9ca3af" fontSize={11} />
@@ -972,7 +950,7 @@ const Analytics = () => {
               <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => name === 'Orders' ? value : formatCurrency(value)} />
               <Legend />
               <Bar yAxisId="left" dataKey="revenue" fill="#6366f1" name="Revenue" radius={[4, 4, 0, 0]}>
-                {data.map((entry, index) => (
+                {monthlyChartData.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Bar>
@@ -986,8 +964,17 @@ const Analytics = () => {
   };
 
   const renderProductPerformance = () => {
-    const data = reportData || [];
-    if (!data.length) return <div className="empty-state">No data available</div>;
+    if (!productPerformance.length) {
+      return (
+        <div className="empty-state">
+          {summary.itemDetailCoverage < 100
+            ? `No product data available for orders in this range (item detail limited to the most recent orders — ${summary.itemDetailCoverage}% coverage)`
+            : 'No product sales in this date range'}
+        </div>
+      );
+    }
+
+    const top10 = productPerformance.slice(0, 10);
 
     return (
       <div className="report-content-area">
@@ -996,30 +983,30 @@ const Analytics = () => {
             <p className="metric-tile-label">Top Product</p>
             <p className="metric-tile-value text-sm flex items-center gap-1">
               <Crown className="w-4 h-4 text-yellow-500" />
-              {data[0]?.name || 'N/A'}
+              {productPerformance[0]?.product_name || 'N/A'}
             </p>
           </div>
           <div className="metric-tile metric-tile-green">
             <p className="metric-tile-label">Highest Revenue</p>
             <p className="metric-tile-value">
-              {formatCurrency(Math.max(...data.map(d => num(d.revenue))))}
+              {formatCurrency(Math.max(...productPerformance.map(d => num(d.revenue))))}
             </p>
           </div>
           <div className="metric-tile metric-tile-yellow">
-            <p className="metric-tile-label">Total Products</p>
-            <p className="metric-tile-value">{data.length}</p>
+            <p className="metric-tile-label">Products Sold</p>
+            <p className="metric-tile-value">{productPerformance.length}</p>
           </div>
         </div>
         <div className="chart-wrapper">
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={data} layout="vertical">
+            <BarChart data={top10} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
               <XAxis type="number" stroke="#9ca3af" fontSize={11} />
-              <YAxis type="category" dataKey="name" stroke="#9ca3af" fontSize={11} width={100} />
+              <YAxis type="category" dataKey="product_name" stroke="#9ca3af" fontSize={11} width={100} />
               <Tooltip contentStyle={chartTooltipStyle} />
               <Legend />
-              <Bar dataKey="sales" fill="#6366f1" name="Units Sold" radius={[0, 4, 4, 0]}>
-                {data.map((entry, index) => (
+              <Bar dataKey="total_sold" fill="#6366f1" name="Units Sold" radius={[0, 4, 4, 0]}>
+                {top10.map((entry, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Bar>
@@ -1031,10 +1018,9 @@ const Analytics = () => {
   };
 
   const renderCustomerAnalytics = () => {
-    const data = reportData || [];
-    if (!data.length) return <div className="empty-state">No data available</div>;
+    if (!customerAnalytics.length) return <div className="empty-state">No customer orders in this date range</div>;
 
-    const totalSpentSum = data.reduce((sum, d) => sum + num(d.totalSpent), 0);
+    const totalSpentSum = customerAnalytics.reduce((sum, d) => sum + num(d.totalSpent), 0);
 
     const getInitials = (name) => {
       if (!name) return '?';
@@ -1059,7 +1045,7 @@ const Analytics = () => {
         <div className="metric-grid">
           <div className="metric-tile metric-tile-blue">
             <p className="metric-tile-label">Total Customers</p>
-            <p className="metric-tile-value">{data.length}</p>
+            <p className="metric-tile-value">{customerAnalytics.length}</p>
           </div>
           <div className="metric-tile metric-tile-green">
             <p className="metric-tile-label">Total Spent</p>
@@ -1067,7 +1053,7 @@ const Analytics = () => {
           </div>
           <div className="metric-tile metric-tile-purple">
             <p className="metric-tile-label">Avg Spent</p>
-            <p className="metric-tile-value">{formatCurrency(totalSpentSum / data.length)}</p>
+            <p className="metric-tile-value">{formatCurrency(totalSpentSum / customerAnalytics.length)}</p>
           </div>
         </div>
         <div className="table-scroll-container">
@@ -1082,28 +1068,24 @@ const Analytics = () => {
               </tr>
             </thead>
             <tbody>
-              {data.map((item, i) => {
-                const customerName = item?.name || 'Unknown Customer';
-                const segment = item?.segment || 'Regular';
-                return (
-                  <tr key={i} className="table-row">
-                    <td className="customer-cell">
-                      <div className={`avatar-icon ${getSegmentColor(segment)}`}>
-                        {getInitials(customerName)}
-                      </div>
-                      {customerName}
-                    </td>
-                    <td className="text-right">{num(item.orders)}</td>
-                    <td className="text-right font-medium">{formatCurrency(item.totalSpent)}</td>
-                    <td className="text-right">{formatCurrency(item.avgOrder)}</td>
-                    <td className="text-center">
-                      <span className={`segment-badge ${getSegmentBadge(segment)}`}>
-                        {segment}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {customerAnalytics.map((item, i) => (
+                <tr key={item.customer_id ?? i} className="table-row">
+                  <td className="customer-cell">
+                    <div className={`avatar-icon ${getSegmentColor(item.segment)}`}>
+                      {getInitials(item.name)}
+                    </div>
+                    {item.name}
+                  </td>
+                  <td className="text-right">{num(item.orders)}</td>
+                  <td className="text-right font-medium">{formatCurrency(item.totalSpent)}</td>
+                  <td className="text-right">{formatCurrency(item.avgOrder)}</td>
+                  <td className="text-center">
+                    <span className={`segment-badge ${getSegmentBadge(item.segment)}`}>
+                      {item.segment}
+                    </span>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1112,22 +1094,21 @@ const Analytics = () => {
   };
 
   const renderRevenueSummary = () => {
-    const data = reportData || {};
-    if (!Object.keys(data).length) return <div className="empty-state">No data available</div>;
+    if (summary.totalOrders === 0) return <div className="empty-state">No orders in this date range</div>;
 
     const metrics = [
-      { label: 'Total Revenue', value: formatCurrency(data.totalRevenue), color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30', icon: DollarSign },
-      { label: 'Total Orders', value: num(data.totalOrders), color: 'text-blue-600', bgColor: 'bg-blue-100 dark:bg-blue-900/30', icon: ShoppingBag },
-      { label: 'Total Customers', value: num(data.totalCustomers), color: 'text-purple-600', bgColor: 'bg-purple-100 dark:bg-purple-900/30', icon: Users },
-      { label: 'Avg Order Value', value: formatCurrency(data.avgOrderValue), color: 'text-orange-600', bgColor: 'bg-orange-100 dark:bg-orange-900/30', icon: TrendingUp },
-      { label: 'Profit Margin', value: `${num(data.profitMargin).toFixed(1)}%`, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30', icon: Target },
-      { label: 'Conversion Rate', value: `${num(data.conversionRate).toFixed(1)}%`, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30', icon: Zap }
+      { label: 'Total Revenue', value: formatCurrency(summary.totalRevenue), color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30', icon: DollarSign },
+      { label: 'Total Orders', value: summary.totalOrders, color: 'text-blue-600', bgColor: 'bg-blue-100 dark:bg-blue-900/30', icon: ShoppingBag },
+      { label: 'Total Customers', value: summary.totalCustomersInRange, color: 'text-purple-600', bgColor: 'bg-purple-100 dark:bg-purple-900/30', icon: Users },
+      { label: 'Avg Order Value', value: formatCurrency(summary.averageOrderValue), color: 'text-orange-600', bgColor: 'bg-orange-100 dark:bg-orange-900/30', icon: TrendingUp },
+      { label: 'Profit Margin', value: `${summary.profitMargin.toFixed(1)}%`, color: 'text-emerald-600', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30', icon: Target },
+      { label: 'Repeat Customers', value: `${summary.repeatCustomerRate.toFixed(1)}%`, color: 'text-cyan-600', bgColor: 'bg-cyan-100 dark:bg-cyan-900/30', icon: Percent }
     ];
 
     const growthMetrics = [
-      { label: 'Revenue Growth', value: `${num(data.revenueGrowth).toFixed(1)}%`, trend: num(data.revenueGrowth) >= 0 ? 'up' : 'down' },
-      { label: 'Order Growth', value: `${num(data.orderGrowth).toFixed(1)}%`, trend: num(data.orderGrowth) >= 0 ? 'up' : 'down' },
-      { label: 'Customer Growth', value: `${num(data.customerGrowth).toFixed(1)}%`, trend: num(data.customerGrowth) >= 0 ? 'up' : 'down' }
+      { label: 'Revenue Growth', value: summary.revenueGrowth, trend: (summary.revenueGrowth ?? 0) >= 0 ? 'up' : 'down' },
+      { label: 'Order Growth', value: summary.orderGrowth, trend: (summary.orderGrowth ?? 0) >= 0 ? 'up' : 'down' },
+      { label: 'Customer Growth', value: summary.customerGrowth, trend: (summary.customerGrowth ?? 0) >= 0 ? 'up' : 'down' }
     ];
 
     return (
@@ -1147,23 +1128,33 @@ const Analytics = () => {
           {growthMetrics.map((m, i) => (
             <div key={i} className="metric-tile bg-gray-50 dark:bg-gray-700/50">
               <p className="metric-tile-label">{m.label}</p>
-              <div className="flex items-center gap-2">
-                <p className={`text-lg font-bold ${m.trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>{m.value}</p>
-                <div className={`${m.trend === 'up' ? 'text-green-500' : 'text-red-500'}`}>
-                  {m.trend === 'up' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+              {m.value === null ? (
+                <p className="text-sm text-gray-400">No prior-period data</p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <p className={`text-lg font-bold ${m.trend === 'up' ? 'text-green-600' : 'text-red-600'}`}>
+                    {m.value >= 0 ? '+' : ''}{m.value.toFixed(1)}%
+                  </p>
+                  <div className={`${m.trend === 'up' ? 'text-green-500' : 'text-red-500'}`}>
+                    {m.trend === 'up' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ))}
         </div>
         <div className="metric-grid-2 mt-4">
           <div className="metric-tile bg-yellow-50 dark:bg-yellow-900/20">
             <p className="metric-tile-label">🏆 Top Product</p>
-            <p className="text-lg font-bold text-yellow-700 dark:text-yellow-300">{data.topProduct || 'N/A'}</p>
+            <p className="text-lg font-bold text-yellow-700 dark:text-yellow-300">
+              {productPerformance[0]?.product_name || 'N/A'}
+            </p>
           </div>
           <div className="metric-tile bg-pink-50 dark:bg-pink-900/20">
             <p className="metric-tile-label">⭐ Top Customer</p>
-            <p className="text-lg font-bold text-pink-700 dark:text-pink-300">{data.topCustomer || 'N/A'}</p>
+            <p className="text-lg font-bold text-pink-700 dark:text-pink-300">
+              {customerAnalytics[0]?.name || 'N/A'}
+            </p>
           </div>
         </div>
       </div>
@@ -1171,24 +1162,6 @@ const Analytics = () => {
   };
 
   const renderReportContent = () => {
-    if (reportLoading) {
-      return (
-        <div className="report-loading">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-          <span>Loading report...</span>
-        </div>
-      );
-    }
-
-    if (reportError) {
-      return (
-        <div className="report-error">
-          <AlertCircle className="w-12 h-12 mx-auto mb-3" />
-          <p>{reportError}</p>
-        </div>
-      );
-    }
-
     switch (reportType) {
       case 'monthlySales': return renderMonthlySales();
       case 'productPerformance': return renderProductPerformance();
@@ -1201,30 +1174,19 @@ const Analytics = () => {
   // ===== RENDER =====
   if (loading) return <LoadingSkeleton />;
 
-  const selectedCustomerRecord = Array.isArray(customers)
-    ? customers.find(c => String(c.CUS_ID || c.cus_id || c.id || c.ID) === String(selectedCustomer))
-    : null;
-
   return (
     <div className="analytics-container">
-      {/* Background Effects */}
       <AnimatedBackground />
       <FloatingIcons />
 
-      {/* Background Sync Indicator */}
-      {(isSyncing || isRefreshing) && (
+      {isRefreshing && (
         <div className="top-progress-bar" role="status" aria-label="Syncing dashboard data">
           <div className="top-progress-bar-fill" />
         </div>
       )}
 
-      {/* Toast Notification */}
       {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
+        <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
       )}
 
       {/* ===== HEADER ===== */}
@@ -1271,10 +1233,9 @@ const Analytics = () => {
               onChange={(e) => setDateRange(e.target.value)}
               className="header-select"
             >
-              <option value="last30days">Last 30 Days</option>
-              <option value="last90days">Last 90 Days</option>
-              <option value="last6months">Last 6 Months</option>
-              <option value="last12months">Last 12 Months</option>
+              {Object.entries(DATE_RANGES).map(([key, r]) => (
+                <option key={key} value={key}>{r.label}</option>
+              ))}
             </select>
 
             <button
@@ -1330,6 +1291,15 @@ const Analytics = () => {
             <Activity className="w-3 h-3 animate-pulse" aria-hidden="true" />
             <span>Last updated: {new Date().toLocaleTimeString()}</span>
           </div>
+          {summary.itemDetailCoverage < 100 && (
+            <>
+              <span className="w-px h-4 bg-white/20" aria-hidden="true"></span>
+              <span className="flex items-center gap-1 text-amber-200" title="Product-level revenue/profit is based on the most recent orders only">
+                <AlertCircle className="w-3 h-3" aria-hidden="true" />
+                Product data: {summary.itemDetailCoverage}% coverage for this range
+              </span>
+            </>
+          )}
           <span className="ml-auto flex items-center gap-1 text-indigo-200">
             <Shield className="w-3 h-3" aria-hidden="true" />
             Data encrypted
@@ -1338,27 +1308,27 @@ const Analytics = () => {
       </div>
 
       {/* ===== STATS GRID ===== */}
-      <div ref={statsRef} className={`stats-grid ${isSyncing ? 'stats-grid-syncing' : ''}`}>
+      <div ref={statsRef} className="stats-grid">
         {STAT_CARDS.map((card, index) => {
           let value, subtitle, trend;
           switch (card.id) {
             case 'revenue':
-              value = analyticsSummary.totalRevenue || 0;
-              subtitle = `${analyticsSummary.totalOrders || 0} orders`;
-              trend = analyticsSummary.revenueGrowth;
+              value = summary.totalRevenue;
+              subtitle = `${summary.totalOrders} orders`;
+              trend = summary.revenueGrowth;
               break;
             case 'orders':
-              value = analyticsSummary.totalOrders || 0;
-              subtitle = 'This month';
-              trend = analyticsSummary.orderGrowth;
+              value = summary.totalOrders;
+              subtitle = DATE_RANGES[dateRange].label;
+              trend = summary.orderGrowth;
               break;
             case 'products':
-              value = analyticsSummary.totalProducts || 0;
-              subtitle = 'Unique products';
+              value = summary.totalProductsSold;
+              subtitle = 'Distinct products sold';
               trend = null;
               break;
             case 'avgOrder':
-              value = analyticsSummary.averageOrderValue || 0;
+              value = summary.averageOrderValue;
               subtitle = 'Per order';
               trend = null;
               break;
@@ -1414,18 +1384,18 @@ const Analytics = () => {
               <div className="chart-card-header">
                 <h2 className="chart-title">
                   <BarChart3 className="w-5 h-5 text-indigo-600" aria-hidden="true" />
-                  Monthly Revenue & Orders
+                  Revenue &amp; Orders — {DATE_RANGES[dateRange].label}
                 </h2>
                 <span className="chart-badge">
                   <Zap className="w-3 h-3 animate-pulse" aria-hidden="true" />
-                  {customers.length} Customers
+                  {summary.totalCustomersInRange} Customers
                 </span>
               </div>
-              {monthlyData.length === 0 ? (
-                <div className="empty-state h-64">No data available</div>
+              {monthlyChartData.length === 0 || summary.totalOrders === 0 ? (
+                <div className="empty-state h-64">No orders in this date range</div>
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
-                  <ComposedChart data={monthlyData}>
+                  <ComposedChart data={monthlyChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
                     <XAxis dataKey="month" stroke="#9ca3af" fontSize={12} />
                     <YAxis yAxisId="left" stroke="#9ca3af" fontSize={12} />
@@ -1433,7 +1403,7 @@ const Analytics = () => {
                     <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => name === 'Orders' ? value : formatCurrency(value)} />
                     <Legend />
                     <Bar yAxisId="left" dataKey="revenue" fill="#6366f1" name="Revenue ($)" radius={[4, 4, 0, 0]}>
-                      {monthlyData.map((entry, index) => (
+                      {monthlyChartData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Bar>
@@ -1448,13 +1418,13 @@ const Analytics = () => {
                 <PieChartIcon className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                 Revenue Distribution
               </h2>
-              {monthlyData.length === 0 ? (
-                <div className="empty-state h-64">No data available</div>
+              {monthlyChartData.length === 0 || summary.totalOrders === 0 ? (
+                <div className="empty-state h-64">No orders in this date range</div>
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
                   <PieChart>
                     <Pie
-                      data={monthlyData.slice(0, 6)}
+                      data={monthlyChartData.filter(d => d.revenue > 0)}
                       dataKey="revenue"
                       nameKey="month"
                       cx="50%"
@@ -1463,7 +1433,7 @@ const Analytics = () => {
                       outerRadius={80}
                       paddingAngle={2}
                     >
-                      {monthlyData.slice(0, 6).map((entry, index) => (
+                      {monthlyChartData.filter(d => d.revenue > 0).map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -1482,20 +1452,20 @@ const Analytics = () => {
                 Yearly Revenue Overview
               </h2>
               <span className="chart-badge">
-                {yearlyData.length} years tracked
+                {yearlyChartData.length} years tracked
               </span>
             </div>
-            {yearlyData.length === 0 ? (
-              <div className="empty-state h-64">No data available</div>
+            {yearlyChartData.length === 0 ? (
+              <div className="empty-state h-64">No order history available yet</div>
             ) : (
               <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={yearlyData}>
+                <AreaChart data={yearlyChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
                   <XAxis dataKey="year" stroke="#9ca3af" fontSize={12} />
                   <YAxis stroke="#9ca3af" fontSize={12} />
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => formatCurrency(value)} />
                   <Area type="monotone" dataKey="revenue" stroke="#6366f1" fill="#818cf8" fillOpacity={0.3}>
-                    {yearlyData.map((entry, index) => (
+                    {yearlyChartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Area>
@@ -1515,7 +1485,7 @@ const Analytics = () => {
                 <Award className="w-5 h-5 text-indigo-600" aria-hidden="true" />
                 Top Selling Products
                 <span className="chart-count">
-                  ({filteredProducts.length} of {topProducts.length})
+                  ({filteredProducts.length} of {productPerformance.length})
                 </span>
               </h2>
               <div className="search-wrapper">
@@ -1528,7 +1498,7 @@ const Analytics = () => {
                   className="search-input"
                 />
                 {searchQuery && (
-                  <button 
+                  <button
                     onClick={() => setSearchQuery('')}
                     className="search-clear"
                     aria-label="Clear search"
@@ -1546,13 +1516,13 @@ const Analytics = () => {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={filteredProducts} layout="vertical">
+                <BarChart data={filteredProducts.slice(0, 15)} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
                   <XAxis type="number" stroke="#9ca3af" fontSize={12} />
                   <YAxis type="category" dataKey="product_name" stroke="#9ca3af" fontSize={12} width={100} />
                   <Tooltip contentStyle={chartTooltipStyle} />
                   <Bar dataKey="total_sold" fill="#6366f1" radius={[0, 4, 4, 0]}>
-                    {filteredProducts.map((entry, index) => (
+                    {filteredProducts.slice(0, 15).map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Bar>
@@ -1566,15 +1536,15 @@ const Analytics = () => {
               <Package className="w-5 h-5 text-indigo-600" aria-hidden="true" />
               Product Performance
             </h2>
-            {topProducts.length === 0 ? (
+            {productPerformance.length === 0 ? (
               <div className="empty-state">
                 <Package className="empty-icon" aria-hidden="true" />
                 <p>No product data available</p>
               </div>
             ) : (
               <div className="product-list">
-                {topProducts.slice(0, 5).map((product, index) => (
-                  <div key={index} className="product-item">
+                {productPerformance.slice(0, 5).map((product, index) => (
+                  <div key={product.product_id ?? index} className="product-item">
                     <div className="product-item-left">
                       <div className={`product-rank ${index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-default'}`}>
                         {index + 1}
@@ -1583,27 +1553,20 @@ const Analytics = () => {
                         <p className="product-name">{product.product_name}</p>
                         <p className="product-meta">
                           <span>Sold: {num(product.total_sold)} units</span>
-                          {!!product.growth && (
-                            <span className={`product-growth ${product.growth > 0 ? 'positive' : 'negative'}`}>
-                              {product.growth > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                              {Math.abs(product.growth)}%
-                            </span>
-                          )}
                         </p>
                       </div>
                     </div>
                     <div className="product-item-right">
                       <p className="product-revenue">{formatCurrency(product.revenue || 0)}</p>
                       <p className="product-rating">
-                        <Star className="w-3 h-3 text-yellow-500" aria-hidden="true" />
-                        {product.rating || 'N/A'}
+                        {product.marginPct}% margin
                       </p>
                     </div>
                   </div>
                 ))}
-                {topProducts.length > 5 && (
+                {productPerformance.length > 5 && (
                   <div className="product-more">
-                    +{topProducts.length - 5} more products
+                    +{productPerformance.length - 5} more products
                   </div>
                 )}
               </div>
@@ -1627,12 +1590,10 @@ const Analytics = () => {
             <label className="sr-only" htmlFor="customer-select">Select a customer</label>
             <select id="customer-select" value={selectedCustomer} onChange={handleCustomerSelect} className="customer-select">
               <option value="">Select a customer</option>
-              {Array.isArray(customers) && customers.map((c) => {
-                const id = c.CUS_ID || c.cus_id || c.id || c.ID;
-                const firstName = c.FIRST_NAME || c.first_name || '';
-                const lastName = c.LAST_NAME || c.last_name || '';
-                const fullName = `${firstName} ${lastName}`.trim() || 'Unknown';
-                const phone = c.PHONE || c.phone || '';
+              {customers.map((c) => {
+                const id = c.id ?? c.cus_id;
+                const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
+                const phone = c.phone || '';
                 return (
                   <option key={id} value={id}>
                     {fullName} {phone ? `- ${phone}` : ''}
@@ -1646,16 +1607,16 @@ const Analytics = () => {
                 <div className="customer-info-content">
                   <div className="customer-avatar">
                     {(() => {
-                      const firstName = selectedCustomerRecord?.FIRST_NAME || selectedCustomerRecord?.first_name || '';
-                      const lastName = selectedCustomerRecord?.LAST_NAME || selectedCustomerRecord?.last_name || '';
+                      const firstName = selectedCustomerRecord?.first_name || '';
+                      const lastName = selectedCustomerRecord?.last_name || '';
                       return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '?';
                     })()}
                   </div>
                   <div>
                     <p className="customer-name">
                       {(() => {
-                        const firstName = selectedCustomerRecord?.FIRST_NAME || selectedCustomerRecord?.first_name || '';
-                        const lastName = selectedCustomerRecord?.LAST_NAME || selectedCustomerRecord?.last_name || '';
+                        const firstName = selectedCustomerRecord?.first_name || '';
+                        const lastName = selectedCustomerRecord?.last_name || '';
                         return `${firstName} ${lastName}`.trim() || 'Unknown';
                       })()}
                     </p>
@@ -1670,29 +1631,24 @@ const Analytics = () => {
             <h2 className="chart-title">
               <Clock className="w-5 h-5 text-indigo-600" aria-hidden="true" />
               Purchase History
-              {Array.isArray(customerHistory) && customerHistory.length > 0 && (
+              {customerHistory.length > 0 && (
                 <span className="history-count">
                   ({customerHistory.length} orders)
                 </span>
               )}
             </h2>
 
-            {customerHistoryLoading ? (
-              <div className="loading-history">
-                <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
-                <span>Loading history...</span>
-              </div>
-            ) : !Array.isArray(customerHistory) || customerHistory.length === 0 ? (
+            {!selectedCustomer ? (
               <div className="empty-history">
                 <User className="empty-history-icon" aria-hidden="true" />
-                <p className="empty-history-title">
-                  {selectedCustomer ? 'No purchase history found' : 'No customer selected'}
-                </p>
-                <p className="empty-history-subtext">
-                  {selectedCustomer
-                    ? 'This customer has no orders yet'
-                    : 'Select a customer to view their purchase history'}
-                </p>
+                <p className="empty-history-title">No customer selected</p>
+                <p className="empty-history-subtext">Select a customer to view their purchase history</p>
+              </div>
+            ) : customerHistory.length === 0 ? (
+              <div className="empty-history">
+                <User className="empty-history-icon" aria-hidden="true" />
+                <p className="empty-history-title">No purchase history found</p>
+                <p className="empty-history-subtext">This customer has no orders yet</p>
               </div>
             ) : (
               <div className="history-table-container">
@@ -1707,20 +1663,16 @@ const Analytics = () => {
                   </thead>
                   <tbody className="history-tbody">
                     {customerHistory.map((order, index) => {
-                      const status = order.STATUS || order.status || 'Pending';
+                      const status = order.status || 'Pending';
                       return (
-                        <tr key={order.ORDER_NO || order.order_no || `order-${index}`} className="history-tr" style={{ animationDelay: `${index * 50}ms` }}>
-                          <td className="history-td order-id">
-                            {order.ORDER_NO || order.order_no || 'N/A'}
-                          </td>
+                        <tr key={order.id ?? order.order_no ?? `order-${index}`} className="history-tr" style={{ animationDelay: `${index * 50}ms` }}>
+                          <td className="history-td order-id">{order.order_no || 'N/A'}</td>
                           <td className="history-td order-date">
-                            {order.ORDER_DATE || order.order_date
-                              ? new Date(order.ORDER_DATE || order.order_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                            {order.date
+                              ? new Date(order.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
                               : 'N/A'}
                           </td>
-                          <td className="history-td text-right order-amount">
-                            {formatCurrency(order.amount || order.AMOUNT_US || 0)}
-                          </td>
+                          <td className="history-td text-right order-amount">{formatCurrency(order.total)}</td>
                           <td className="history-td text-center">
                             <span className={`status-badge ${
                               status === 'Completed' ? 'status-completed'
@@ -1757,7 +1709,7 @@ const Analytics = () => {
             ].map((report) => (
               <button
                 key={report.id}
-                onClick={() => handleReportTypeChange(report.id)}
+                onClick={() => setReportType(report.id)}
                 className={`report-tab ${reportType === report.id ? `report-tab-active report-tab-${report.color}` : ''}`}
                 aria-pressed={reportType === report.id}
               >
@@ -1785,18 +1737,16 @@ const Analytics = () => {
                 {reportType === 'customerAnalytics' && 'Customer Analytics Report'}
                 {reportType === 'revenueSummary' && 'Revenue Summary Report'}
               </h2>
-              {reportData && (
-                <div className="report-actions">
-                  <button onClick={exportReport} className="export-report-btn">
-                    <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />
-                    CSV
-                  </button>
-                  <button onClick={() => window.print()} className="print-report-btn">
-                    <Printer className="w-4 h-4" aria-hidden="true" />
-                    Print
-                  </button>
-                </div>
-              )}
+              <div className="report-actions">
+                <button onClick={exportReport} className="export-report-btn">
+                  <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />
+                  CSV
+                </button>
+                <button onClick={() => window.print()} className="print-report-btn">
+                  <Printer className="w-4 h-4" aria-hidden="true" />
+                  Print
+                </button>
+              </div>
             </div>
             <div className="report-content">
               {renderReportContent()}
@@ -1827,4 +1777,4 @@ const Analytics = () => {
   );
 };
 
-export default Analytics; 
+export default Analytics;
