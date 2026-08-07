@@ -1,49 +1,40 @@
-// frontend/src/components/KHQRPayment.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
+import apiClient from '../api/client';
 
-const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
+const QRPayment = ({ amount, orderId, userId, plan, onSuccess, onCancel }) => {
   const [qrData, setQrData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes in seconds
+  const [timeLeft, setTimeLeft] = useState(300);
   const [sessionId, setSessionId] = useState(null);
-  const [status, setStatus] = useState('pending'); // pending, paid, expired
+  const [status, setStatus] = useState('pending');
   const [checking, setChecking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
-  // Load QR data
-  const loadQR = async () => {
-    setLoading(true);
-    setStatus('pending');
-    try {
-      const response = await fetch(
-        `/api/payment/khqr?amount=${amount}&orderId=${orderId}`
-      );
-      const data = await response.json();
-      setQrData(data);
-      setSessionId(data.sessionId);
-      setTimeLeft(data.expiresIn || 300);
-      
-      // Start timer
-      startTimer();
-      
-      // Start status checking
-      startStatusCheck(data.sessionId);
-    } catch (error) {
-      console.error('Error loading QR:', error);
-      toast.error('Failed to load payment information');
-    }
-    setLoading(false);
+  const timerIntervalRef = useRef(null);
+  const pollIntervalRef = useRef(null);
+  const pollStopTimeoutRef = useRef(null);
+  const isMounted = useRef(true);
+
+  const clearAllTimers = () => {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (pollStopTimeoutRef.current) clearTimeout(pollStopTimeoutRef.current);
+    timerIntervalRef.current = null;
+    pollIntervalRef.current = null;
+    pollStopTimeoutRef.current = null;
   };
 
-  // Timer for expiry
   const startTimer = () => {
-    const timer = setInterval(() => {
+    timerIntervalRef.current = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
-          setStatus('expired');
-          toast.error('QR code expired. Please generate a new one.');
+          clearInterval(timerIntervalRef.current);
+          if (isMounted.current) {
+            setStatus('expired');
+            toast.error('QR code expired. Please generate a new one.');
+          }
           return 0;
         }
         return prev - 1;
@@ -51,55 +42,80 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
     }, 1000);
   };
 
-  // Check payment status periodically
   const startStatusCheck = (id) => {
     setChecking(true);
-    const interval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       try {
-        const response = await fetch(`/api/payment/status/${id}`);
-        const data = await response.json();
-        
+        const { data } = await apiClient.get(`/payment/status/${id}`);
+
+        if (!isMounted.current) return;
+
         if (data.success && data.status === 'paid') {
-          clearInterval(interval);
+          clearInterval(pollIntervalRef.current);
           setChecking(false);
           setStatus('paid');
           toast.success('✅ Payment confirmed!');
           setTimeout(() => onSuccess?.(), 1000);
         } else if (data.status === 'expired') {
-          clearInterval(interval);
+          clearInterval(pollIntervalRef.current);
           setChecking(false);
           setStatus('expired');
           toast.error('QR code has expired');
+        } else if (data.status === 'awaiting_verification') {
+          setStatus('awaiting_verification');
         }
       } catch (error) {
         console.error('Status check error:', error);
       }
-    }, 3000); // Check every 3 seconds
+    }, 3000);
 
-    // Stop checking after 5 minutes
-    setTimeout(() => {
-      clearInterval(interval);
-      setChecking(false);
+    pollStopTimeoutRef.current = setTimeout(() => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (isMounted.current) setChecking(false);
     }, 5 * 60 * 1000);
   };
 
-  // Load QR on mount
+  const loadQR = useCallback(async () => {
+    clearAllTimers();
+    setLoading(true);
+    setStatus('pending');
+    try {
+      const { data } = await apiClient.get('/payment/khqr', {
+        params: { amount, orderId, userId, plan },
+      });
+
+      if (!isMounted.current) return;
+
+      setQrData(data);
+      setSessionId(data.sessionId);
+      setTimeLeft(data.expiresIn || 300);
+
+      startTimer();
+      startStatusCheck(data.sessionId);
+    } catch (error) {
+      console.error('Error loading QR:', error);
+      toast.error(error.response?.data?.error || 'Failed to load payment information');
+    }
+    if (isMounted.current) setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, orderId, userId, plan]);
+
   useEffect(() => {
+    isMounted.current = true;
     loadQR();
     return () => {
-      // Cleanup
-      setStatus('expired');
+      isMounted.current = false;
+      clearAllTimers();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Format time
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Copy account number
   const copyAccount = (account) => {
     navigator.clipboard.writeText(account);
     setCopied(true);
@@ -107,42 +123,37 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
     setTimeout(() => setCopied(false), 3000);
   };
 
-  // Manual payment confirmation
   const confirmPayment = async () => {
     if (!sessionId) {
       toast.error('No active payment session');
       return;
     }
 
+    setConfirming(true);
     try {
-      const response = await fetch('/api/payment/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
-
-      const data = await response.json();
+      const { data } = await apiClient.post('/payment/confirm', { sessionId });
 
       if (data.success) {
-        toast.success('✅ Payment confirmed! Processing...');
-        setStatus('paid');
-        setTimeout(() => onSuccess?.(), 1000);
+        setStatus('awaiting_verification');
+        toast.success(data.message || 'Payment noted — verifying now.');
       } else {
         toast.error(data.message || 'Payment confirmation failed');
-        if (data.message?.includes('expired')) {
-          setStatus('expired');
-        }
       }
     } catch (error) {
       console.error('Confirm payment error:', error);
-      toast.error('Failed to confirm payment');
+      const message = error.response?.data?.message;
+      toast.error(message || 'Failed to confirm payment');
+      if (message?.includes('expired')) {
+        setStatus('expired');
+      }
+    } finally {
+      setConfirming(false);
     }
   };
 
-  // Regenerate QR
   const regenerateQR = () => {
     loadQR();
-    toast.info('🔄 Generating new QR code...');
+    toast('🔄 Generating new QR code...');
   };
 
   if (loading) {
@@ -153,7 +164,6 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
     );
   }
 
-  // Expired state
   if (status === 'expired') {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl max-w-md mx-auto text-center">
@@ -172,7 +182,6 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
     );
   }
 
-  // Paid state
   if (status === 'paid') {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl max-w-md mx-auto text-center">
@@ -181,6 +190,25 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
         <p className="text-gray-600 dark:text-gray-400 mt-2">
           Your order has been confirmed.
         </p>
+      </div>
+    );
+  }
+
+  if (status === 'awaiting_verification') {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-xl max-w-md mx-auto text-center">
+        <div className="text-6xl mb-4">⏳</div>
+        <h3 className="text-xl font-bold text-blue-600">Verifying Your Payment</h3>
+        <p className="text-gray-600 dark:text-gray-400 mt-2">
+          We're checking your payment against our account. This page will update
+          automatically — no need to refresh.
+        </p>
+        <button
+          onClick={onCancel}
+          className="mt-4 text-gray-500 hover:text-gray-700 text-sm border rounded-lg px-4 py-2"
+        >
+          Close
+        </button>
       </div>
     );
   }
@@ -196,7 +224,6 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
         </span>
       </p>
 
-      {/* Timer */}
       <div className="text-center mb-4">
         <div className="inline-flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-4 py-2 rounded-full">
           <span className="text-sm text-gray-600 dark:text-gray-400">⏱️ Expires in:</span>
@@ -206,7 +233,6 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
         </div>
       </div>
 
-      {/* QR Code */}
       {qrData?.khqr && (
         <div className="flex justify-center mb-6">
           <div className="bg-white p-4 rounded-xl border-2 border-blue-200">
@@ -219,7 +245,6 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
         </div>
       )}
 
-      {/* Payment Info */}
       <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-6 space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-gray-600 dark:text-gray-400">Merchant</span>
@@ -249,7 +274,6 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
         </div>
       </div>
 
-      {/* Instructions */}
       <div className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">
         <p>📱 Scan with <strong>ABA Mobile</strong> or <strong>Bakong</strong> app</p>
         <p className="mt-1">💰 Transfer the exact amount shown above</p>
@@ -261,14 +285,13 @@ const QRPayment = ({ amount, orderId, onSuccess, onCancel }) => {
         )}
       </div>
 
-      {/* Action Buttons */}
       <div className="space-y-3">
         <button
           onClick={confirmPayment}
-          disabled={status === 'paid'}
+          disabled={confirming}
           className="w-full bg-green-600 text-white py-3 rounded-xl hover:bg-green-700 transition disabled:opacity-50"
         >
-          ✅ I Have Paid
+          {confirming ? 'Submitting...' : '✅ I Have Paid'}
         </button>
 
         <div className="flex gap-3">

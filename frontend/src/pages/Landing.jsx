@@ -1,4 +1,4 @@
-// frontend/src/pages/Landing.jsx - Fixed Version
+// frontend/src/pages/Landing.jsx - Complete Fixed Version
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -112,7 +112,7 @@ const formatNumber = (value) =>
 // ============================================================
 
 const Landing = () => {
-  const { user, logout } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   // ─── STATE ───
@@ -135,6 +135,11 @@ const Landing = () => {
   const [isNewsletterLoading, setIsNewsletterLoading] = useState(false);
   const [hoveredCard, setHoveredCard] = useState(null);
   const [openFaqs, setOpenFaqs] = useState({});
+  
+  // ─── SUBSCRIPTION STATE ───
+  const [userSubscription, setUserSubscription] = useState(null);
+  const [isCheckingSubscription, setIsCheckingSubscription] = useState(true);
+  const [subscriptionError, setSubscriptionError] = useState(false);
 
   // ===== AI ASSISTANT STATE =====
   const [showAiChat, setShowAiChat] = useState(false);
@@ -155,6 +160,87 @@ const Landing = () => {
     'Do you offer support?',
     'Is there a free trial?'
   ]);
+
+  // ─── CHECK USER SUBSCRIPTION ───
+useEffect(() => {
+  const checkSubscription = async () => {
+    // If auth is still loading, wait
+    if (authLoading) {
+      console.log('⏳ Auth still loading...');
+      return;
+    }
+
+    // If no user, set subscription to null and finish
+    if (!user) {
+      console.log('👤 No user logged in');
+      setUserSubscription(null);
+      setIsCheckingSubscription(false);
+      return;
+    }
+
+    console.log('🔍 Checking subscription for user:', user.user_id);
+    
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.warn('⚠️ No token found');
+        // FIX: previously fabricated a fake active "Market Stall"
+        // subscription here. That made hasActivePlan()/getPlanButton()
+        // treat the user as already subscribed, permanently disabling
+        // the "Choose Shophouse"/"Choose Chain" buttons (they rendered
+        // as a disabled "Current: Market Stall" instead). No token means
+        // we don't actually know their subscription — leave it null so
+        // the real subscribe flow (→ /pricing) stays available.
+        setUserSubscription(null);
+        setIsCheckingSubscription(false);
+        return;
+      }
+
+      // ✅ Use the same API_URL as client.js
+      const API_URL = 'https://spms-backend-pro.onrender.com/api';
+      const response = await fetch(`${API_URL}/users/${user.user_id}/subscription`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Subscription data:', data);
+        setUserSubscription(data);
+        setSubscriptionError(false);
+      } else if (response.status === 404) {
+        // FIX: same issue — a 404 here means "this user has no
+        // subscription record yet", which is the normal state for
+        // anyone who hasn't paid. It is not the same as "actively
+        // subscribed to the free plan". Fabricating an active
+        // subscription blocked the real subscribe buttons; null lets
+        // them work.
+        console.log('📋 No subscription found — user has not subscribed yet');
+        setUserSubscription(null);
+        setSubscriptionError(false);
+      } else {
+        console.error('❌ Subscription API error:', response.status);
+        // FIX: a transient API error is not evidence the user has an
+        // active plan either — don't invent one.
+        setUserSubscription(null);
+        setSubscriptionError(true);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching subscription:', error.message);
+      // FIX: same — a network/fetch failure tells us nothing about the
+      // user's plan. Leave it null instead of assuming Market Stall is
+      // active.
+      setUserSubscription(null);
+      setSubscriptionError(true);
+    }
+    
+    setIsCheckingSubscription(false);
+  };
+
+  checkSubscription();
+}, [user, authLoading]);
 
   // ===== AI RESPONSES =====
   const aiResponses = {
@@ -270,10 +356,11 @@ const Landing = () => {
     { name: 'Sreymom Kong', role: 'Founder, Kong Family Restaurant', content: 'My staff learned the till in a day. The reports are the first thing my accountant asks for now.', initials: 'SK', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Sreymom+Kong&background=6366f1&color=fff&size=60' },
   ];
 
+  // ─── FIXED PLANS WITH PLAN IDs ───
   const PLANS = [
-    { name: 'Market Stall', price: '$0', period: '/month', description: 'One counter, kept honest', features: ['1 staff account', '150 sales/month', 'Basic daily report', 'Community support'], highlight: false },
-    { name: 'Shophouse', price: '$19', period: '/month', description: 'Most Cambodian SMEs start here', features: ['5 staff accounts', 'Unlimited sales', 'Inventory + supplier tracking', 'Khmer & English reports', 'ABA / Wing payment tracking', 'Priority Telegram support'], highlight: true },
-    { name: 'Chain', price: '$49', period: '/month', description: 'For multi-branch operators', features: ['Unlimited staff', 'Multi-branch dashboard', 'Custom reports & exports', 'API access', 'Dedicated onboarding'], highlight: false },
+    { id: 'market-stall', name: 'Market Stall', price: '$0', period: '/month', description: 'One counter, kept honest', features: ['1 staff account', '150 sales/month', 'Basic daily report', 'Community support'], highlight: false },
+    { id: 'shophouse', name: 'Shophouse', price: '$19', period: '/month', description: 'Most Cambodian SMEs start here', features: ['5 staff accounts', 'Unlimited sales', 'Inventory + supplier tracking', 'Khmer & English reports', 'ABA / Wing payment tracking', 'Priority Telegram support'], highlight: true },
+    { id: 'chain', name: 'Chain', price: '$49', period: '/month', description: 'For multi-branch operators', features: ['Unlimited staff', 'Multi-branch dashboard', 'Custom reports & exports', 'API access', 'Dedicated onboarding'], highlight: false },
   ];
 
   const FAQS = [
@@ -375,7 +462,14 @@ const Landing = () => {
     );
     document.querySelectorAll('.kf-reveal').forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, []);
+  // FIX: this used to run once on first mount ([] deps) — which is the
+  // loading-spinner render, before any .kf-reveal markup (feature cards,
+  // steps, pricing cards) exists in the DOM yet. querySelectorAll found
+  // nothing to observe, so isVisible[...] never got set once the real
+  // page mounted, and those elements stayed permanently opacity:0/hidden
+  // no matter how far you scrolled. Re-running this when the loading
+  // gate clears makes it scan the DOM that's actually there.
+  }, [authLoading, isCheckingSubscription]);
 
   // ─── TESTIMONIAL ROTATOR ───
   useEffect(() => {
@@ -456,15 +550,20 @@ const Landing = () => {
   };
 
   // ─── HANDLERS ───
-  const handleLogout = useCallback(() => {
-    logout();
-    navigate('/');
-  }, [logout, navigate]);
-
   const goToDashboard = useCallback(() => {
     setProfileOpen(false);
     setMenuOpen(false);
     navigate('/dashboard');
+  }, [navigate]);
+
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('tenant');
+    setProfileOpen(false);
+    setMenuOpen(false);
+    navigate('/');
+    window.location.reload();
   }, [navigate]);
 
   const scrollToSection = useCallback((id) => {
@@ -524,6 +623,62 @@ const Landing = () => {
     return [...Array(5)].map((_, i) => (
       <Star key={i} className="w-4 h-4" style={{ fill: i < count ? 'var(--kf-gold)' : 'none', color: i < count ? 'var(--kf-gold)' : 'rgba(255,255,255,0.2)' }} />
     ));
+  };
+
+  // ─── HELPER: Check if user has this plan active ───
+  const hasActivePlan = (planId) => {
+    return user && 
+           userSubscription && 
+           userSubscription.status === 'active' && 
+           userSubscription.plan === planId;
+  };
+
+  // ─── HELPER: Get button text for plan ───
+  const getPlanButton = (plan) => {
+    // If user has this exact plan active
+    if (hasActivePlan(plan.id)) {
+      return {
+        text: 'Go to Dashboard',
+        action: goToDashboard,
+        className: 'kf-btn-primary w-full justify-center',
+        isActive: true
+      };
+    }
+
+    // If user has a different active plan
+    if (user && userSubscription && userSubscription.status === 'active' && userSubscription.plan !== plan.id) {
+      return {
+        text: `Current: ${userSubscription.planName}`,
+        action: null,
+        className: 'kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60',
+        isActive: false,
+        isDisabled: true
+      };
+    }
+
+    // Not logged in at all → must create an account first, same as before
+    if (!user) {
+      return {
+        text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`,
+        action: () => navigate('/register'),
+        className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center',
+        isActive: false,
+        isDisabled: false
+      };
+    }
+
+    // FIX: logged in, no active plan yet → this used to ALSO send the
+    // user to /register, a dead end for someone already registered, and
+    // it never reached the real checkout (Stripe/KHQR choice) that lives
+    // in Pricing.jsx. Now it sends them to the actual pricing page, which
+    // is the only place that flow exists.
+    return {
+      text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`,
+      action: () => navigate('/pricing'),
+      className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center',
+      isActive: false,
+      isDisabled: false
+    };
   };
 
   // ===== RENDER AI CHAT WIDGET =====
@@ -660,14 +815,24 @@ const Landing = () => {
     </div>
   );
 
+  // ─── LOADING STATE ───
+  if (authLoading || (user && isCheckingSubscription)) {
+    return (
+      <div className="kf-root min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">
+            {authLoading ? 'Loading...' : 'Checking subscription...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="kf-root min-h-screen overflow-x-hidden">
 
       {/* ================= GLOBAL COSMIC BACKGROUND ================= */}
-      {/* Fixed to the viewport — sits behind the nav, hero, every       */}
-      {/* section, and the footer. Mounted once here, not per-section,  */}
-      {/* so it never scrolls away: content glides over it as the page  */}
-      {/* scrolls, which reads as smooth continuous motion.             */}
       <div className="kf-cosmic-bg" aria-hidden="true">
         <div className="kf-stars">
           <div className="kf-star-layer kf-star-layer-1" />
@@ -1068,44 +1233,78 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* ================= PRICING ================= */}
+      {/* ================= PRICING - FIXED ================= */}
       <section id="pricing" className="kf-section-alt kf-anchor">
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24">
           <div className="max-w-2xl mb-16 mx-auto text-center">
             <span className="kf-eyebrow kf-eyebrow-light">Simple pricing, in dollars</span>
             <h2 className="kf-display kf-h2 mt-4">Priced for a first shop, ready for ten</h2>
+            {user && userSubscription && userSubscription.status === 'active' && (
+              <div className="mt-4 inline-flex items-center gap-2 bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-full text-sm text-green-600 dark:text-green-400">
+                <CheckCircle className="w-4 h-4" />
+                <span>Currently on the <strong>{userSubscription.planName}</strong> plan</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto items-stretch">
-            {PLANS.map((plan, i) => (
-              <div key={i} id={`plan-${i}`} className={`kf-plan kf-reveal ${plan.highlight ? 'kf-plan-highlight' : ''} ${isVisible[`plan-${i}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 100}ms` }} onMouseMove={handleCardMove}>
-                {plan.highlight && <span className="kf-plan-badge">Most popular</span>}
-                <h3 className="kf-display kf-plan-name">{plan.name}</h3>
-                <p className="kf-caption mb-6">{plan.description}</p>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="kf-mono kf-plan-price">{plan.price}</span>
-                  <span className="kf-caption">{plan.period}</span>
+            {PLANS.map((plan, i) => {
+              const isActive = hasActivePlan(plan.id);
+              const buttonInfo = getPlanButton(plan);
+              
+              return (
+                <div key={i} id={`plan-${i}`} className={`kf-plan kf-reveal ${plan.highlight ? 'kf-plan-highlight' : ''} ${isActive ? 'kf-plan-active' : ''} ${isVisible[`plan-${i}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 100}ms` }} onMouseMove={handleCardMove}>
+                  {plan.highlight && !isActive && <span className="kf-plan-badge">Most popular</span>}
+                  {isActive && <span className="kf-plan-badge kf-plan-badge-active">✓ Active</span>}
+                  
+                  <h3 className="kf-display kf-plan-name">{plan.name}</h3>
+                  <p className="kf-caption mb-6">{plan.description}</p>
+                  <div className="flex items-baseline gap-1 mb-6">
+                    <span className="kf-mono kf-plan-price">{plan.price}</span>
+                    <span className="kf-caption">{plan.period}</span>
+                  </div>
+                  <ul className="space-y-3 mb-8">
+                    {plan.features.map((f, j) => (
+                      <li key={j} className="flex items-start gap-2 kf-body text-sm">
+                        <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: isActive ? '#22c55e' : 'var(--kf-gold)' }} aria-hidden="true" />
+                        <span className={isActive ? 'text-green-600 dark:text-green-400' : ''}>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  
+                  {/* FIXED: Button logic based on subscription */}
+                  {buttonInfo.isDisabled ? (
+                    <button 
+                      disabled 
+                      className="kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60"
+                      title={`You are currently on the ${userSubscription?.planName} plan`}
+                    >
+                      {buttonInfo.text}
+                    </button>
+                  ) : buttonInfo.isActive ? (
+                    <button onClick={buttonInfo.action} className={buttonInfo.className}>
+                      <LayoutDashboard className="w-4 h-4" aria-hidden="true" />
+                      {buttonInfo.text}
+                    </button>
+                  ) : (
+                    <button onClick={buttonInfo.action} className={buttonInfo.className}>
+                      {buttonInfo.text}
+                      <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
-                <ul className="space-y-3 mb-8">
-                  {plan.features.map((f, j) => (
-                    <li key={j} className="flex items-start gap-2 kf-body text-sm">
-                      <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: 'var(--kf-gold)' }} aria-hidden="true" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                {user ? (
-                  <button onClick={goToDashboard} className={plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center'}>
-                    Go to Dashboard
-                  </button>
-                ) : (
-                  <Link to="/register" className={plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center'}>
-                    Choose {plan.name}
-                  </Link>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          {/* Show upgrade message if user has a plan but wants to upgrade */}
+          {user && userSubscription && userSubscription.status === 'active' && (
+            <div className="mt-8 text-center">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Want to switch plans? Contact our support team to upgrade or downgrade your subscription.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -1184,7 +1383,6 @@ const Landing = () => {
               <p className="kf-caption mt-3 max-w-[20ch]">Point of sale &amp; inventory for Cambodian small business.</p>
               <div className="flex gap-3 mt-4">
                 <a href="#" className="kf-social-link" aria-label="Twitter"><TwitterIcon className="w-4 h-4" /></a>
-                {/* <a href="#" className="kf-social-link" aria-label="YouTube"><YoutubeIcon className="w-4 h-4" /></a> */}
                 <a href="https://www.linkedin.com/in/chheang-samnang-b95825406?utm_source=share_via&utm_content=profile&utm_medium=member_ios" className="kf-social-link" aria-label="LinkedIn"><LinkedInIcon className="w-4 h-4" /></a>
                 <a href="https://t.me/+855979325903" className="kf-social-link" aria-label="Telegram"><Send className="w-4 h-4" /></a>
               </div>
@@ -1220,7 +1418,6 @@ const Landing = () => {
           <div className="kf-footer-rule mt-12 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
             <span className="kf-caption">© 2026 KhmerFlow.SPMS. 🇰🇭</span>
             <div className="flex gap-6">
-              
               <a href="#" className="kf-footer-link">Twitter</a>
               <a href="#" className="kf-footer-link">YouTube</a>
               <a href="https://www.linkedin.com/in/chheang-samnang-b95825406?utm_source=share_via&utm_content=profile&utm_medium=member_ios" className="kf-footer-link">LinkedIn</a>

@@ -2,6 +2,7 @@
 // ✅ app.js - COMPLETE WORKING VERSION
 // WITH SUPER ADMIN & MULTI-TENANT SUPPORT
 // INCLUDES HEALTH CHECK FOR RENDER
+// KHQR PAYMENT HANDLED BY routes/paymentRoutes.js
 // ============================================
 
 require("dotenv").config();
@@ -15,10 +16,9 @@ const bodyParser = require("body-parser");
 const morgan = require("morgan");
 const compression = require("compression");
 const jwt = require("jsonwebtoken");
-const QRCode = require("qrcode");
-const crypto = require("crypto");
 const ExcelJS = require("exceljs");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 // ============================================
 // IMPORT ROUTES
 // ============================================
@@ -32,6 +32,7 @@ const userRoutes = require('./routes/users');
 const stockRoutes = require('./routes/stock');
 const tenantRoutes = require('./routes/tenants');
 const categoryRoutes = require('./routes/categories');
+
 // ============================================
 // GLOBAL CRASH GUARDS
 // ============================================
@@ -139,10 +140,11 @@ const corsOptions = {
     "Authorization",
     "Accept",
     "X-Requested-With",
-    'x-tenant-id',        // ✅ Add this
-    'x-tenant-subdomain', // ✅ Add this
-    'X-Tenant-Id',        // ✅ Add this
-    'X-Tenant-Subdomain', // ✅ Add this
+    'x-tenant-id',
+    'x-tenant-subdomain',
+    'X-Tenant-Id',
+    'X-Tenant-Subdomain',
+    'x-admin-secret',
   ],
 };
 
@@ -224,6 +226,68 @@ const logUserActivity = (
     return null;
   }
 };
+
+// ============================================
+// GET USER SUBSCRIPTION
+// ✅ FIX: no longer fabricates an "active" Market Stall subscription for
+// users with no real subscription_plan on file. That bug made every
+// unsubscribed user look already-subscribed to Pricing.jsx and Landing.jsx,
+// permanently disabling their "Choose Shophouse"/"Choose Chain" buttons.
+// Now it truthfully reports status: 'none' when there's nothing real yet.
+// ============================================
+app.get("/api/users/:userId/subscription", async (req, res) => {
+  const { userId } = req.params;
+
+  // authenticate already runs on all of /api/users/* via
+  // app.use("/api/users", authenticate) above, so req.user exists here.
+  if (!req.user.isSuperAdmin && String(req.user.userId) !== String(userId)) {
+    return res.status(403).json({ error: "Cannot view another user's subscription" });
+  }
+
+  try {
+    const userCheck = await db.query(
+      `SELECT userid, username, subscription_plan, subscription_status, subscription_updated_at 
+       FROM tbl_users 
+       WHERE userid = $1`,
+      [userId]
+    );
+
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const user = userCheck.rows[0];
+
+    // No real subscription on file — report that truthfully instead of
+    // fabricating an "active" free plan.
+    if (!user.subscription_plan || user.subscription_status !== 'active') {
+      return res.json({
+        plan: null,
+        planName: null,
+        status: 'none',
+        updatedAt: user.subscription_updated_at || null,
+      });
+    }
+
+    const planNames = {
+      'market-stall': 'Market Stall',
+      'shophouse': 'Shophouse',
+      'chain': 'Chain'
+    };
+
+    res.json({
+      plan: user.subscription_plan,
+      planName: planNames[user.subscription_plan] || user.subscription_plan,
+      status: user.subscription_status,
+      updatedAt: user.subscription_updated_at
+    });
+  } catch (error) {
+    console.error("❌ Subscription error:", error.message);
+    // Don't fabricate a fallback plan on error either — surface the failure.
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================
 // SIMPLE TEST ROUTE - NO AUTH REQUIRED
 // ============================================
@@ -241,6 +305,7 @@ app.post('/test', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
 // ============================================
 // ACTIVITY LOGS ROUTES
 // ============================================
@@ -311,7 +376,7 @@ app.get("/health", async (req, res) => {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       environment: process.env.NODE_ENV || "development",
-      version: "1.0.1"
+      version: "1.0.3"
     });
   } catch (error) {
     res.status(500).json({
@@ -329,7 +394,7 @@ app.get("/health", async (req, res) => {
 app.get("/", (req, res) => {
   res.json({
     message: "SPMS Backend API",
-    version: "1.0.1",
+    version: "1.0.3",
     status: "running",
     timestamp: new Date().toISOString(),
     endpoints: {
@@ -340,7 +405,8 @@ app.get("/", (req, res) => {
         register: "POST /api/auth/register",
         me: "GET /api/auth/me",
       },
-      subscription: "POST /api/create-checkout-session",
+      subscription: "GET /api/users/:userId/subscription",
+      stripeCheckout: "POST /api/create-checkout-session",
       customers: "GET/POST/PUT/DELETE /api/customers",
       products: "GET/POST/PUT/DELETE /api/products",
       orders: "GET/POST/DELETE /api/orders",
@@ -357,6 +423,9 @@ app.get("/", (req, res) => {
         khqr: "GET /api/payment/khqr",
         status: "GET /api/payment/status/:sessionId",
         confirm: "POST /api/payment/confirm",
+        adminPending: "GET /api/payment/admin/pending",
+        adminVerify: "POST /api/payment/verify/:sessionId",
+        adminReject: "POST /api/payment/admin/reject/:sessionId",
       },
     },
   });
@@ -370,7 +439,7 @@ app.get("/api/test", (req, res) => {
     message: "✅ API is working!",
     time: new Date().toISOString(),
     status: "ok",
-    version: "1.0.1"
+    version: "1.0.3"
   });
 });
 
@@ -584,7 +653,26 @@ app.get("/api/auth/me", async (req, res) => {
 });
 
 // ============================================
+// ⚠️ KHQR PAYMENT + STRIPE-CHECKOUT-SESSION HANDLING
+// LIVES ENTIRELY IN routes/paymentRoutes.js NOW (mounted below at
+// /api/payment). The inline duplicate KHQR/verify-payment/confirm block
+// that used to be here has been removed — it registered a SECOND,
+// incompatible POST /api/payment/confirm handler that ran BEFORE
+// paymentRoutes.js could ever see the request (Express matches routes
+// in registration order), so "I Have Paid" was being silently
+// intercepted by dead demo code expecting a different request body.
+// It also included a GET /api/verify-payment/:userId/:planId endpoint
+// that auto-marked payments as "paid" after a 30-second timer with NO
+// verification at all — that must never coexist with a real payment
+// flow. Do not re-add any payment routes here; they belong in
+// routes/paymentRoutes.js only.
+// ============================================
+
+// ============================================
 // STRIPE CHECKOUT SESSION
+// (kept here since Stripe isn't wired into paymentRoutes.js — you're
+// using KHQR-only for now per our conversation, but this stays available
+// for whenever you do get a Visa/Stripe account set up)
 // ============================================
 app.post("/api/create-checkout-session", async (req, res) => {
   console.log("📝 Creating checkout session...");
@@ -1962,45 +2050,6 @@ app.delete("/api/stock/:productid", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ WARRANTY & SERVICES
-// ============================================
-// app.get("/api/warranties", authenticate, async (req, res) => {
-//   try {
-//     const result = await db.query(`
-//       SELECT w.*, 
-//              CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-//              p.name_en as product_name
-//       FROM tbl_warranty w
-//       LEFT JOIN tbl_customers c ON c.id = w.customerid
-//       LEFT JOIN tbl_products p ON p.id = w.productid
-//       ORDER BY w.warrantyid DESC
-//     `);
-//     res.json(result.rows);
-//   } catch (err) {
-//     console.error("❌ Warranties error:", err.message);
-//     res.status(500).json({ error: err.message });
-//   }
-// });
-
-// app.get("/api/services", authenticate, async (req, res) => {
-//   try {
-//     const result = await db.query(`
-//       SELECT s.*, 
-//              CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-//              p.name_en as product_name
-//       FROM tbl_service_requests s
-//       LEFT JOIN tbl_customers c ON c.id = s.customerid
-//       LEFT JOIN tbl_products p ON p.id = s.productid
-//       ORDER BY s.serviceid DESC
-//     `);
-//     res.json(result.rows);
-//   } catch (err) {
-//     console.error("❌ Services error:", err.message);
-//     res.status(500).json({ error: err.message });
-//   }
-// });
-
-// ============================================
 // ✅ INVOICE GENERATION
 // ============================================
 app.get("/api/orders/:id/invoice", authenticate, async (req, res) => {
@@ -2096,131 +2145,6 @@ app.get("/api/reports/export/products", authenticate, async (req, res) => {
 });
 
 // ============================================
-// ✅ KHQR PAYMENT WITH EXPIRY
-// ============================================
-const paymentSessions = new Map();
-
-app.get("/api/payment/khqr", async (req, res) => {
-  const { amount, orderId } = req.query;
-
-  if (!amount || amount <= 0) {
-    return res.status(400).json({ error: "Valid amount is required" });
-  }
-  if (!orderId) {
-    return res.status(400).json({ error: "Order ID is required" });
-  }
-
-  const sessionId = crypto.randomBytes(16).toString("hex");
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-
-  const merchantInfo = {
-    name: "SAMNANG CHHEANG",
-    account: "017530691",
-    usdAccount: "017530690",
-  };
-  const khqrString = `KHQR|${merchantInfo.account}|${amount}|USD|${expiresAt}|${sessionId}`;
-  const qrImage = await QRCode.toDataURL(khqrString);
-
-  paymentSessions.set(sessionId, {
-    orderId: orderId,
-    amount: amount,
-    expiresAt: expiresAt,
-    createdAt: Date.now(),
-    status: "pending",
-  });
-
-  setTimeout(
-    () => {
-      paymentSessions.delete(sessionId);
-      console.log(`🗑️ Payment session ${sessionId} expired and cleaned up`);
-    },
-    5 * 60 * 1000,
-  );
-
-  res.json({
-    sessionId: sessionId,
-    merchantName: merchantInfo.name,
-    khqrAccount: merchantInfo.account,
-    usdAccount: merchantInfo.usdAccount,
-    khqr: qrImage,
-    amount: amount,
-    orderId: orderId,
-    expiresAt: expiresAt,
-    expiresIn: 5 * 60,
-    instructions:
-      "Scan with ABA Mobile, Bakong, or any banking app. QR expires in 5 minutes.",
-  });
-});
-
-app.get("/api/payment/status/:sessionId", (req, res) => {
-  const { sessionId } = req.params;
-  const session = paymentSessions.get(sessionId);
-
-  if (!session) {
-    return res.json({
-      success: false,
-      status: "expired",
-      message: "Payment session expired or not found",
-    });
-  }
-
-  if (Date.now() > session.expiresAt) {
-    paymentSessions.delete(sessionId);
-    return res.json({
-      success: false,
-      status: "expired",
-      message: "QR code has expired. Please generate a new one.",
-    });
-  }
-
-  res.json({
-    success: true,
-    status: session.status || "pending",
-    orderId: session.orderId,
-    amount: session.amount,
-    expiresAt: session.expiresAt,
-    timeRemaining: Math.max(
-      0,
-      Math.floor((session.expiresAt - Date.now()) / 1000),
-    ),
-  });
-});
-
-app.post("/api/payment/confirm", (req, res) => {
-  const { sessionId } = req.body;
-  const session = paymentSessions.get(sessionId);
-
-  if (!session) {
-    return res.status(404).json({
-      success: false,
-      message: "Session not found",
-    });
-  }
-
-  if (Date.now() > session.expiresAt) {
-    paymentSessions.delete(sessionId);
-    return res.status(400).json({
-      success: false,
-      message: "QR code expired",
-    });
-  }
-
-  session.status = "paid";
-  session.paidAt = Date.now();
-  paymentSessions.set(sessionId, session);
-
-  setTimeout(() => {
-    paymentSessions.delete(sessionId);
-  }, 60 * 1000);
-
-  res.json({
-    success: true,
-    message: "Payment confirmed successfully!",
-    orderId: session.orderId,
-  });
-});
-
-// ============================================
 // REPORTS (WITH TENANT FILTERING)
 // ============================================
 app.get("/api/reports/:type", authenticate, async (req, res) => {
@@ -2270,6 +2194,7 @@ app.get("/api/reports/:type", authenticate, async (req, res) => {
     res.status(500).json({ error: "Database error", message: error.message });
   }
 });
+
 // ============================================
 // ROUTES - MOUNT ALL ROUTES
 // ============================================
@@ -2283,23 +2208,30 @@ app.use('/api/users', userRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/categories', categoryRoutes);
+
+// ✅ Payment routes — KHQR generation, status polling, confirm, and
+// admin verify/activate all live here. This is now the ONLY place
+// payment routes are defined.
+const paymentRoutes = require('./routes/paymentRoutes');
+app.use('/api/payment', paymentRoutes);
+
+// Warranty and Service routes
 const warrantyRoutes = require('./routes/warranties');
 const serviceRoutes = require('./routes/services');
 app.use('/api/warranties', warrantyRoutes);
 app.use('/api/services', serviceRoutes);
-// /api/system/stats needs its own exact-path binding — mounting tenantRoutes
-// at /api/system would make Express match "/stats" against the router's
-// "/:id" route first (treating "stats" as a tenant id) before it could ever
-// reach the "/system/stats" route defined inside that router.
+
+// System stats route
 app.get('/api/system/stats', authenticate, requireSuperAdmin, tenantRoutes.systemStatsHandler);
+
 // ============================================
 // DEBUG ROUTE - Log all requests
 // ============================================
 app.use((req, res, next) => {
   console.log('📤 Request:', req.method, req.url);
-  console.log('📤 Headers:', req.headers);
   next();
 });
+
 // ============================================
 // 404 HANDLER - MUST BE LAST
 // ============================================
@@ -2349,18 +2281,21 @@ async function startServer() {
       console.log("📋 Available Endpoints:");
       console.log("  🔐 Auth:          POST /api/auth/login");
       console.log("  🔐 Register:      POST /api/auth/register");
-      console.log("  💳 Subscription:  POST /api/create-checkout-session");
+      console.log("  💳 Subscription:  GET /api/users/:userId/subscription");
+      console.log("  💳 Stripe:        POST /api/create-checkout-session");
+      console.log("  📱 KHQR:          GET /api/payment/khqr");
+      console.log("  📱 KHQR Status:   GET /api/payment/status/:sessionId");
+      console.log("  📱 KHQR Confirm:  POST /api/payment/confirm");
+      console.log("  🔐 Admin Verify:  POST /api/payment/verify/:sessionId");
       console.log("  👥 Customers:     GET/POST/PUT/DELETE /api/customers");
       console.log("  📦 Products:      GET/POST/PUT/DELETE /api/products");
       console.log("  🛒 Orders:        GET/POST/DELETE /api/orders");
       console.log("  📋 Suppliers:     GET/POST/PUT/DELETE /api/suppliers");
       console.log("  👤 Users:         GET/POST/PUT/DELETE /api/users");
       console.log("  📊 Reports:       GET /api/reports/*");
-      console.log("  📊 Analytics:     GET /api/analytics/*");
       console.log("  📊 Stock:         GET/POST/PUT/DELETE /api/stock, /api/stock/low-stock");
       console.log("  📋 Warranties:    GET/POST/PUT/DELETE /api/warranties");
       console.log("  🔧 Services:      GET/POST/PUT/DELETE /api/services");
-      console.log("  📱 KHQR:          GET /api/payment/khqr");
       console.log("  📄 Invoice:       GET /api/orders/:id/invoice");
       console.log("  🏢 Tenants:       GET/POST/PUT/DELETE /api/tenants");
       console.log("  📊 System Stats:  GET /api/system/stats");

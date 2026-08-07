@@ -1,6 +1,8 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
+// ✅ FIX: Use hardcoded URL with a safe fallback
+// This avoids the "process is not defined" error in the browser
 const API_URL = 'https://spms-backend-pro.onrender.com/api';
 
 console.log('🔧 API URL:', API_URL);

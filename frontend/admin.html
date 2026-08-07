@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Payment Admin</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; background: #f7f7f8; }
+  h1 { font-size: 20px; }
+  input, button { font-size: 14px; padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; }
+  button { cursor: pointer; border: none; color: white; }
+  .row { display: flex; gap: 8px; margin-bottom: 16px; }
+  .row input { flex: 1; }
+  .card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .meta { font-size: 13px; color: #555; margin: 4px 0; }
+  .actions { margin-top: 10px; display: flex; gap: 8px; }
+  .verify { background: #16a34a; }
+  .reject { background: #dc2626; }
+  .refresh { background: #2563eb; }
+  .status { font-weight: 600; text-transform: uppercase; font-size: 12px; }
+  .status.awaiting_verification { color: #ca8a04; }
+  .status.pending { color: #6b7280; }
+  .empty { color: #888; text-align: center; padding: 40px 0; }
+</style>
+</head>
+<body>
+  <h1>Pending KHQR Payments</h1>
+
+  <div class="row">
+    <input id="apiBase" placeholder="API base, e.g. https://yourapi.com" />
+    <input id="secret" type="password" placeholder="Admin secret" />
+    <button class="refresh" onclick="load()">Refresh</button>
+  </div>
+
+  <div id="list"><p class="empty">Enter your API base + secret, then click Refresh.</p></div>
+
+<script>
+function getConfig() {
+  return {
+    base: document.getElementById('apiBase').value.replace(/\/$/, ''),
+    secret: document.getElementById('secret').value,
+  };
+}
+
+async function load() {
+  const { base, secret } = getConfig();
+  if (!base || !secret) {
+    alert('Enter API base and admin secret first');
+    return;
+  }
+  const listEl = document.getElementById('list');
+  listEl.innerHTML = '<p class="empty">Loading...</p>';
+
+  try {
+    const res = await fetch(`${base}/payment/admin/pending`, {
+      headers: { 'x-admin-secret': secret },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      listEl.innerHTML = `<p class="empty">Error: ${err.error || res.status}</p>`;
+      return;
+    }
+    const data = await res.json();
+    render(data.sessions || []);
+  } catch (e) {
+    listEl.innerHTML = `<p class="empty">Network error: ${e.message}</p>`;
+  }
+}
+
+function render(sessions) {
+  const listEl = document.getElementById('list');
+  if (sessions.length === 0) {
+    listEl.innerHTML = '<p class="empty">No pending sessions 🎉</p>';
+    return;
+  }
+
+  listEl.innerHTML = sessions.map(s => `
+    <div class="card" id="card-${s.sessionId}">
+      <div class="status ${s.status}">${s.status.replace('_',' ')}</div>
+      <div class="meta"><strong>Order:</strong> ${s.orderId}</div>
+      <div class="meta"><strong>Amount:</strong> $${s.amount}</div>
+      <div class="meta"><strong>User ID:</strong> ${s.userId}</div>
+      <div class="meta"><strong>Plan:</strong> ${s.plan}</div>
+      <div class="meta"><strong>Session:</strong> ${s.sessionId}</div>
+      <div class="meta"><strong>Created:</strong> ${new Date(s.createdAt).toLocaleString()}</div>
+      <div class="actions">
+        <button class="verify" onclick="verify('${s.sessionId}')">✅ Mark Paid & Activate</button>
+        <button class="reject" onclick="reject('${s.sessionId}')">❌ Reject</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function verify(sessionId) {
+  const { base, secret } = getConfig();
+  if (!confirm('Confirm you checked the real ABA account and the money arrived?')) return;
+
+  const res = await fetch(`${base}/payment/verify/${sessionId}`, {
+    method: 'POST',
+    headers: { 'x-admin-secret': secret },
+  });
+  const data = await res.json();
+  if (data.success) {
+    alert('✅ Marked paid and activated.');
+    load();
+  } else {
+    alert('❌ ' + (data.message || 'Failed'));
+  }
+}
+
+async function reject(sessionId) {
+  const { base, secret } = getConfig();
+  if (!confirm('Reject this session (no money found)?')) return;
+
+  const res = await fetch(`${base}/payment/admin/reject/${sessionId}`, {
+    method: 'POST',
+    headers: { 'x-admin-secret': secret },
+  });
+  const data = await res.json();
+  if (data.success) {
+    alert('Rejected.');
+    load();
+  }
+}
+</script>
+</body>
+</html>
