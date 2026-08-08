@@ -14,26 +14,23 @@ router.get("/", authenticate, async (req, res) => {
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    let query = `
-  UPDATE tbl_service_requests 
-  SET customerid = $1, 
-      productid = $2, 
-      serialnumber = $3, 
-      issuedescription = $4, 
-      servicetype = $5, 
-      status = $6, 
-      receiveddate = $7, 
-      notes = $8
-  WHERE serviceid = $9
+let query = `
+  SELECT s.*, 
+         CONCAT(c.first_name, ' ', c.last_name) as customer_name,
+         p.name_en as product_name
+  FROM tbl_service_requests s
+  LEFT JOIN tbl_customers c ON c.id = s.customerid AND c.tenant_id = s.tenant_id
+  LEFT JOIN tbl_products p ON p.id = s.productid AND p.tenant_id = s.tenant_id
+  WHERE 1=1
 `;
-    const params = [];
+const params = [];
 
-    if (!isSuperAdmin && tenantId) {
-      query += ` AND s.tenant_id = $1`;
-      params.push(tenantId);
-    }
+if (!isSuperAdmin && tenantId) {
+  query += ` AND s.tenant_id = $1`;
+  params.push(tenantId);
+}
 
-    query += ` ORDER BY s.serviceid DESC`;
+query += ` ORDER BY s.serviceid DESC`;
 
     const result = await pool.query(query, params);
     res.json(result.rows);
