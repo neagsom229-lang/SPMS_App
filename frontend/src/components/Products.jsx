@@ -16,12 +16,6 @@ import {
 // ============================================
 const ITEMS_PER_PAGE = 10;
 
-const FALLBACK_PRODUCTS = [
-  { id: 1, product_id: 'PROD001', NAME_EN: 'Laptop Pro', NAME_KH: 'កុំព្យូទ័រយួរដៃ', BARCODE: 'LP001', BRAND: 'TechPro', BUYIN_PRICE: 899.99, SALEOUT_PRICE: 1299.99, QtyInStock: 50, QTY_ALERT: 10, STATUS: 'Active', image_url: null },
-  { id: 2, product_id: 'PROD002', NAME_EN: 'Smartphone X', NAME_KH: 'ទូរស័ព្ទឆ្លាត', BARCODE: 'SP002', BRAND: 'PhoneMaster', BUYIN_PRICE: 599.99, SALEOUT_PRICE: 899.99, QtyInStock: 30, QTY_ALERT: 10, STATUS: 'Active', image_url: null },
-  { id: 3, product_id: 'PROD003', NAME_EN: 'Wireless Mouse', NAME_KH: 'កណ្ដុរឥតខ្សែ', BARCODE: 'WM003', BRAND: 'Accessory', BUYIN_PRICE: 15.99, SALEOUT_PRICE: 29.99, QtyInStock: 100, QTY_ALERT: 15, STATUS: 'Active', image_url: null },
-  { id: 4, product_id: 'PROD004', NAME_EN: 'Keyboard Pro', NAME_KH: 'ក្ដារចុច', BARCODE: 'KP004', BRAND: 'Accessory', BUYIN_PRICE: 45.99, SALEOUT_PRICE: 79.99, QtyInStock: 45, QTY_ALERT: 10, STATUS: 'Active', image_url: null },
-];
 
 const PRODUCT_EMOJIS = [
   '📱', '💻', '⌨️', '🖥️', '📷', '🎧', '⌚', '📡', '🔋', '💾',
@@ -206,22 +200,20 @@ const Products = () => {
   } = useQuery({
     queryKey: ['products', debouncedSearch],
     queryFn: async () => {
-      try {
-        const res = await apiClient.get('/products', { params: debouncedSearch ? { search: debouncedSearch } : {} });
-        if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
-          showMessage('📋 Using offline data (API not available)', 'warning');
-          return FALLBACK_PRODUCTS;
-        }
-        const data = extractProductsData(res.data);
-        if (Array.isArray(data) && data.length > 0) return data;
-        showMessage('📋 Using fallback data (API returned empty)', 'info');
-        return FALLBACK_PRODUCTS;
-      } catch (error) {
-        console.error('❌ Error fetching products:', error.message);
-        showMessage('📋 Using offline data (API connection failed)', 'warning');
-        return FALLBACK_PRODUCTS;
-      }
-    },
+  try {
+    const res = await apiClient.get('/products', { params: debouncedSearch ? { search: debouncedSearch } : {} });
+    if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
+      showMessage('❌ API not available — could not load products', 'error');
+      return [];
+    }
+    const data = extractProductsData(res.data);
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error('❌ Error fetching products:', error.message);
+    showMessage('❌ Failed to load products from server', 'error');
+    return [];
+  }
+},
     staleTime: 30_000,
   });
 

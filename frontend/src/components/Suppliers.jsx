@@ -14,7 +14,8 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import apiClient from '../api/client';import { 
+import apiClient from '../api/client';
+import { 
   Search, Plus, Edit2, Trash2, Truck, X, Save, 
   Phone, Mail, MapPin, User, Building2, RefreshCw,
   Filter, ArrowUp, ArrowDown, Grid3x3, List,
@@ -51,34 +52,7 @@ const normalizeSupplier = (item, index) => {
 // ============================================
 // ✅ MOCK DATA (Fallback, already in frontend shape)
 // ============================================
-const generateMockSuppliers = () => {
-  return [
-    { 
-      SUP_ID: 'SUP001', 
-      SUP_NAME: 'TechPro Supplies', 
-      CONTACT_PERSON: 'John Smith', 
-      PHONE: '555-0101', 
-      EMAIL: 'john@techpro.com', 
-      ADDRESS: '123 Tech St, Silicon Valley, CA 94025',
-      STATUS: 'Active',
-      WEBSITE: 'https://techpro.com',
-      TAX_ID: 'TAX-12345',
-      NOTES: 'Premium electronics supplier'
-    },
-    { 
-      SUP_ID: 'SUP002', 
-      SUP_NAME: 'Global Electronics', 
-      CONTACT_PERSON: 'Sarah Johnson', 
-      PHONE: '555-0102', 
-      EMAIL: 'sarah@globalelec.com', 
-      ADDRESS: '456 Global Ave, New York, NY 10001',
-      STATUS: 'Active',
-      WEBSITE: 'https://globalelectronics.com',
-      TAX_ID: 'TAX-67890',
-      NOTES: 'International electronics distributor'
-    },
-  ];
-};
+
 
 // ============================================
 // ✅ MAIN SUPPLIERS COMPONENT
@@ -166,50 +140,43 @@ const Suppliers = () => {
 
   // ===== ✅ FIXED: FETCH SUPPLIERS (no field-name translation, just normalize) =====
   const fetchSuppliers = useCallback(async () => {
-    if (fetchInProgress.current) return;
-    if (!isMounted.current) return;
+  if (fetchInProgress.current) return;
+  if (!isMounted.current) return;
+  
+  fetchInProgress.current = true;
+  setLoading(true);
+  
+  try {
+    const url = search ? `/suppliers?search=${encodeURIComponent(search)}` : '/suppliers';
+    const res = await apiClient.get(url);
     
-    fetchInProgress.current = true;
-    setLoading(true);
-    
-    try {
-      const url = search ? `/suppliers?search=${encodeURIComponent(search)}` : '/suppliers';
-      const res = await apiClient.get(url);
+    if (isMounted.current) {
+      let data = [];
+      if (Array.isArray(res.data)) {
+        data = res.data;
+      } else if (res.data?.data && Array.isArray(res.data.data)) {
+        data = res.data.data;
+      }
       
-      if (isMounted.current) {
-        let data = [];
-        if (Array.isArray(res.data)) {
-          data = res.data;
-        } else if (res.data?.data && Array.isArray(res.data.data)) {
-          data = res.data.data;
-        }
-        
-        if (data.length > 0) {
-          const normalized = data.map((item, index) => normalizeSupplier(item, index)).filter(Boolean);
-          setSuppliers(normalized);
-          calculateStats(normalized);
-        } else {
-          const mockData = generateMockSuppliers().map((item, index) => normalizeSupplier(item, index)).filter(Boolean);
-          setSuppliers(mockData);
-          calculateStats(mockData);
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error fetching suppliers:', error);
-      if (isMounted.current) {
-        const mockData = generateMockSuppliers().map((item, index) => normalizeSupplier(item, index)).filter(Boolean);
-        setSuppliers(mockData);
-        calculateStats(mockData);
-        showMessage('⚠️ Using sample data (API unavailable)', 'warning');
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-      fetchInProgress.current = false;
+      const normalized = data.map((item, index) => normalizeSupplier(item, index)).filter(Boolean);
+      setSuppliers(normalized);
+      calculateStats(normalized);
     }
-  }, [search, showMessage, calculateStats]);
+  } catch (error) {
+    console.error('❌ Error fetching suppliers:', error);
+    if (isMounted.current) {
+      setSuppliers([]);
+      calculateStats([]);
+      showMessage('❌ Failed to load suppliers from server', 'error');
+    }
+  } finally {
+    if (isMounted.current) {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+    fetchInProgress.current = false;
+  }
+}, [search, showMessage, calculateStats]);
 
   // ===== GENERATE NEW ID (fallback only — backend normally assigns this) =====
   const generateId = useCallback(() => {
@@ -290,24 +257,24 @@ const Suppliers = () => {
   }, [suppliers, showMessage, calculateStats]);
 
   // ===== BULK DELETE =====
-  const handleBulkDelete = useCallback(() => {
-    if (selectedSuppliers.length === 0) return;
-    if (!window.confirm(`Delete ${selectedSuppliers.length} selected suppliers?`)) return;
+  const handleBulkDelete = useCallback(async () => {
+  if (selectedSuppliers.length === 0) return;
+  if (!window.confirm(`Delete ${selectedSuppliers.length} selected suppliers?`)) return;
 
-    apiClient.delete('/suppliers/bulk', { data: { ids: selectedSuppliers } })
-      .then(() => {
-        const updatedSuppliers = suppliers.filter(s => !selectedSuppliers.includes(s.SUP_ID));
-        setSuppliers(updatedSuppliers);
-        calculateStats(updatedSuppliers);
-        showMessage(`✅ ${selectedSuppliers.length} suppliers deleted!`);
-        setSelectedSuppliers([]);
-      })
-      .catch(error => {
-        console.error('Bulk delete error:', error);
-        showMessage('❌ Failed to delete some suppliers', 'error');
-      });
-  }, [selectedSuppliers, suppliers, showMessage, calculateStats]);
-
+  try {
+    for (const id of selectedSuppliers) {
+      await apiClient.delete(`/suppliers/${id}`);
+    }
+    const updatedSuppliers = suppliers.filter(s => !selectedSuppliers.includes(s.SUP_ID));
+    setSuppliers(updatedSuppliers);
+    calculateStats(updatedSuppliers);
+    showMessage(`✅ ${selectedSuppliers.length} suppliers deleted!`);
+    setSelectedSuppliers([]);
+  } catch (error) {
+    console.error('Bulk delete error:', error);
+    showMessage('❌ Failed to delete some suppliers', 'error');
+  }
+}, [selectedSuppliers, suppliers, showMessage, calculateStats]);
   // ===== OPEN EDIT MODAL =====
   const openEditModal = useCallback((supplier) => {
     setEditingSupplier(supplier);

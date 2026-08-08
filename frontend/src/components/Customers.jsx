@@ -92,54 +92,7 @@ const Customers = () => {
   // ============================================
   // GET FALLBACK CUSTOMERS
   // ============================================
-  const getFallbackCustomers = useCallback(() => {
-    return [
-      { 
-        CUS_ID: 'CUS001', 
-        FIRST_NAME: 'John', 
-        LAST_NAME: 'Doe', 
-        PHONE: '555-0101', 
-        E_MAIL: 'john@example.com', 
-        ADDRESS: '123 Main St, NY', 
-        BALANCE: 150.00, 
-        STATUS: 'Active',
-        image_url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop'
-      },
-      { 
-        CUS_ID: 'CUS002', 
-        FIRST_NAME: 'Jane', 
-        LAST_NAME: 'Smith', 
-        PHONE: '555-0102', 
-        E_MAIL: 'jane@example.com', 
-        ADDRESS: '456 Oak Ave, LA', 
-        BALANCE: 0.00, 
-        STATUS: 'Active',
-        image_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop'
-      },
-      { 
-        CUS_ID: 'CUS003', 
-        FIRST_NAME: 'Robert', 
-        LAST_NAME: 'Johnson', 
-        PHONE: '555-0103', 
-        E_MAIL: 'robert@example.com', 
-        ADDRESS: '789 Pine Rd, SF', 
-        BALANCE: 75.50, 
-        STATUS: 'Active',
-        image_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop'
-      },
-      { 
-        CUS_ID: 'CUS004', 
-        FIRST_NAME: 'Mary', 
-        LAST_NAME: 'Williams', 
-        PHONE: '555-0104', 
-        E_MAIL: 'mary@example.com', 
-        ADDRESS: '321 Elm St, CHI', 
-        BALANCE: 200.00, 
-        STATUS: 'Active',
-        image_url: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop'
-      }
-    ];
-  }, []);
+  
 
   // ============================================
   // SAFE DATA EXTRACTION
@@ -205,52 +158,43 @@ const Customers = () => {
   // FETCH CUSTOMERS
   // ============================================
   const fetchCustomers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiClient.get('/customers', { 
-        params: search ? { search: search } : {} 
-      });
-      
-      if (isMounted.current) {
-        if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
-          const fallbackData = getFallbackCustomers();
-          setCustomers(fallbackData);
-          calculateStats(fallbackData);
-          showMessage('📋 Using offline data (API not available)', 'warning');
-          setLoading(false);
-          setIsRefreshing(false);
-          return;
-        }
-
-        const customersData = extractCustomersData(res.data);
-        const customersArray = Array.isArray(customersData) ? customersData : [];
-        
-        if (customersArray.length > 0) {
-          console.log('✅ Customers loaded:', customersArray.length);
-          setCustomers(customersArray);
-          calculateStats(customersArray);
-        } else {
-          const fallbackData = getFallbackCustomers();
-          setCustomers(fallbackData);
-          calculateStats(fallbackData);
-          showMessage('📋 Using fallback data (API returned empty)', 'info');
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error fetching customers:', error.message);
-      if (isMounted.current) {
-        const fallbackData = getFallbackCustomers();
-        setCustomers(fallbackData);
-        calculateStats(fallbackData);
-        showMessage('📋 Using offline data (API connection failed)', 'warning');
-      }
-    } finally {
-      if (isMounted.current) {
+  setLoading(true);
+  try {
+    const res = await apiClient.get('/customers', { 
+      params: search ? { search: search } : {} 
+    });
+    
+    if (isMounted.current) {
+      if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
+        setCustomers([]);
+        calculateStats([]);
+        showMessage('❌ API not available — could not load customers', 'error');
         setLoading(false);
         setIsRefreshing(false);
+        return;
       }
+
+      const customersData = extractCustomersData(res.data);
+      const customersArray = Array.isArray(customersData) ? customersData : [];
+      
+      console.log('✅ Customers loaded:', customersArray.length);
+      setCustomers(customersArray);
+      calculateStats(customersArray);
     }
-  }, [search, showMessage, getFallbackCustomers, extractCustomersData, calculateStats]);
+  } catch (error) {
+    console.error('❌ Error fetching customers:', error.message);
+    if (isMounted.current) {
+      setCustomers([]);
+      calculateStats([]);
+      showMessage('❌ Failed to load customers from server', 'error');
+    }
+  } finally {
+    if (isMounted.current) {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  }
+}, [search, showMessage, extractCustomersData, calculateStats]);
 
   // ============================================
   // ✅ FIXED: IMAGE HANDLING

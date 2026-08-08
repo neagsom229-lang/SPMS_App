@@ -46,11 +46,6 @@ const extractArrayData = (responseData, extraKeys = []) => {
   return [];
 };
 
-const MOCK_STOCK = [
-  { stockid: 1, productid: 1, product_code: 'PROD001', name_en: 'Laptop Pro', name_kh: 'កុំព្យូទ័រយួរដៃ', qtyinstock: 15, qtyavailable: 12, qtyreserved: 3, qty_alert: 10, saleout_price: 1299.99 },
-  { stockid: 2, productid: 2, product_code: 'PROD002', name_en: 'Smartphone X', name_kh: 'ទូរស័ព្ទ X', qtyinstock: 25, qtyavailable: 20, qtyreserved: 5, qty_alert: 10, saleout_price: 899.99 },
-  { stockid: 3, productid: 3, product_code: 'PROD003', name_en: 'Tablet Plus', name_kh: 'ថេប្លេត Plus', qtyinstock: 5, qtyavailable: 3, qtyreserved: 2, qty_alert: 10, saleout_price: 499.99 },
-];
 
 const getStockValue = (item, field) => {
   if (!item || typeof item !== 'object') return 0;
@@ -156,28 +151,28 @@ const Stock = () => {
   } = useQuery({
     queryKey: ['stock'],
     queryFn: async () => {
-      try {
-        const res = await apiClient.get("/stock");
-        const data = extractArrayData(res.data, ['stock', 'items', 'data']);
-        if (data === null) throw new Error('API not available');
-        const stockArray = Array.isArray(data) ? data : [];
-        if (stockArray.length > 0) {
-          showMessage(`✅ Loaded ${stockArray.length} stock items`, "success");
-          return stockArray;
-        }
-        showMessage("⚠️ No stock data found, using sample data", "warning");
-        return MOCK_STOCK;
-      } catch (error) {
-        console.error("❌ Error fetching stock:", error);
-        // If it's a 500 error with unique constraint message, show helpful message
-        if (error.response?.data?.error?.includes('Unique constraint missing')) {
-          showMessage("⚠️ Database constraint missing. Please run the SQL fix in the console.", "error");
-        } else {
-          showMessage("⚠️ Using sample stock data", "warning");
-        }
-        return MOCK_STOCK;
-      }
-    },
+  try {
+    const res = await apiClient.get("/stock");
+    const data = extractArrayData(res.data, ['stock', 'items', 'data']);
+    if (data === null) {
+      showMessage("❌ API not available — could not load stock", "error");
+      return [];
+    }
+    const stockArray = Array.isArray(data) ? data : [];
+    if (stockArray.length > 0) {
+      showMessage(`✅ Loaded ${stockArray.length} stock items`, "success");
+    }
+    return stockArray;
+  } catch (error) {
+    console.error("❌ Error fetching stock:", error);
+    if (error.response?.data?.error?.includes('Unique constraint missing')) {
+      showMessage("⚠️ Database constraint missing. Please run the SQL fix in the console.", "error");
+    } else {
+      showMessage("❌ Failed to load stock from server", "error");
+    }
+    return [];
+  }
+},
     staleTime: 30_000,
     retry: 1,
   });

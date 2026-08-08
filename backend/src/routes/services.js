@@ -105,7 +105,6 @@ router.put('/:id', authenticate, async (req, res) => {
   } = req.body;
 
   try {
-    // Build query with tenant filtering
     let query = `
       UPDATE tbl_service_requests 
       SET customerid = $1, 
@@ -117,7 +116,7 @@ router.put('/:id', authenticate, async (req, res) => {
           receiveddate = $7, 
           notes = $8,
           updated_at = NOW()
-      WHERE id = $9
+      WHERE serviceid = $9
     `;
     const params = [
       CustomerID, ProductID, SerialNumber,
@@ -136,7 +135,6 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Service not found or access denied' });
     }
 
-    // Fetch the updated record to return it
     const updated = await pool.query(
       `SELECT s.*, 
               CONCAT(c.first_name, ' ', c.last_name) as customer_name,
@@ -144,7 +142,7 @@ router.put('/:id', authenticate, async (req, res) => {
        FROM tbl_service_requests s
        LEFT JOIN tbl_customers c ON c.id = s.customerid AND c.tenant_id = s.tenant_id
        LEFT JOIN tbl_products p ON p.id = s.productid AND p.tenant_id = s.tenant_id
-       WHERE s.id = $1`,
+       WHERE s.serviceid = $1`,
       [id]
     );
 
@@ -164,7 +162,7 @@ router.delete('/:id', authenticate, async (req, res) => {
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    let query = 'DELETE FROM tbl_service_requests WHERE id = $1';
+    let query = 'DELETE FROM tbl_service_requests WHERE serviceid = $1';
     const params = [req.params.id];
 
     if (!isSuperAdmin && tenantId) {

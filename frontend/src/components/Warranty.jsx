@@ -20,77 +20,77 @@ import apiClient from '../api/client';
 // ============================================
 // MOCK DATA GENERATOR (Fallback)
 // ============================================
-const generateMockData = () => {
-  const now = new Date();
-  const formatDate = (d) => d.toISOString().split('T')[0];
+// const generateMockData = () => {
+//   const now = new Date();
+//   const formatDate = (d) => d.toISOString().split('T')[0];
   
-  const customers = [
-    { id: 1, cus_id: 'CUS001', first_name: 'John', last_name: 'Doe', phone: '555-0101', e_mail: 'john@example.com', address: '123 Main St' },
-    { id: 2, cus_id: 'CUS002', first_name: 'Jane', last_name: 'Smith', phone: '555-0102', e_mail: 'jane@example.com', address: '456 Oak Ave' },
-    { id: 3, cus_id: 'CUS003', first_name: 'Robert', last_name: 'Johnson', phone: '555-0103', e_mail: 'robert@example.com', address: '789 Pine Rd' },
-    { id: 4, cus_id: 'CUS004', first_name: 'Mary', last_name: 'Williams', phone: '555-0104', e_mail: 'mary@example.com', address: '321 Elm St' },
-    { id: 5, cus_id: 'CUS005', first_name: 'David', last_name: 'Brown', phone: '555-0105', e_mail: 'david@example.com', address: '654 Maple Dr' }
-  ];
+//   const customers = [
+//     { id: 1, cus_id: 'CUS001', first_name: 'John', last_name: 'Doe', phone: '555-0101', e_mail: 'john@example.com', address: '123 Main St' },
+//     { id: 2, cus_id: 'CUS002', first_name: 'Jane', last_name: 'Smith', phone: '555-0102', e_mail: 'jane@example.com', address: '456 Oak Ave' },
+//     { id: 3, cus_id: 'CUS003', first_name: 'Robert', last_name: 'Johnson', phone: '555-0103', e_mail: 'robert@example.com', address: '789 Pine Rd' },
+//     { id: 4, cus_id: 'CUS004', first_name: 'Mary', last_name: 'Williams', phone: '555-0104', e_mail: 'mary@example.com', address: '321 Elm St' },
+//     { id: 5, cus_id: 'CUS005', first_name: 'David', last_name: 'Brown', phone: '555-0105', e_mail: 'david@example.com', address: '654 Maple Dr' }
+//   ];
 
-  const products = [
-    { id: 1, product_id: 'PROD001', name_en: 'Laptop Pro X1', saleout_price: 1299.99, category: 'Electronics' },
-    { id: 2, product_id: 'PROD002', name_en: 'Smartphone Ultra', saleout_price: 899.99, category: 'Electronics' },
-    { id: 3, product_id: 'PROD003', name_en: 'Tablet Plus', saleout_price: 499.99, category: 'Electronics' },
-    { id: 4, product_id: 'PROD004', name_en: 'Wireless Headphones', saleout_price: 199.99, category: 'Accessories' },
-    { id: 5, product_id: 'PROD005', name_en: 'Smart Watch Pro', saleout_price: 349.99, category: 'Wearables' }
-  ];
+//   const products = [
+//     { id: 1, product_id: 'PROD001', name_en: 'Laptop Pro X1', saleout_price: 1299.99, category: 'Electronics' },
+//     { id: 2, product_id: 'PROD002', name_en: 'Smartphone Ultra', saleout_price: 899.99, category: 'Electronics' },
+//     { id: 3, product_id: 'PROD003', name_en: 'Tablet Plus', saleout_price: 499.99, category: 'Electronics' },
+//     { id: 4, product_id: 'PROD004', name_en: 'Wireless Headphones', saleout_price: 199.99, category: 'Accessories' },
+//     { id: 5, product_id: 'PROD005', name_en: 'Smart Watch Pro', saleout_price: 349.99, category: 'Wearables' }
+//   ];
 
-  const warranties = [];
-  const services = [];
-  const statuses = ['Active', 'Active', 'Active', 'Expired', 'Active'];
-  const serviceStatuses = ['Pending', 'In Progress', 'Completed', 'Pending', 'In Progress'];
-  const issueDescriptions = [
-    'Screen cracked', 'Battery issue', 'Software update', 'Hardware failure', 
-    'Water damage', 'Charging issue', 'Display problem', 'Performance slow'
-  ];
+//   const warranties = [];
+//   const services = [];
+//   const statuses = ['Active', 'Active', 'Active', 'Expired', 'Active'];
+//   const serviceStatuses = ['Pending', 'In Progress', 'Completed', 'Pending', 'In Progress'];
+//   const issueDescriptions = [
+//     'Screen cracked', 'Battery issue', 'Software update', 'Hardware failure', 
+//     'Water damage', 'Charging issue', 'Display problem', 'Performance slow'
+//   ];
 
-  for (let i = 0; i < 8; i++) {
-    const customer = customers[i % customers.length];
-    const product = products[i % products.length];
-    const startDate = new Date(now);
-    startDate.setMonth(startDate.getMonth() - Math.floor(Math.random() * 24));
-    const endDate = new Date(startDate);
-    const period = [12, 24, 36][Math.floor(Math.random() * 3)];
-    endDate.setMonth(endDate.getMonth() + period);
+//   for (let i = 0; i < 8; i++) {
+//     const customer = customers[i % customers.length];
+//     const product = products[i % products.length];
+//     const startDate = new Date(now);
+//     startDate.setMonth(startDate.getMonth() - Math.floor(Math.random() * 24));
+//     const endDate = new Date(startDate);
+//     const period = [12, 24, 36][Math.floor(Math.random() * 3)];
+//     endDate.setMonth(endDate.getMonth() + period);
 
-    warranties.push({
-      warrantyid: i + 1,
-      customerid: customer.id,
-      productid: product.id,
-      serialnumber: `SN-${String(i + 1).padStart(4, '0')}`,
-      warrantyperiod: period,
-      warrantystartdate: formatDate(startDate),
-      warrantyenddate: formatDate(endDate),
-      status: statuses[i % statuses.length],
-      customer_name: `${customer.first_name} ${customer.last_name}`,
-      product_name: product.name_en,
-      notes: `Warranty for ${product.name_en}`
-    });
+//     warranties.push({
+//       warrantyid: i + 1,
+//       customerid: customer.id,
+//       productid: product.id,
+//       serialnumber: `SN-${String(i + 1).padStart(4, '0')}`,
+//       warrantyperiod: period,
+//       warrantystartdate: formatDate(startDate),
+//       warrantyenddate: formatDate(endDate),
+//       status: statuses[i % statuses.length],
+//       customer_name: `${customer.first_name} ${customer.last_name}`,
+//       product_name: product.name_en,
+//       notes: `Warranty for ${product.name_en}`
+//     });
 
-    if (i < 6) {
-      services.push({
-        serviceid: i + 1,
-        customerid: customer.id,
-        productid: product.id,
-        serialnumber: `SN-${String(i + 1).padStart(4, '0')}`,
-        issuedescription: issueDescriptions[i % issueDescriptions.length],
-        servicetype: ['Repair', 'Maintenance'][i % 2],
-        status: serviceStatuses[i % serviceStatuses.length],
-        receiveddate: formatDate(new Date(now.getFullYear(), now.getMonth() - i % 6, 1 + i % 28)),
-        customer_name: `${customer.first_name} ${customer.last_name}`,
-        product_name: product.name_en,
-        notes: `Service ticket ${i + 1}`
-      });
-    }
-  }
+//     if (i < 6) {
+//       services.push({
+//         serviceid: i + 1,
+//         customerid: customer.id,
+//         productid: product.id,
+//         serialnumber: `SN-${String(i + 1).padStart(4, '0')}`,
+//         issuedescription: issueDescriptions[i % issueDescriptions.length],
+//         servicetype: ['Repair', 'Maintenance'][i % 2],
+//         status: serviceStatuses[i % serviceStatuses.length],
+//         receiveddate: formatDate(new Date(now.getFullYear(), now.getMonth() - i % 6, 1 + i % 28)),
+//         customer_name: `${customer.first_name} ${customer.last_name}`,
+//         product_name: product.name_en,
+//         notes: `Service ticket ${i + 1}`
+//       });
+//     }
+//   }
 
-  return { warranties, services, customers, products };
-};
+//   return { warranties, services, customers, products };
+// };
 
 // ============================================
 // ANIMATED BACKGROUND PARTICLES
@@ -301,14 +301,13 @@ const Warranty = () => {
         console.log(`📦 Products loaded: ${productsData.length}`);
       }
     } catch (error) {
-      console.error('❌ Error fetching customers/products:', error);
-      if (isMounted.current) {
-        const mockData = generateMockData();
-        setCustomers(mockData.customers);
-        setProducts(mockData.products);
-        showMessage('⚠️ Using sample data (API connection failed)', 'warning');
-      }
-    }
+  console.error('❌ Error fetching customers/products:', error);
+  if (isMounted.current) {
+    setCustomers([]);
+    setProducts([]);
+    showMessage('❌ Failed to load customers/products from server', 'error');
+  }
+}
   }, [showMessage]);
 
   // ===== FETCH WARRANTIES =====
@@ -323,14 +322,13 @@ const Warranty = () => {
         console.log(`🛡️ Warranties loaded: ${warrantiesArray.length}`);
       }
     } catch (error) {
-      console.error('❌ Error fetching warranties:', error);
-      if (isMounted.current) {
-        const mockData = generateMockData();
-        setWarranties(mockData.warranties);
-        calculateWarrantyStats(mockData.warranties);
-        showMessage('⚠️ Using sample warranty data', 'warning');
-      }
-    }
+  console.error('❌ Error fetching warranties:', error);
+  if (isMounted.current) {
+    setWarranties([]);
+    calculateWarrantyStats([]);
+    showMessage('❌ Failed to load warranties from server', 'error');
+  }
+}
   }, [extractData, showMessage]);
 
   // ===== FETCH SERVICES =====
@@ -345,14 +343,13 @@ const Warranty = () => {
         console.log(`🔧 Services loaded: ${servicesArray.length}`);
       }
     } catch (error) {
-      console.error('❌ Error fetching services:', error);
-      if (isMounted.current) {
-        const mockData = generateMockData();
-        setServices(mockData.services);
-        calculateServiceStats(mockData.services);
-        showMessage('⚠️ Using sample service data', 'warning');
-      }
-    }
+  console.error('❌ Error fetching services:', error);
+  if (isMounted.current) {
+    setServices([]);
+    calculateServiceStats([]);
+    showMessage('❌ Failed to load services from server', 'error');
+  }
+}
   }, [extractData, showMessage]);
 
   // ===== LOAD ALL DATA =====

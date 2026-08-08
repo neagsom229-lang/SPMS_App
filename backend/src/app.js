@@ -27,7 +27,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const customerRoutes = require('./routes/customers');
-const supplierRoutes = require('./routes/suppliers');
+// const supplierRoutes = require('./routes/suppliers');
 const userRoutes = require('./routes/users');
 const stockRoutes = require('./routes/stock');
 const tenantRoutes = require('./routes/tenants');
@@ -1970,10 +1970,11 @@ app.put("/api/stock/:productid", authenticate, async (req, res) => {
   try {
     const { productid } = req.params;
     const body = req.body || {};
+    const action = body.action || 'set';
 
-    const qtyInStock = body.QtyInStock ?? body.qtyinstock ?? 0;
-    const qtyAvailable = body.QtyAvailable ?? body.qtyavailable ?? 0;
-    const qtyReserved = body.QtyReserved ?? body.qtyreserved ?? 0;
+    const deltaInStock = body.QtyInStock ?? body.qtyinstock ?? 0;
+    const deltaAvailable = body.QtyAvailable ?? body.qtyavailable ?? 0;
+    const deltaReserved = body.QtyReserved ?? body.qtyreserved ?? 0;
 
     const productId = await resolveProductId(productid);
     if (!productId) {
@@ -1981,9 +1982,24 @@ app.put("/api/stock/:productid", authenticate, async (req, res) => {
     }
 
     const check = await db.query(
-      "SELECT stockid FROM tbl_stock WHERE productid = $1",
+      "SELECT stockid, qtyinstock, qtyavailable, qtyreserved FROM tbl_stock WHERE productid = $1",
       [productId],
     );
+
+    let qtyInStock, qtyAvailable, qtyReserved;
+
+    if (check.rows.length > 0 && action !== 'set') {
+      const current = check.rows[0];
+      const sign = action === 'add' ? 1 : -1;
+      qtyInStock = Math.max(0, Number(current.qtyinstock) + sign * deltaInStock);
+      qtyAvailable = Math.max(0, Number(current.qtyavailable) + sign * deltaAvailable);
+      qtyReserved = Math.max(0, Number(current.qtyreserved) + sign * deltaReserved);
+    } else {
+      // 'set' action, or no existing row to add/reduce from
+      qtyInStock = deltaInStock;
+      qtyAvailable = deltaAvailable;
+      qtyReserved = deltaReserved;
+    }
 
     let result;
     if (check.rows.length > 0) {
@@ -2203,7 +2219,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/customers', customerRoutes);
-app.use('/api/suppliers', supplierRoutes);
+// app.use('/api/suppliers', supplierRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/tenants', tenantRoutes);

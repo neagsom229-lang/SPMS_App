@@ -318,23 +318,21 @@ const generateChartDataFromOrders = (orders) => {
   }
 
   const hasRealData = buckets.some((b) => b.orders > 0);
-  if (!hasRealData) {
-    // No orders yet (new store / empty response) — show an illustrative
-    // sample curve rather than a flat empty chart.
-    return buckets.map((b, i) => ({
-      name: b.name,
-      revenue: 5000 + i * 1500 + Math.floor(Math.random() * 500),
-      orders: 30 + i * 8 + Math.floor(Math.random() * 5),
-      profit: 2000 + i * 600 + Math.floor(Math.random() * 200),
-    }));
-  }
+if (!hasRealData) {
+  return buckets.map((b, i) => ({
+    name: b.name,
+    revenue: 5000 + i * 1500 + Math.floor(Math.random() * 500),
+    orders: 30 + i * 8 + Math.floor(Math.random() * 5),
+    profit: 2000 + i * 600 + Math.floor(Math.random() * 200),
+  }));
+}
 
   return buckets.map((b) => ({
-    name: b.name,
-    revenue: b.revenue,
-    orders: b.orders,
-    profit: b.revenue * 0.35,
-  }));
+  name: b.name,
+  revenue: b.revenue,
+  orders: b.orders,
+  profit: b.revenue * 0.35,
+}));
 };
 
 // ============================================
@@ -431,10 +429,10 @@ const useDashboardData = () => {
   const usingSamplePending = pendingOrdersQuery.isError;
   const hasAnySampleData = usingSampleStats || usingSampleOrders || usingSampleLowStock || usingSamplePending;
 
-  const stats = usingSampleStats ? SAMPLE_STATS : statsQuery.data || {};
-  const recentOrders = usingSampleOrders ? SAMPLE_ORDERS : ordersQuery.data || [];
-  const lowStockProducts = usingSampleLowStock ? SAMPLE_LOW_STOCK : lowStockQuery.data || [];
-  const pendingOrdersList = usingSamplePending ? SAMPLE_PENDING_ORDERS : pendingOrdersQuery.data || [];
+  const stats = statsQuery.data || {};
+const recentOrders = ordersQuery.data || [];
+const lowStockProducts = lowStockQuery.data || [];
+const pendingOrdersList = pendingOrdersQuery.data || [];
 
   const chartData = useMemo(() => generateChartDataFromOrders(recentOrders), [recentOrders]);
   const salesDistribution = useMemo(() => generateSalesDistribution(recentOrders), [recentOrders]);
