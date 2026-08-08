@@ -1,15 +1,15 @@
-const express = require('express');
-const pool = require('../config/postgres');
-const { authenticate } = require('../middleware/auth');
+const express = require("express");
+const pool = require("../config/postgres");
+const { authenticate } = require("../middleware/auth");
 
 const router = express.Router();
 
 const getTenantId = (req) => {
-  return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
+  return req.user?.tenantId || req.tenantId || req.headers["x-tenant-id"];
 };
 
 // ===== GET SERVICES =====
-router.get('/', authenticate, async (req, res) => {
+router.get("/", authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
@@ -35,16 +35,16 @@ router.get('/', authenticate, async (req, res) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    console.error('❌ Services error:', err.message);
+    console.error("❌ Services error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ===== CREATE SERVICE =====
-router.post('/', authenticate, async (req, res) => {
+router.post("/", authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   if (!tenantId) {
-    return res.status(400).json({ error: 'Tenant ID is required' });
+    return res.status(400).json({ error: "Tenant ID is required" });
   }
 
   const {
@@ -52,10 +52,10 @@ router.post('/', authenticate, async (req, res) => {
     ProductID,
     SerialNumber,
     IssueDescription,
-    ServiceType = 'Repair',
-    Status = 'Pending',
+    ServiceType = "Repair",
+    Status = "Pending",
     ReceivedDate,
-    notes
+    notes,
   } = req.body;
 
   try {
@@ -69,26 +69,26 @@ router.post('/', authenticate, async (req, res) => {
         CustomerID,
         ProductID,
         SerialNumber || `SN-${String(Date.now()).slice(-4)}`,
-        IssueDescription || 'Service request',
+        IssueDescription || "Service request",
         ServiceType,
         Status,
-        ReceivedDate || new Date().toISOString().split('T')[0],
-        notes || ''
-      ]
+        ReceivedDate || new Date().toISOString().split("T")[0],
+        notes || "",
+      ],
     );
 
     res.status(201).json({
-      message: 'Service created successfully',
-      service: result.rows[0]
+      message: "Service created successfully",
+      service: result.rows[0],
     });
   } catch (error) {
-  console.error('❌ Update service error:', error);
-  res.status(500).json({ error: error.message });  // TEMP — revert after debugging
-}
+    console.error("❌ Update service error:", error);
+    res.status(500).json({ error: error.message }); // TEMP — revert after debugging
+  }
 });
 
 // ===== UPDATE SERVICE =====
-router.put('/:id', authenticate, async (req, res) => {
+router.put("/:id", authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const { id } = req.params;
@@ -101,7 +101,7 @@ router.put('/:id', authenticate, async (req, res) => {
     ServiceType,
     Status,
     ReceivedDate,
-    notes
+    notes,
   } = req.body;
 
   try {
@@ -119,9 +119,15 @@ router.put('/:id', authenticate, async (req, res) => {
       WHERE serviceid = $9
     `;
     const params = [
-      CustomerID, ProductID, SerialNumber,
-      IssueDescription, ServiceType, Status,
-      ReceivedDate, notes, id
+      CustomerID,
+      ProductID,
+      SerialNumber,
+      IssueDescription,
+      ServiceType,
+      Status,
+      ReceivedDate,
+      notes,
+      id,
     ];
 
     if (!isSuperAdmin && tenantId) {
@@ -132,7 +138,9 @@ router.put('/:id', authenticate, async (req, res) => {
     const result = await pool.query(query, params);
 
     if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Service not found or access denied' });
+      return res
+        .status(404)
+        .json({ error: "Service not found or access denied" });
     }
 
     const updated = await pool.query(
@@ -143,43 +151,45 @@ router.put('/:id', authenticate, async (req, res) => {
        LEFT JOIN tbl_customers c ON c.id = s.customerid AND c.tenant_id = s.tenant_id
        LEFT JOIN tbl_products p ON p.id = s.productid AND p.tenant_id = s.tenant_id
        WHERE s.serviceid = $1`,
-      [id]
+      [id],
     );
 
     res.json({
-      message: 'Service updated successfully',
-      service: updated.rows[0]
+      message: "Service updated successfully",
+      service: updated.rows[0],
     });
   } catch (error) {
-    console.error('❌ Update service error:', error);
-    res.status(500).json({ error: 'Failed to update service' });
+    console.error("❌ Update service error:", error);
+    res
+      .status(500)
+      .json({ error: error.message, detail: error.detail || null });
   }
 });
 
 // ===== DELETE SERVICE =====
-router.delete('/:id', authenticate, async (req, res) => {
+router.delete("/:id", authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    let query = 'DELETE FROM tbl_service_requests WHERE serviceid = $1';
+    let query = "DELETE FROM tbl_service_requests WHERE serviceid = $1";
     const params = [req.params.id];
 
     if (!isSuperAdmin && tenantId) {
-      query += ' AND tenant_id = $2';
+      query += " AND tenant_id = $2";
       params.push(tenantId);
     }
 
     const result = await pool.query(query, params);
 
     if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Service not found' });
+      return res.status(404).json({ error: "Service not found" });
     }
 
     res.status(204).end();
   } catch (error) {
-    console.error('❌ Delete service error:', error);
-    res.status(500).json({ error: 'Failed to delete service' });
+    console.error("❌ Delete service error:", error);
+    res.status(500).json({ error: "Failed to delete service" });
   }
 });
 
