@@ -15,14 +15,17 @@ router.get("/", authenticate, async (req, res) => {
 
   try {
     let query = `
-      SELECT s.*, 
-             CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-             p.name_en as product_name
-      FROM tbl_service_requests s
-      LEFT JOIN tbl_customers c ON c.id = s.customerid AND c.tenant_id = s.tenant_id
-      LEFT JOIN tbl_products p ON p.id = s.productid AND p.tenant_id = s.tenant_id
-      WHERE 1=1
-    `;
+  UPDATE tbl_service_requests 
+  SET customerid = $1, 
+      productid = $2, 
+      serialnumber = $3, 
+      issuedescription = $4, 
+      servicetype = $5, 
+      status = $6, 
+      receiveddate = $7, 
+      notes = $8
+  WHERE serviceid = $9
+`;
     const params = [];
 
     if (!isSuperAdmin && tenantId) {
@@ -82,9 +85,9 @@ router.post("/", authenticate, async (req, res) => {
       service: result.rows[0],
     });
   } catch (error) {
-    console.error("❌ Update service error:", error);
-    res.status(500).json({ error: error.message }); // TEMP — revert after debugging
-  }
+  console.error('❌ Update service error:', error);
+  res.status(500).json({ error: 'Failed to update service' });
+}
 });
 
 // ===== UPDATE SERVICE =====
@@ -114,8 +117,7 @@ router.put("/:id", authenticate, async (req, res) => {
           servicetype = $5, 
           status = $6, 
           receiveddate = $7, 
-          notes = $8,
-          updated_at = NOW()
+          notes = $8
       WHERE serviceid = $9
     `;
     const params = [
@@ -160,9 +162,7 @@ router.put("/:id", authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Update service error:", error);
-    res
-      .status(500)
-      .json({ error: error.message, detail: error.detail || null });
+    res.status(500).json({ error: "Failed to update service" });
   }
 });
 
