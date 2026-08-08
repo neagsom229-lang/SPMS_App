@@ -82,9 +82,9 @@ router.post('/', authenticate, async (req, res) => {
       service: result.rows[0]
     });
   } catch (error) {
-    console.error('❌ Create service error:', error);
-    res.status(500).json({ error: 'Failed to create service' });
-  }
+  console.error('❌ Update service error:', error);
+  res.status(500).json({ error: error.message });  // TEMP — revert after debugging
+}
 });
 
 // ===== UPDATE SERVICE =====
