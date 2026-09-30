@@ -3,23 +3,19 @@
   "version": "1.0.0",
   "description": "SPMS - Sale & Product Management System Backend API",
   "main": "src/app.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "seed": "node scripts/seed.js",
-    "seed:reset": "node scripts/seed.js --reset",
+    "seed": "node scripts/seed-postgres.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src/**/*.js",
     "lint:fix": "eslint src/**/*.js --fix",
-    "format": "prettier --write src/**/*.js",
-    "build": "npm run lint && npm run test",
-    "docker:build": "docker build -t spms-backend .",
-    "docker:run": "docker run -p 5000:5000 spms-backend",
-    "db:backup": "node scripts/backup.js",
-    "db:restore": "node scripts/restore.js",
-    "backup": "node scripts/backup.js"
+    "format": "prettier --write src/**/*.js"
   },
   "dependencies": {
     "axios": "^1.18.1",
@@ -35,13 +31,11 @@
     "helmet": "^7.2.0",
     "jsonwebtoken": "^9.0.3",
     "memory-cache": "^0.2.0",
-    "mongoose": "^8.24.1",
     "morgan": "^1.11.0",
     "nodemailer": "^6.10.1",
     "pdfkit": "^0.14.0",
     "pg": "^8.22.0",
     "qrcode": "^1.5.4",
-    "socket.io": "^4.7.2",
     "stripe": "^14.25.0",
     "uuid": "^14.0.1",
     "winston": "^3.19.0"
