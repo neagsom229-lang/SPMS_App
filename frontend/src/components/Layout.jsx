@@ -329,7 +329,7 @@ const Layout = ({ children }) => {
         setShowSearchHistory(false);
         toast.success(`🔍 Navigating to ${searchResults[0].label}`);
       } else {
-        toast.info(`No results found for "${searchQuery}"`);
+        toast(`No results found for "${searchQuery}"`, { icon: 'ℹ️' });
       }
     }
   }, [searchQuery, searchResults, navigate, addToSearchHistory]);

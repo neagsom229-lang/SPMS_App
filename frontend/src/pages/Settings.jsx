@@ -1618,7 +1618,7 @@ const Settings = () => {
           <h4 className="font-medium text-gray-800 dark:text-white mb-2">Restore Backup</h4>
           <p className="text-sm text-gray-400 dark:text-gray-500 mb-4">Restore from a previous backup</p>
           <button
-            onClick={() => toast.warning('Select a backup file to restore')}
+            onClick={() => toast('Select a backup file to restore', { icon: '⚠️' })}
             className="w-full px-4 py-2.5 border-2 border-amber-500 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-all duration-300 flex items-center justify-center gap-2"
           >
             <Upload className="w-4 h-4" />

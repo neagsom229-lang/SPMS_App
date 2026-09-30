@@ -33,6 +33,7 @@ import Pricing from "./pages/Pricing";
 import Landing from "./pages/Landing";
 import Register from "./pages/Register";
 import Help from './pages/Help';
+import Settings from './pages/Settings';
 
 // Context
 import { ThemeProvider } from "./context/ThemeContext";
@@ -185,6 +186,7 @@ function App() {
                   <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
                   <Route path="/payment/:orderId" element={<Layout><Payment /></Layout>} />
                   <Route path="/profile" element={<Layout><Profile /></Layout>} />
+                  <Route path="/settings" element={<Layout><Settings /></Layout>} />
                 </Route>
 
                 {/* ===== CATCH ALL ===== */}

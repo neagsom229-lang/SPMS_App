@@ -98,7 +98,7 @@ export const AuthProvider = ({ children }) => {
       setIsSuperAdmin(false);
       
       toast.success(`🎉 ${tenantData?.name || 'Business'} registered successfully!`);
-      toast.info(`🔑 Your username: ${userData.username}`);
+      toast(`🔑 Your username: ${userData.username}`, { icon: 'ℹ️' });
       
       return { success: true, user: userData, tenant: tenantData };
       
