@@ -7,17 +7,17 @@ const router = express.Router();
 
 // ===== GET ALL CATEGORIES =====
 router.get('/', authenticate, async (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-  
-  const isSuperAdmin = decoded.isSuperAdmin || false;
-  const tenantId = decoded.tenantId;
-
   try {
+    const isSuperAdmin = req.user.isSuperAdmin || false;
+    const tenantId = req.user.tenantId;
+
     let sql = 'SELECT * FROM tbl_categories';
     const params = [];
 
-    if (!isSuperAdmin && tenantId) {
+    if (!isSuperAdmin) {
+      if (!tenantId) {
+        return res.status(403).json({ error: 'Tenant ID required' });
+      }
       sql += ' WHERE tenant_id = $1';
       params.push(tenantId);
     }

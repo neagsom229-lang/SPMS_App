@@ -3,7 +3,8 @@ const cache = require('memory-cache');
 
 const cacheMiddleware = (duration) => {
   return (req, res, next) => {
-    const key = `__express__${req.originalUrl || req.url}`;
+    const tenantKey = req.user ? `${req.user.tenantId || 'super'}_${req.user.isSuperAdmin ? 'admin' : 'tenant'}` : 'public';
+    const key = `__express__${tenantKey}_${req.originalUrl || req.url}`;
     const cachedBody = cache.get(key);
 
     if (cachedBody) {
@@ -20,4 +21,13 @@ const cacheMiddleware = (duration) => {
   };
 };
 
-module.exports = { cacheMiddleware };
+const clearTenantCache = (tenantId) => {
+  const keys = cache.keys();
+  keys.forEach(k => {
+    if (k.includes(`__express__${tenantId}_`) || k.includes(`__express__super_`)) {
+      cache.del(k);
+    }
+  });
+};
+
+module.exports = { cacheMiddleware, clearTenantCache };

@@ -6,13 +6,14 @@
 // ============================================
 
 require("dotenv").config();
+require("express-async-errors");
 
 const dns = require("dns");
 dns.setDefaultResultOrder("ipv4first");
 
 const express = require("express");
 const cors = require("cors");
-const bodyParser = require("body-parser");
+const helmet = require("helmet");
 const morgan = require("morgan");
 const compression = require("compression");
 const jwt = require("jsonwebtoken");
@@ -150,8 +151,8 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(compression());
-app.use(bodyParser.json({ limit: "50mb" }));
-app.use(bodyParser.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // ============================================
 // LOGGING
@@ -443,7 +444,7 @@ app.get("/api/test", (req, res) => {
   });
 });
 
-app.get("/api/db-test", async (req, res) => {
+app.get("/api/db-test", authenticate, requireSuperAdmin, async (req, res) => {
   try {
     console.log("🔍 Testing database connection...");
     const result = await db.query(
@@ -473,184 +474,7 @@ app.get("/api/db-test", async (req, res) => {
   }
 });
 
-// ============================================
-// AUTHENTICATION - LOGIN (WITH SUPER ADMIN)
-// ============================================
-app.post("/api/auth/login", async (req, res) => {
-  const { username, password } = req.body;
-  console.log("🔑 Login attempt:", username);
-
-  if (!username || !password) {
-    return res
-      .status(400)
-      .json({ error: "Username and password are required" });
-  }
-
-  try {
-    const result = await db.query(
-      `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
-              u.is_super_admin, u.tenant_id,
-              t.id as tenant_id, t.name as tenant_name, t.subdomain
-       FROM tbl_users u
-       LEFT JOIN tenants t ON u.tenant_id = t.id
-       WHERE LOWER(u.username) = LOWER($1) AND u.status = 'ACTIVE'`,
-      [username],
-    );
-
-    const user = result.rows[0];
-
-    if (!user) {
-      console.log("❌ User not found:", username);
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    if (user.password !== password) {
-      console.log("❌ Password incorrect for:", username);
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    console.log("✅ Login successful:", username);
-    logUserActivity(user.userid, "Login", "tbl_users", user.userid);
-
-    const token = jwt.sign(
-      {
-        userId: user.userid,
-        username: user.username,
-        role: user.role || "Admin",
-        tenantId: user.is_super_admin ? null : user.tenant_id,
-        isSuperAdmin: user.is_super_admin || false,
-      },
-      process.env.JWT_SECRET || "your-secret-key",
-      { expiresIn: "7d" },
-    );
-
-    // Build user response
-    const userResponse = {
-      user_id: user.userid,
-      username: user.username,
-      email: user.email || `${username}@example.com`,
-      role: user.role || "Admin",
-      role_name: user.role || "Admin",
-      status: user.status,
-      fullname: user.fullname || user.username,
-      isSuperAdmin: user.is_super_admin || false,
-    };
-
-    if (user.is_super_admin) {
-      userResponse.tenant = null;
-      userResponse.accessLevel = "all";
-    } else if (user.tenant_id) {
-      userResponse.tenant = {
-        id: user.tenant_id,
-        name: user.tenant_name,
-        subdomain: user.subdomain,
-      };
-      userResponse.accessLevel = "tenant";
-    }
-
-    res.json({
-      token,
-      user: userResponse,
-    });
-  } catch (err) {
-    console.error("❌ Login error:", err.message);
-    res.status(500).json({ error: "Database error" });
-  }
-});
-
-// ============================================
-// AUTHENTICATION - REGISTER
-// ============================================
-app.post("/api/auth/register", async (req, res) => {
-  const { username, email, password, firstName, lastName, companyName } =
-    req.body;
-
-  if (
-    !username ||
-    !email ||
-    !password ||
-    !firstName ||
-    !lastName ||
-    !companyName
-  ) {
-    return res.status(400).json({ error: "All fields are required" });
-  }
-  if (password.length < 8) {
-    return res
-      .status(400)
-      .json({ error: "Password must be at least 8 characters" });
-  }
-
-  try {
-    const existingUser = await db.query(
-      `SELECT userid FROM tbl_users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)`,
-      [username, email],
-    );
-    if (existingUser.rows.length > 0) {
-      return res
-        .status(400)
-        .json({ error: "Username or email already exists" });
-    }
-
-    const fullName = `${firstName} ${lastName}`;
-    const result = await db.query(
-      `INSERT INTO tbl_users (username, password, fullname, role, status, email) 
-       VALUES ($1, $2, $3, 'Admin', 'ACTIVE', $4) 
-       RETURNING userid, username, role`,
-      [username, password, fullName, email],
-    );
-
-    const user = result.rows[0];
-    logUserActivity(user.userid, "Registered", "tbl_users", user.userid);
-
-    res.status(201).json({
-      message: "Account created successfully",
-      user: {
-        user_id: user.userid,
-        username: user.username,
-        role: user.role,
-        fullname: fullName,
-        email: email,
-      },
-    });
-  } catch (err) {
-    console.error("❌ Registration error:", err.message);
-    res.status(500).json({ error: "Registration failed. Please try again." });
-  }
-});
-
-// ============================================
-// AUTHENTICATION - GET CURRENT USER
-// ============================================
-app.get("/api/auth/me", async (req, res) => {
-  try {
-    const token = req.headers.authorization?.split(" ")[1];
-    if (!token) {
-      return res.status(401).json({ error: "No token provided" });
-    }
-
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || "your-secret-key",
-    );
-    const result = await db.query(
-      `SELECT u.userid, u.username, u.fullname, u.role, u.status, u.email,
-              u.is_super_admin, u.tenant_id,
-              t.name as tenant_name, t.subdomain
-       FROM tbl_users u
-       LEFT JOIN tenants t ON u.tenant_id = t.id
-       WHERE u.userid = $1`,
-      [decoded.userId],
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error("❌ Auth me error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+// Auth routes are handled by routes/auth.js mounted below
 
 // ============================================
 // ⚠️ KHQR PAYMENT + STRIPE-CHECKOUT-SESSION HANDLING
@@ -2329,6 +2153,8 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module && process.env.NODE_ENV !== 'test') {
+  startServer();
+}
 
 module.exports = app;

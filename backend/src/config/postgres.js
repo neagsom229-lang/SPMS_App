@@ -46,7 +46,7 @@ const db = {
       return await pool.connect();
     } catch (err) {
       console.error('❌ Connection error:', err.message);
-      return { release: () => {} };
+      throw err;
     }
   },
   end: async () => {

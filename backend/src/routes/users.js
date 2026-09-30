@@ -202,4 +202,65 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
+// ===== UPDATE USER PASSWORD =====
+router.put('/:id/password', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const currentUserId = req.user?.userId;
+  const targetUserId = parseInt(req.params.id, 10);
+  const { currentPassword, newPassword } = req.body;
+
+  if (!newPassword || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+
+  if (!isSuperAdmin && currentUserId !== targetUserId) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  try {
+    let checkQuery = 'SELECT userid, password, tenant_id FROM tbl_users WHERE userid = $1';
+    const checkParams = [targetUserId];
+
+    if (!isSuperAdmin && tenantId) {
+      checkQuery += ' AND tenant_id = $2';
+      checkParams.push(tenantId);
+    }
+
+    const userRes = await pool.query(checkQuery, checkParams);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userRes.rows[0];
+
+    if (!isSuperAdmin) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required' });
+      }
+      const isBcrypt = user.password && user.password.startsWith('$2');
+      let isMatch = false;
+      if (isBcrypt) {
+        isMatch = await bcrypt.compare(currentPassword, user.password);
+      } else {
+        isMatch = (currentPassword === user.password);
+      }
+      if (!isMatch) {
+        return res.status(400).json({ error: 'Incorrect current password' });
+      }
+    }
+
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      'UPDATE tbl_users SET password = $1 WHERE userid = $2',
+      [hashedNewPassword, targetUserId]
+    );
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('❌ Update password error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
