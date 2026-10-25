@@ -30,6 +30,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import apiClient from "../api/client";
+import SalesSummary from "./dashboard/SalesSummary";
 import {
   Users,
   Package,
@@ -366,11 +367,18 @@ const generateSalesDistribution = (orders) => {
 // ============================================
 const useDashboardData = () => {
   const queryClient = useQueryClient();
+  const [salesRange, setSalesRange] = useState('30d');
 
-  // NOTE: each queryFn still lets real errors propagate — retry counts,
-  // isFetching, and the Retry button all keep working correctly. The
-  // *fallback to sample data on error* happens below, at the point we
-  // read `.data`/`.isError` off each query, not inside the queryFn.
+  const salesSummaryQuery = useQuery({
+    queryKey: ['dashboard', salesRange],
+    queryFn: async () => {
+      const response = await apiClient.get('/dashboard/sales-summary', { params: { range: salesRange } });
+      return response.data || {};
+    },
+    staleTime: REFRESH_STALE_TIME_MS,
+    retry: 1,
+  });
+
   const statsQuery = useQuery({
     queryKey: ["dashboardStats"],
     queryFn: async () => {
@@ -411,41 +419,31 @@ const useDashboardData = () => {
     retry: 1,
   });
 
-  const allQueries = [statsQuery, ordersQuery, lowStockQuery, pendingOrdersQuery];
+  const allQueries = [statsQuery, ordersQuery, lowStockQuery, pendingOrdersQuery, salesSummaryQuery];
 
-  // Only the very first load (no cached data anywhere yet) shows the
-  // skeleton. Background refreshes use the thin top progress bar instead
-  // via isRefreshing, so the whole page never un-mounts into a skeleton
-  // on a routine 60s refresh.
   const isLoading = allQueries.some((q) => q.isLoading);
   const isRefreshing = allQueries.some((q) => q.isFetching);
 
-  // A request that actually failed falls back to sample data instead of
-  // blocking the page — the dashboard always has something to show.
-  // Empty-but-successful data (a real store with 0 orders) is left as-is.
   const usingSampleStats = statsQuery.isError;
   const usingSampleOrders = ordersQuery.isError;
   const usingSampleLowStock = lowStockQuery.isError;
   const usingSamplePending = pendingOrdersQuery.isError;
   const hasAnySampleData = usingSampleStats || usingSampleOrders || usingSampleLowStock || usingSamplePending;
 
-  const stats = statsQuery.data || {};
-const recentOrders = ordersQuery.data || [];
-const lowStockProducts = lowStockQuery.data || [];
-const pendingOrdersList = pendingOrdersQuery.data || [];
+  const statsRaw = statsQuery.data || {};
+  const recentOrders = ordersQuery.data || [];
+  const lowStockProducts = lowStockQuery.data || [];
+  const pendingOrdersList = pendingOrdersQuery.data || [];
+  const salesSummary = salesSummaryQuery.data || {};
 
   const chartData = useMemo(() => generateChartDataFromOrders(recentOrders), [recentOrders]);
   const salesDistribution = useMemo(() => generateSalesDistribution(recentOrders), [recentOrders]);
 
   const dashboardStats = useMemo(() => {
-    const totalOrders = getStat(stats, ["total_orders", "totalOrders", "orders_count", "orderCount", "order_count"]);
-    const totalRevenue = getStat(stats, ["total_revenue", "totalRevenue", "revenue", "total_sales", "totalSales"]);
+    const totalOrders = getStat(statsRaw, ["total_orders", "totalOrders", "orders_count", "orderCount", "order_count"]);
+    const totalRevenue = getStat(statsRaw, ["total_revenue", "totalRevenue", "revenue", "total_sales", "totalSales"]);
 
-    // Some backends don't ship a precomputed avg_order_value at all. If
-    // that field is genuinely absent, derive a real number from the
-    // orders we actually have on hand rather than showing a fake $0 next
-    // to a table full of real order amounts.
-    const statsAvgOrderValue = getStat(stats, ["avg_order_value", "avgOrderValue", "average_order_value", "averageOrderValue"], null);
+    const statsAvgOrderValue = getStat(statsRaw, ["avg_order_value", "avgOrderValue", "average_order_value", "averageOrderValue"], null);
     const derivedAvgOrderValue =
       recentOrders.length > 0
         ? recentOrders.reduce((sum, o) => sum + Number(o.AMOUNT_US || o.amount_us || o.total || 0), 0) / recentOrders.length
@@ -454,34 +452,34 @@ const pendingOrdersList = pendingOrdersQuery.data || [];
         : 0;
 
     return {
-      totalCustomers: getStat(stats, ["total_customers", "totalCustomers", "customers_count", "customerCount"]),
-      totalProducts: getStat(stats, ["total_products", "totalProducts", "products_count", "productCount"]),
+      totalCustomers: getStat(statsRaw, ["total_customers", "totalCustomers", "customers_count", "customerCount"]),
+      totalProducts: getStat(statsRaw, ["total_products", "totalProducts", "products_count", "productCount"]),
       totalOrders,
       totalRevenue,
       lowStockItems: lowStockProducts.length || 0,
       pendingOrders: pendingOrdersList.length || 0,
-      growthRate: getStat(stats, ["growth_rate", "growthRate", "monthly_growth", "monthlyGrowth"]),
-      conversionRate: getStat(stats, ["conversion_rate", "conversionRate", "conversion"]),
+      growthRate: getStat(statsRaw, ["growth_rate", "growthRate", "monthly_growth", "monthlyGrowth"]),
+      conversionRate: getStat(statsRaw, ["conversion_rate", "conversionRate", "conversion"]),
       avgOrderValue: statsAvgOrderValue !== null ? statsAvgOrderValue : derivedAvgOrderValue,
-      todaySales: getStat(stats, ["today_sales", "todaySales", "daily_sales", "dailySales"]),
-      todayOrders: getStat(stats, ["today_orders", "todayOrders", "daily_orders", "dailyOrders"]),
-      activeUsers: getStat(stats, ["active_users", "activeUsers", "online_users", "onlineUsers"]),
-      totalRevenueGrowth: getStat(stats, ["revenue_growth", "revenueGrowth"]),
+      todaySales: getStat(statsRaw, ["today_sales", "todaySales", "daily_sales", "dailySales"]),
+      todayOrders: getStat(statsRaw, ["today_orders", "todayOrders", "daily_orders", "dailyOrders"]),
+      activeUsers: getStat(statsRaw, ["active_users", "activeUsers", "online_users", "onlineUsers"]),
+      totalRevenueGrowth: getStat(statsRaw, ["revenue_growth", "revenueGrowth"]),
     };
-  }, [stats, lowStockProducts.length, pendingOrdersList.length, recentOrders]);
+  }, [statsRaw, lowStockProducts.length, pendingOrdersList.length, recentOrders]);
 
   const refreshData = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["dashboardStats"] });
-    queryClient.invalidateQueries({ queryKey: ["recentOrders"] });
-    queryClient.invalidateQueries({ queryKey: ["lowStock"] });
-    queryClient.invalidateQueries({ queryKey: ["pendingOrders"] });
-  }, [queryClient]);
+    allQueries.forEach(q => q.refetch());
+  }, [allQueries]);
 
   return {
     stats: dashboardStats,
     recentOrders,
     lowStockProducts,
     pendingOrdersList,
+    salesSummary,
+    salesRange,
+    setSalesRange,
     chartData,
     salesDistribution,
     isLoading,
@@ -1228,6 +1226,9 @@ const Dashboard = () => {
 
       {/* ===== SAMPLE-DATA / PARTIAL-FAILURE BANNER ===== */}
       <FetchErrorBanner show={hasAnySampleData} onRetry={refreshData} />
+
+      {/* ===== SALES SUMMARY COMPONENT ===== */}
+      <SalesSummary />
 
       {/* ===== TOP BAR ===== */}
       <div className="dashboard-topbar">
