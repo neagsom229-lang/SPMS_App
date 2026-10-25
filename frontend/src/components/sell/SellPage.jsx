@@ -21,8 +21,14 @@ const SellPage = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [completedOrder, setCompletedOrder] = useState(null);
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const queryClient = useQueryClient();
+
+  // Reset idempotency key when cart changes
+  useEffect(() => {
+    setIdempotencyKey(crypto.randomUUID());
+  }, [cart]);
 
   // Fetch Catalog & Customers
   const fetchData = useCallback(async () => {
@@ -149,7 +155,7 @@ const SellPage = () => {
         items: cart.map(i => ({ product_id: i.product_id, qty: i.quantity })),
         discount: numericDiscount,
         payment_method: paymentMethod,
-        idempotency_key: crypto.randomUUID()
+        idempotency_key: idempotencyKey
       };
 
       const { data } = await apiClient.post('/orders', payload);
@@ -168,7 +174,9 @@ const SellPage = () => {
       fetchData(); // Refresh product stock levels
     } catch (err) {
       console.error('Checkout error:', err);
-      toast.error(err.response?.data?.error || 'Failed to complete sale');
+      const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to complete sale';
+      toast.error(errorMsg);
+      fetchData();
     } finally {
       setProcessing(false);
     }

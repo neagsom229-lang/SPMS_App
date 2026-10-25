@@ -246,7 +246,8 @@ router.post('/', authenticate, async (req, res) => {
         `SELECT s.qtyavailable, p.id as product_id, 
                 p.name as name_en,
                 p.name as product_name,
-                p.price
+                p.price,
+                p.cost
          FROM tbl_stock s
          JOIN tbl_products p ON p.id = s.productid
          WHERE s.productid = $1 AND s.tenant_id = $2
@@ -271,7 +272,7 @@ router.post('/', authenticate, async (req, res) => {
       }
 
       const unitPrice = Number(row.price) || 0;
-      const buyPrice = 0;
+      const buyPrice = Number(row.cost) || 0;
       const lineSubtotal = Number((requestedQty * unitPrice).toFixed(2));
       calculatedSubtotal += lineSubtotal;
 
@@ -360,6 +361,75 @@ router.post('/', authenticate, async (req, res) => {
     await client.query('ROLLBACK');
     console.error('❌ Create order error:', error);
     res.status(500).json({ error: error.message || 'Failed to create order' });
+  } finally {
+    client.release();
+  }
+});
+
+// ===== CANCEL ORDER =====
+router.post('/:id/cancel', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req);
+  const userId = req.user?.userId;
+  const orderId = req.params.id;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const orderRes = await client.query(
+      `SELECT * FROM tbl_orders WHERE or_id = $1 AND tenant_id = $2 FOR UPDATE`,
+      [orderId, tenantId]
+    );
+
+    if (orderRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = orderRes.rows[0];
+    if (order.status === 'Refunded' || order.status === 'Cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Order is already cancelled or refunded' });
+    }
+
+    const itemsRes = await client.query(
+      `SELECT * FROM tbl_order_items WHERE order_id = $1`,
+      [orderId]
+    );
+
+    for (const item of itemsRes.rows) {
+      const prodId = item.product_id;
+      const qty = item.qty || item.quantity;
+
+      // Restore stock in tbl_stock
+      await client.query(
+        `UPDATE tbl_stock 
+         SET qtyinstock = qtyinstock + $1,
+             qtyavailable = qtyavailable + $1
+         WHERE productid = $2 AND tenant_id = $3`,
+        [qty, prodId, tenantId]
+      );
+
+      // Audit log for cancel
+      await client.query(
+        `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
+         VALUES ($1, $2, $3, 'CANCEL', $4, $5)`,
+        [tenantId, prodId, qty, orderId, `Cancel order #${orderId} by user ${userId || 'system'}`]
+      );
+    }
+
+    await client.query(
+      `UPDATE tbl_orders SET status = 'Cancelled', updated_at = NOW() WHERE or_id = $1`,
+      [orderId]
+    );
+
+    await client.query('COMMIT');
+    clearTenantCache(tenantId);
+    res.json({ success: true, message: 'Order cancelled and stock restored successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ Cancel order error:', error);
+    res.status(500).json({ error: 'Failed to process order cancellation' });
   } finally {
     client.release();
   }
