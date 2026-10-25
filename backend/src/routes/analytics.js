@@ -22,7 +22,7 @@ router.get('/stats', authenticate, async (req, res) => {
         totalCustomers: 'SELECT COUNT(*) as count FROM tbl_customers WHERE status = $1',
         totalProducts: 'SELECT COUNT(*) as count FROM tbl_products WHERE status = $1',
         totalOrders: 'SELECT COUNT(*) as count FROM tbl_orders',
-        totalRevenue: 'SELECT COALESCE(SUM(amount_us), 0) as revenue FROM tbl_orders',
+        totalRevenue: 'SELECT COALESCE(SUM(total), 0) as revenue FROM tbl_orders',
         lowStock: 'SELECT COUNT(*) as count FROM tbl_stock WHERE qtyavailable <= 5',
         pendingOrders: 'SELECT COUNT(*) as count FROM tbl_orders WHERE status = $1',
       };
@@ -62,7 +62,7 @@ router.get('/stats', authenticate, async (req, res) => {
       pool.query('SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1 AND status = $2', [tenantId, 'Active']),
       pool.query('SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1 AND status = $2', [tenantId, 'Active']),
       pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
-      pool.query('SELECT COALESCE(SUM(amount_us), 0) as revenue FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
+      pool.query('SELECT COALESCE(SUM(total), 0) as revenue FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
       pool.query('SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE p.tenant_id = $1 AND s.qtyavailable <= 5', [tenantId]),
       pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = $2', [tenantId, 'Pending']),
     ]);
@@ -90,9 +90,9 @@ router.get('/monthly-revenue', authenticate, async (req, res) => {
     let query = `
       SELECT 
         TO_CHAR(created_at, 'YYYY-MM') as month,
-        COALESCE(SUM(amount_us), 0) as revenue
+        COALESCE(SUM(total), 0) as revenue
       FROM tbl_orders
-      WHERE status = 'COMPLETED'
+      WHERE status = 'Completed'
     `;
     const params = [];
 
@@ -121,14 +121,15 @@ router.get('/top-products', authenticate, async (req, res) => {
     let query = `
       SELECT 
         p.id,
-        p.name_en,
+        p.name as name_en,
+        p.name as name,
         p.name_kh,
-        p.saleout_price,
-        COALESCE(SUM(oi.quantity), 0) as total_sold,
-        COALESCE(SUM(oi.quantity * oi.price), 0) as total_revenue
+        p.price as price,
+        COALESCE(SUM(oi.qty), 0) as total_sold,
+        COALESCE(SUM(oi.subtotal), 0) as total_revenue
       FROM tbl_products p
-      LEFT JOIN order_items oi ON oi.product_id = p.id
-      LEFT JOIN tbl_orders o ON o.id = oi.order_id AND o.status = 'COMPLETED'
+      LEFT JOIN tbl_order_items oi ON oi.product_id = p.id
+      LEFT JOIN tbl_orders o ON o.or_id = oi.order_id AND o.status = 'Completed'
       WHERE 1=1
     `;
     const params = [];
@@ -140,7 +141,7 @@ router.get('/top-products', authenticate, async (req, res) => {
       paramIndex++;
     }
 
-    query += ` GROUP BY p.id, p.name_en, p.name_kh, p.saleout_price
+    query += ` GROUP BY p.id, p.name, p.name_kh, p.price
                ORDER BY total_sold DESC LIMIT $${paramIndex}`;
     params.push(parseInt(limit));
 

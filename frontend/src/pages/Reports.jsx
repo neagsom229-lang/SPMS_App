@@ -18,7 +18,18 @@ const ExportButtons = ({ data, type }) => {
 
   const exportExcel = async () => {
     // Excel export (using existing backend endpoint)
-    window.location.href = `${import.meta.env.VITE_API_URL}/reports/export/${type}`;
+    try {
+      const res = await apiClient.get(`/reports/export/${type}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${type}-report.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Excel export failed', e);
+      alert('Excel export failed');
+    }
   };
 
   const exportPDF = () => {

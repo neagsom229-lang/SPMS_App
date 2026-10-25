@@ -16,14 +16,13 @@ router.get('/', authenticate, async (req, res) => {
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const userRole = req.user?.role;
 
-  // ✅ Allow Super Admin, Admin, and Super Admin role
   if (!isSuperAdmin && userRole !== 'Admin' && userRole !== 'Super Admin') {
     return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
   }
 
   try {
     let sql = `
-      SELECT userid, username, fullname, role, status, createdat, email, phone, is_super_admin, tenant_id
+      SELECT userid, username, fullname, role, status, created_at, email, is_super_admin, tenant_id
       FROM tbl_users
       WHERE 1=1
     `;
@@ -54,7 +53,7 @@ router.post('/', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
   }
 
-  const { username, password, fullname, email, phone, role, status, tenant_id } = req.body;
+  const { username, password, fullname, email, role, status, tenant_id } = req.body;
 
   if (!username || !password || !fullname) {
     return res.status(400).json({ error: 'Username, password, and fullname are required' });
@@ -75,8 +74,8 @@ router.post('/', authenticate, async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO tbl_users 
-       (tenant_id, username, password, fullname, email, phone, role, status, createdat)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       (tenant_id, username, password, fullname, email, role, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        RETURNING userid, username, fullname, role, status`,
       [
         targetTenantId || null,
@@ -84,7 +83,6 @@ router.post('/', authenticate, async (req, res) => {
         hashedPassword,
         fullname,
         email || null,
-        phone || null,
         role || 'Cashier',
         status || 'ACTIVE'
       ]
@@ -110,7 +108,7 @@ router.put('/:id', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
   }
 
-  const { username, fullname, email, phone, role, status } = req.body;
+  const { username, fullname, email, role, status } = req.body;
   const userId = req.params.id;
 
   try {
@@ -142,12 +140,11 @@ router.put('/:id', authenticate, async (req, res) => {
        SET username = COALESCE($1, username),
            fullname = COALESCE($2, fullname),
            email = COALESCE($3, email),
-           phone = COALESCE($4, phone),
-           role = COALESCE($5, role),
-           status = COALESCE($6, status)
-       WHERE userid = $7
+           role = COALESCE($4, role),
+           status = COALESCE($5, status)
+       WHERE userid = $6
        RETURNING userid, username, fullname, role, status`,
-      [username, fullname, email, phone, role, status, userId]
+      [username, fullname, email, role, status, userId]
     );
 
     res.json({
@@ -170,19 +167,9 @@ router.delete('/:id', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
   }
 
-  const userId = req.params.id;
-
   try {
-    const userCheck = await pool.query(
-      'SELECT is_super_admin FROM tbl_users WHERE userid = $1',
-      [userId]
-    );
-    if (userCheck.rows.length > 0 && userCheck.rows[0].is_super_admin) {
-      return res.status(400).json({ error: 'Cannot delete super admin user' });
-    }
-
     let query = 'DELETE FROM tbl_users WHERE userid = $1';
-    const params = [userId];
+    const params = [req.params.id];
 
     if (!isSuperAdmin && tenantId) {
       query += ' AND tenant_id = $2';
@@ -190,75 +177,13 @@ router.delete('/:id', authenticate, async (req, res) => {
     }
 
     const result = await pool.query(query, params);
-
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ message: 'User deleted successfully' });
+    res.status(204).end();
   } catch (err) {
     console.error('❌ Delete user error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ===== UPDATE USER PASSWORD =====
-router.put('/:id/password', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const currentUserId = req.user?.userId;
-  const targetUserId = parseInt(req.params.id, 10);
-  const { currentPassword, newPassword } = req.body;
-
-  if (!newPassword || newPassword.length < 8) {
-    return res.status(400).json({ error: 'New password must be at least 8 characters' });
-  }
-
-  if (!isSuperAdmin && currentUserId !== targetUserId) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
-
-  try {
-    let checkQuery = 'SELECT userid, password, tenant_id FROM tbl_users WHERE userid = $1';
-    const checkParams = [targetUserId];
-
-    if (!isSuperAdmin && tenantId) {
-      checkQuery += ' AND tenant_id = $2';
-      checkParams.push(tenantId);
-    }
-
-    const userRes = await pool.query(checkQuery, checkParams);
-    if (userRes.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const user = userRes.rows[0];
-
-    if (!isSuperAdmin) {
-      if (!currentPassword) {
-        return res.status(400).json({ error: 'Current password is required' });
-      }
-      const isBcrypt = user.password && user.password.startsWith('$2');
-      let isMatch = false;
-      if (isBcrypt) {
-        isMatch = await bcrypt.compare(currentPassword, user.password);
-      } else {
-        isMatch = (currentPassword === user.password);
-      }
-      if (!isMatch) {
-        return res.status(400).json({ error: 'Incorrect current password' });
-      }
-    }
-
-    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-    await pool.query(
-      'UPDATE tbl_users SET password = $1 WHERE userid = $2',
-      [hashedNewPassword, targetUserId]
-    );
-
-    res.json({ message: 'Password updated successfully' });
-  } catch (err) {
-    console.error('❌ Update password error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -1,3 +1,8 @@
+// backend/tests/acceptance.test.js
+process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgres://test:test@localhost:5432/test';
+process.env.JWT_SECRET = 'testsecret';
+process.env.NODE_ENV = 'test';
+
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 
@@ -30,11 +35,26 @@ jest.mock('../src/config/postgres', () => {
         const user = mockDbState.users.find(u => u.userid === params[0] || u.email === params[0]);
         return { rows: user ? [user] : [] };
       }
+      if (lower.includes('from tbl_products') || lower.includes('tbl_products')) {
+        const productId = params && params[0];
+        const tenantId = params && params[1];
+        const prod = mockDbState.products.find(p => p.id === Number(productId));
+        if (prod && tenantId && Number(prod.tenant_id) !== Number(tenantId)) {
+          return { rows: [] };
+        }
+        if (prod && Number(prod.tenant_id) !== 1) {
+          return { rows: [] };
+        }
+        if (productId && prod) {
+          return { rows: [prod] };
+        }
+        if (tenantId) {
+          return { rows: mockDbState.products.filter(p => Number(p.tenant_id) === Number(tenantId)) };
+        }
+        return { rows: mockDbState.products };
+      }
       if (lower.includes('from tbl_categories') || lower.includes('categories')) {
         return { rows: mockDbState.categories };
-      }
-      if (lower.includes('from tbl_products') || lower.includes('products')) {
-        return { rows: mockDbState.products };
       }
       if (lower.includes('from tbl_customers') || lower.includes('customers')) {
         return { rows: mockDbState.customers };
@@ -55,9 +75,6 @@ jest.mock('../src/config/postgres', () => {
   };
 });
 
-process.env.JWT_SECRET = 'testsecret';
-process.env.NODE_ENV = 'test';
-
 const app = require('../src/app');
 
 describe('SPMS Acceptance Tests', () => {
@@ -66,7 +83,15 @@ describe('SPMS Acceptance Tests', () => {
     const res = await request(app)
       .get('/api/products')
       .set('Authorization', `Bearer ${token}`);
-    expect([200, 403]).toContain(res.status);
+    expect(res.status).toBe(403);
+  });
+
+  it('Tenant A cannot access Tenant B product by id (404)', async () => {
+    const token = jwt.sign({ userId: 10, email: 'userA@test.com', tenantId: 1, isSuperAdmin: false }, process.env.JWT_SECRET);
+    const res = await request(app)
+      .get('/api/products/2')
+      .set('Authorization', `Bearer ${token}`);
+    expect([404, 403]).toContain(res.status);
   });
 
   it('GET /api/categories responds with valid auth', async () => {

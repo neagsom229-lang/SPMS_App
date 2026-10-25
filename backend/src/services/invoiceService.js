@@ -32,7 +32,7 @@ const generateInvoice = (order, customer, items) => {
       
       // Order info - right side
       doc.text(`Invoice #: ${order.order_no}`, 400, 100);
-      doc.text(`Date: ${new Date(order.order_date).toLocaleDateString()}`, 400, 115);
+      doc.text(`Date: ${new Date(order.created_at || order.order_date).toLocaleDateString()}`, 400, 115);
       doc.text(`Status: ${order.status}`, 400, 130);
       
       // Customer info
@@ -73,7 +73,7 @@ const generateInvoice = (order, customer, items) => {
       const totalY = y + (itemsArray.length * 25) + 30;
       doc.moveTo(50, totalY - 10).lineTo(550, totalY - 10).stroke();
       doc.font('Helvetica-Bold');
-      doc.text(`Total: $${parseFloat(order.amount_us).toFixed(2)}`, 400, totalY);
+      doc.text(`Total: $${parseFloat(order.total || 0).toFixed(2)}`, 400, totalY);
       
       // Footer
       doc.moveDown(4);

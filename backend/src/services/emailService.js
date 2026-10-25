@@ -23,7 +23,7 @@ const sendOrderConfirmation = async (order, customer) => {
         <h2>Order Confirmation</h2>
         <p>Thank you for your order!</p>
         <p><strong>Order #:</strong> ${order.order_no}</p>
-        <p><strong>Date:</strong> ${new Date(order.order_date).toLocaleDateString()}</p>
+        <p><strong>Date:</strong> ${new Date(order.created_at || order.order_date).toLocaleDateString()}</p>
         <p><strong>Total:</strong> $${order.net_amount.toFixed(2)}</p>
         <p><strong>Status:</strong> ${order.status}</p>
         <p>We will notify you when your order is processed.</p>

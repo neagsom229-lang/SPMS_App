@@ -16,7 +16,7 @@ router.get('/', authenticate, async (req, res) => {
 
   try {
     let query = `
-      SELECT s.*, p.product_id as product_code, p.name_en, p.name_kh, p.qty_alert, p.saleout_price
+      SELECT s.*, p.barcode as product_code, p.name as name_en, p.name_kh, p.qty_alert, p.price as saleout_price
       FROM tbl_stock s
       LEFT JOIN tbl_products p ON s.productid = p.id
       WHERE 1=1
@@ -24,7 +24,7 @@ router.get('/', authenticate, async (req, res) => {
     const params = [];
 
     if (!isSuperAdmin && tenantId) {
-      query += ` AND p.tenant_id = $1`;
+      query += ` AND s.tenant_id = $1`;
       params.push(tenantId);
     }
 
@@ -43,15 +43,15 @@ router.get('/low-stock', authenticate, async (req, res) => {
 
   try {
     let query = `
-      SELECT p.product_id, p.name_en, p.name_kh, s.qtyavailable, p.qty_alert, p.saleout_price
+      SELECT p.id as product_id, p.barcode as product_code, p.name as name_en, p.name_kh, s.qtyavailable, p.qty_alert, p.price as saleout_price
       FROM tbl_stock s
       LEFT JOIN tbl_products p ON s.productid = p.id
-      WHERE s.qtyavailable <= p.qty_alert AND p.status = 'Active'
+      WHERE s.qtyavailable <= COALESCE(p.qty_alert, 5) AND LOWER(p.status) = 'active'
     `;
     const params = [];
 
     if (!isSuperAdmin && tenantId) {
-      query += ` AND p.tenant_id = $1`;
+      query += ` AND s.tenant_id = $1`;
       params.push(tenantId);
     }
 
