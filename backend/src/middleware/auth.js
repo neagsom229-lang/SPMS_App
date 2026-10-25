@@ -64,20 +64,18 @@ const authenticate = async (req, res, next) => {
 };
 
 // ===== GET SCOPE HELPER =====
-const getScope = (req) => {
+const getScope = (req, res) => {
   if (!req.user) {
-    const err = new Error('Unauthorized');
-    err.status = 401;
-    throw err;
+    if (res) res.status(401).json({ error: 'Unauthorized' });
+    return null;
   }
   if (req.user.isSuperAdmin) {
     const tenantIdParam = req.query.tenant_id || req.headers['x-tenant-id'];
     return { isSuperAdmin: true, tenantId: tenantIdParam ? parseInt(tenantIdParam, 10) : null };
   }
   if (!req.user.tenantId) {
-    const err = new Error('Tenant ID required');
-    err.status = 403;
-    throw err;
+    if (res) res.status(403).json({ error: 'Tenant ID required' });
+    return null;
   }
   return { isSuperAdmin: false, tenantId: req.user.tenantId };
 };

@@ -2,11 +2,15 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../config/postgres');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required');
+}
 
 // ============================================
 // TEST ROUTE
@@ -53,7 +57,19 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password);
+    const isBcrypt = user.password && user.password.startsWith('$2');
+    let isValidPassword = false;
+    if (isBcrypt) {
+      isValidPassword = await bcrypt.compare(password, user.password);
+    } else {
+      const inputBuffer = Buffer.from(password);
+      const storedBuffer = Buffer.from(user.password || '');
+      if (inputBuffer.length === storedBuffer.length && crypto.timingSafeEqual(inputBuffer, storedBuffer)) {
+        isValidPassword = true;
+        const newHash = await bcrypt.hash(password, 10);
+        await db.query('UPDATE tbl_users SET password = $1 WHERE userid = $2', [newHash, user.userid]);
+      }
+    }
     console.log('🔑 Password valid:', isValidPassword);
 
     if (!isValidPassword) {
@@ -165,40 +181,41 @@ router.post('/register-client', async (req, res) => {
     });
   }
 
+  const client = await db.connect();
+
   try {
+    await client.query('BEGIN');
+
     // 1. Check subdomain
-    const existingSubdomain = await db.query(
+    const existingSubdomain = await client.query(
       'SELECT id FROM tenants WHERE subdomain = $1',
       [subdomain.toLowerCase()]
     );
     if (existingSubdomain.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Subdomain already taken. Please choose another.' });
     }
 
-    // 2. Check email
-    const existingEmail = await db.query(
-      'SELECT id FROM tenants WHERE email = $1',
+    // 2. Check email in tbl_users
+    const existingEmail = await client.query(
+      'SELECT userid FROM tbl_users WHERE email = $1',
       [email]
     );
     if (existingEmail.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Email already registered. Please use another email.' });
     }
 
     // 3. Create tenant
-    const tenantResult = await db.query(
+    const tenantResult = await client.query(
       `INSERT INTO tenants 
-       (name, subdomain, email, phone, address, settings, status, subscription_plan, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       (name, subdomain, status, created_at)
+       VALUES ($1, $2, $3, NOW())
        RETURNING id, name, subdomain`,
       [
         businessName,
         subdomain.toLowerCase(),
-        email,
-        phone || null,
-        address || null,
-        '{"theme": "light"}',
-        'ACTIVE',
-        'free'
+        'ACTIVE'
       ]
     );
 
@@ -211,15 +228,17 @@ router.post('/register-client', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 6. Create admin user with tenant_id
-    const userResult = await db.query(
+    const userResult = await client.query(
       `INSERT INTO tbl_users 
-       (tenant_id, username, password, fullname, email, role, status, createdat)
+       (tenant_id, username, password, fullname, email, role, status, created_at)
        VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', NOW())
        RETURNING userid, username, fullname, role`,
       [tenant.id, uniqueUsername, hashedPassword, businessName, email]
     );
 
     const user = userResult.rows[0];
+
+    await client.query('COMMIT');
 
     // 7. Generate JWT
     const token = jwt.sign(
@@ -236,7 +255,8 @@ router.post('/register-client', async (req, res) => {
     );
 
     res.status(201).json({
-      message: 'Business registered successfully!',
+      success: true,
+      message: 'Registration successful',
       token,
       tenant: {
         id: tenant.id,
@@ -252,11 +272,14 @@ router.post('/register-client', async (req, res) => {
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('❌ Registration error:', error);
     res.status(500).json({
       error: 'Registration failed',
       details: error.message
     });
+  } finally {
+    client.release();
   }
 });
 

@@ -16,7 +16,7 @@ router.get('/', authenticate, async (req, res) => {
   const { search } = req.query;
 
   try {
-    let sql = "SELECT * FROM tbl_customers WHERE status = 'Active'";
+    let sql = "SELECT * FROM tbl_customers WHERE LOWER(status) = 'active'";
     const params = [];
 
     if (!isSuperAdmin && tenantId) {
@@ -26,11 +26,11 @@ router.get('/', authenticate, async (req, res) => {
 
     if (search) {
       const paramIndex = params.length + 1;
-      sql += ` AND (first_name ILIKE $${paramIndex} OR last_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR e_mail ILIKE $${paramIndex})`;
+      sql += ` AND (name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
     }
 
-    sql += " ORDER BY first_name ASC";
+    sql += " ORDER BY name ASC";
 
     const result = await pool.query(sql, params);
     res.json(result.rows);
@@ -48,23 +48,25 @@ router.post('/', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
-  const { FIRST_NAME, LAST_NAME, PHONE, E_MAIL, ADDRESS, BALANCE } = req.body;
+  const { name, FIRST_NAME, LAST_NAME, phone, PHONE, email, E_MAIL, address, ADDRESS } = req.body;
+  const customerName = name || `${FIRST_NAME || ''} ${LAST_NAME || ''}`.trim() || 'Customer';
+  const customerPhone = phone || PHONE || null;
+  const customerEmail = email || E_MAIL || null;
+  const customerAddress = address || ADDRESS || null;
 
   try {
     const result = await pool.query(
       `INSERT INTO tbl_customers 
-       (tenant_id, cus_id, first_name, last_name, phone, e_mail, address, balance, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Active', NOW())
+       (tenant_id, cus_id, name, email, phone, address, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'Active', NOW())
        RETURNING *`,
       [
         tenantId,
         `CUS${String(Date.now()).slice(-6)}`,
-        FIRST_NAME,
-        LAST_NAME,
-        PHONE || null,
-        E_MAIL || null,
-        ADDRESS || null,
-        BALANCE || 0
+        customerName,
+        customerEmail,
+        customerPhone,
+        customerAddress
       ]
     );
 

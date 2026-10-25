@@ -16,8 +16,8 @@ router.get("/", authenticate, async (req, res) => {
   try {
 let query = `
   SELECT s.*, 
-         CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-         p.name_en as product_name
+         c.name as customer_name,
+         p.name as product_name
   FROM tbl_service_requests s
   LEFT JOIN tbl_customers c ON c.id = s.customerid AND c.tenant_id = s.tenant_id
   LEFT JOIN tbl_products p ON p.id = s.productid AND p.tenant_id = s.tenant_id
@@ -144,8 +144,8 @@ router.put("/:id", authenticate, async (req, res) => {
 
     const updated = await pool.query(
       `SELECT s.*, 
-              CONCAT(c.first_name, ' ', c.last_name) as customer_name,
-              p.name_en as product_name
+              c.name as customer_name,
+              p.name as product_name
        FROM tbl_service_requests s
        LEFT JOIN tbl_customers c ON c.id = s.customerid AND c.tenant_id = s.tenant_id
        LEFT JOIN tbl_products p ON p.id = s.productid AND p.tenant_id = s.tenant_id

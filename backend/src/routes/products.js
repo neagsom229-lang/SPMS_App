@@ -1,78 +1,85 @@
 // backend/src/routes/products.js
 const express = require('express');
 const pool = require('../config/postgres');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, getScope } = require('../middleware/auth');
+const { clearTenantCache } = require('../middleware/cache');
 
 const router = express.Router();
 
-// ===== HELPER: Get tenant ID =====
-const getTenantId = (req) => {
-  return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
-};
-
 // ===== GET ALL PRODUCTS =====
 router.get('/', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const scope = getScope(req, res);
+  if (!scope) return;
   const { page = 1, limit = 20, search, category, status } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
   try {
-    let query = `
-      SELECT p.*, c.category_en, c.category_kh,
-             s.name_en as supplier_name
-      FROM tbl_products p
-      LEFT JOIN tbl_categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
-      LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
-      WHERE 1=1
-    `;
+    let whereClause = ' WHERE 1=1';
     const params = [];
     let paramIndex = 1;
 
-    // ✅ CRITICAL: Filter by tenant
-    if (!isSuperAdmin && tenantId) {
-      query += ` AND p.tenant_id = $${paramIndex}`;
-      params.push(tenantId);
+    if (!scope.isSuperAdmin || scope.tenantId) {
+      whereClause += ` AND p.tenant_id = $${paramIndex}`;
+      params.push(scope.tenantId);
       paramIndex++;
     }
 
     if (search) {
-      query += ` AND (p.name_en ILIKE $${paramIndex} OR p.name_kh ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex})`;
+      whereClause += ` AND (p.name ILIKE $${paramIndex} OR p.name_kh ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     if (category) {
-      query += ` AND p.category_id = $${paramIndex}`;
+      whereClause += ` AND p.category_id = $${paramIndex}`;
       params.push(category);
       paramIndex++;
     }
 
     if (status) {
-      query += ` AND p.status = $${paramIndex}`;
+      whereClause += ` AND p.status = $${paramIndex}`;
       params.push(status);
       paramIndex++;
     }
 
-    const countQuery = query.replace(
-      /SELECT p\.\*, c\.category_en, c\.category_kh, s\.name_en as supplier_name FROM/i,
-      'SELECT COUNT(*) as total FROM'
-    );
-    const countResult = await pool.query(countQuery, params.slice(0, paramIndex - 1));
-    const total = parseInt(countResult.rows[0]?.total || 0);
+    // Direct count query
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM tbl_products p 
+      LEFT JOIN tbl_categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
+      LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0, 10);
 
-    query += ` ORDER BY p.id DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), offset);
+    const query = `
+      SELECT p.*, 
+             p.name as name_en,
+             p.price as saleout_price,
+             c.name as category_en, 
+             c.name as category_name, 
+             s.sup_name as supplier_name,
+             COALESCE(st.qtyavailable, 0) as qtyavailable
+      FROM tbl_products p
+      LEFT JOIN tbl_categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
+      LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+      LEFT JOIN tbl_stock st ON st.productid = p.id AND st.tenant_id = p.tenant_id
+      ${whereClause}
+      ORDER BY p.id DESC 
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit, 10), offset);
 
     const result = await pool.query(query, params);
 
     res.json({
       products: result.rows,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
         total,
-        totalPages: Math.ceil(total / parseInt(limit))
+        totalPages: Math.ceil(total / parseInt(limit, 10))
       }
     });
   } catch (error) {
@@ -83,22 +90,29 @@ router.get('/', authenticate, async (req, res) => {
 
 // ===== GET PRODUCT BY ID =====
 router.get('/:id', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const scope = getScope(req, res);
+  if (!scope) return;
 
   try {
     let query = `
-      SELECT p.*, c.category_en, c.category_kh, s.name_en as supplier_name
+      SELECT p.*, 
+             p.name as name_en,
+             p.price as saleout_price,
+             c.name as category_en, 
+             c.name as category_name, 
+             s.sup_name as supplier_name,
+             COALESCE(st.qtyavailable, 0) as qtyavailable
       FROM tbl_products p
       LEFT JOIN tbl_categories c ON c.id = p.category_id AND c.tenant_id = p.tenant_id
       LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+      LEFT JOIN tbl_stock st ON st.productid = p.id AND st.tenant_id = p.tenant_id
       WHERE p.id = $1
     `;
     const params = [req.params.id];
 
-    if (!isSuperAdmin && tenantId) {
+    if (!scope.isSuperAdmin || scope.tenantId) {
       query += ` AND p.tenant_id = $2`;
-      params.push(tenantId);
+      params.push(scope.tenantId);
     }
 
     const result = await pool.query(query, params);
@@ -116,90 +130,123 @@ router.get('/:id', authenticate, async (req, res) => {
 
 // ===== CREATE PRODUCT =====
 router.post('/', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  
+  const scope = getScope(req, res);
+  if (!scope) return;
+
+  const tenantId = scope.tenantId;
   if (!tenantId) {
-    return res.status(403).json({ error: 'Tenant context required' });
+    return res.status(400).json({ error: 'Tenant ID is required for creation' });
   }
 
-  const userId = req.user?.userId;
   const {
-    product_id, supplier_id, barcode, name_en, name_kh, brand, model,
-    category_id, buyin_price, saleout_price, qty_instock, qty_alert, status
+    product_id, supplier_id, barcode, name, name_en, name_kh, brand, model,
+    category_id, price, saleout_price, qty_alert, status, qty_instock
   } = req.body;
 
-  if (!name_en || saleout_price === undefined) {
+  const effectiveName = name || name_en;
+  const effectivePrice = parseFloat(price !== undefined ? price : saleout_price) || 0;
+
+  if (!effectiveName || effectivePrice === undefined) {
     return res.status(400).json({ error: 'Name and sale price are required' });
   }
 
+  const initialQty = parseInt(qty_instock, 10) || 0;
+  const client = await pool.connect();
+
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    const productResult = await client.query(
       `INSERT INTO tbl_products 
-       (tenant_id, product_id, supplier_id, barcode, name_en, name_kh, brand, model,
-        category_id, buyin_price, saleout_price, qty_instock, qty_alert, status, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+        (tenant_id, barcode, name, name_kh, brand, model,
+         category_id, supplier_id, price, qty_alert, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
        RETURNING *`,
       [
         tenantId,
-        product_id || null,
-        supplier_id || null,
-        barcode || null,
-        name_en,
-        name_kh || null,
+        barcode || product_id || null,
+        effectiveName,
+        name_kh ? name_kh.trim() : null,
         brand || null,
         model || null,
         category_id || null,
-        parseFloat(buyin_price) || 0,
-        parseFloat(saleout_price) || 0,
-        parseInt(qty_instock) || 0,
-        parseInt(qty_alert) || 0,
-        status || 'ACTIVE',
-        userId || null
+        supplier_id || null,
+        effectivePrice,
+        parseInt(qty_alert, 10) || 0,
+        status || 'ACTIVE'
       ]
     );
 
-    res.status(201).json(result.rows[0]);
+    const product = productResult.rows[0];
+    product.name_en = product.name;
+
+    // Maintain inventory in tbl_stock
+    await client.query(
+      `INSERT INTO tbl_stock (productid, qtyinstock, qtyavailable, tenant_id)
+       VALUES ($1, $2, $3, $4)`,
+      [product.id, initialQty, initialQty, tenantId]
+    );
+
+    await client.query('COMMIT');
+    clearTenantCache(tenantId);
+    res.status(201).json(product);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('❌ Create product error:', error);
     res.status(500).json({ error: 'Failed to create product' });
+  } finally {
+    client.release();
   }
 });
 
 // ===== UPDATE PRODUCT =====
 router.put('/:id', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const userId = req.user?.userId;
+  const scope = getScope(req, res);
+  if (!scope) return;
+
+  const tenantId = scope.tenantId;
 
   try {
     let checkQuery = 'SELECT * FROM tbl_products WHERE id = $1';
     const checkParams = [req.params.id];
 
-    if (!isSuperAdmin && tenantId) {
+    if (!scope.isSuperAdmin && tenantId) {
       checkQuery += ' AND tenant_id = $2';
       checkParams.push(tenantId);
     }
 
     const existing = await pool.query(checkQuery, checkParams);
-
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    const fields = [
-      'product_id', 'supplier_id', 'barcode', 'name_en', 'name_kh', 'brand',
-      'model', 'category_id', 'buyin_price', 'saleout_price',
-      'qty_instock', 'qty_alert', 'status'
-    ];
+    const fieldMapping = {
+      barcode: 'barcode',
+      name: 'name',
+      name_en: 'name',
+      name_kh: 'name_kh',
+      brand: 'brand',
+      model: 'model',
+      category_id: 'category_id',
+      supplier_id: 'supplier_id',
+      price: 'price',
+      saleout_price: 'price',
+      qty_alert: 'qty_alert',
+      status: 'status'
+    };
 
     const updates = [];
     const values = [];
     let paramIndex = 1;
 
-    for (const field of fields) {
-      if (req.body[field] !== undefined) {
-        updates.push(`${field} = $${paramIndex}`);
-        values.push(req.body[field]);
+    for (const [key, column] of Object.entries(fieldMapping)) {
+      if (req.body[key] !== undefined && !updates.some(u => u.startsWith(`${column} =`))) {
+        updates.push(`${column} = $${paramIndex}`);
+        let val = req.body[key];
+        if (key === 'name_kh' && val) val = val.trim();
+        if (['price', 'saleout_price'].includes(key)) val = parseFloat(val) || 0;
+        if (['qty_alert'].includes(key)) val = parseInt(val, 10) || 0;
+        values.push(val);
         paramIndex++;
       }
     }
@@ -208,11 +255,6 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'No valid fields to update' });
     }
 
-    updates.push(`updated_by = $${paramIndex}`);
-    values.push(userId || null);
-    paramIndex++;
-
-    updates.push(`updated_at = NOW()`);
     values.push(req.params.id);
     values.push(tenantId);
 
@@ -223,8 +265,12 @@ router.put('/:id', authenticate, async (req, res) => {
       RETURNING *
     `;
 
-    const result = await pool.query(query, [...values, req.params.id, tenantId]);
-    res.json(result.rows[0]);
+    const result = await pool.query(query, values);
+    const updatedProduct = result.rows[0];
+    if (updatedProduct) updatedProduct.name_en = updatedProduct.name;
+
+    clearTenantCache(tenantId);
+    res.json(updatedProduct);
   } catch (error) {
     console.error('❌ Update product error:', error);
     res.status(500).json({ error: 'Failed to update product' });
@@ -233,24 +279,24 @@ router.put('/:id', authenticate, async (req, res) => {
 
 // ===== DELETE PRODUCT =====
 router.delete('/:id', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const scope = getScope(req, res);
+  if (!scope) return;
 
   try {
     let query = 'DELETE FROM tbl_products WHERE id = $1';
     const params = [req.params.id];
 
-    if (!isSuperAdmin && tenantId) {
+    if (!scope.isSuperAdmin && scope.tenantId) {
       query += ' AND tenant_id = $2';
-      params.push(tenantId);
+      params.push(scope.tenantId);
     }
 
     const result = await pool.query(query, params);
-
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
+    clearTenantCache(scope.tenantId);
     res.status(204).end();
   } catch (error) {
     console.error('❌ Delete product error:', error);

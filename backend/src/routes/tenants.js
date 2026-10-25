@@ -1,4 +1,3 @@
-// backend/src/routes/tenants.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const pool = require('../config/postgres');
@@ -9,7 +8,7 @@ const router = express.Router();
 // ===== GET ALL TENANTS WITH STATS =====
 router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
   const { page = 1, limit = 20, search, status } = req.query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
 
   try {
     let query = `
@@ -18,8 +17,8 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
         COUNT(DISTINCT u.userid) as user_count,
         COUNT(DISTINCT p.id) as product_count,
         COUNT(DISTINCT o.or_id) as order_count,
-        COALESCE(SUM(o.amount_us), 0) as total_revenue,
-        MAX(o.order_date) as last_order_date
+        COALESCE(SUM(o.total), 0) as total_revenue,
+        MAX(o.created_at) as last_order_date
       FROM tenants t
       LEFT JOIN tbl_users u ON u.tenant_id = t.id
       LEFT JOIN tbl_products p ON p.tenant_id = t.id
@@ -42,27 +41,34 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
     }
 
     query += ` GROUP BY t.id ORDER BY t.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), offset);
+    params.push(parseInt(limit, 10), offset);
 
     const result = await pool.query(query, params);
 
     let countQuery = 'SELECT COUNT(*) as total FROM tenants WHERE 1=1';
+    const countParams = [];
+    let countIndex = 1;
+
     if (search) {
-      countQuery += ` AND (name ILIKE '%${search}%' OR subdomain ILIKE '%${search}%' OR email ILIKE '%${search}%')`;
+      countQuery += ` AND (name ILIKE $${countIndex} OR subdomain ILIKE $${countIndex} OR email ILIKE $${countIndex})`;
+      countParams.push(`%${search}%`);
+      countIndex++;
     }
     if (status) {
-      countQuery += ` AND status = '${status}'`;
+      countQuery += ` AND status = $${countIndex}`;
+      countParams.push(status);
+      countIndex++;
     }
 
-    const countResult = await pool.query(countQuery);
+    const countResult = await pool.query(countQuery, countParams);
 
     res.json({
       tenants: result.rows,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: parseInt(countResult.rows[0]?.total || 0),
-        totalPages: Math.ceil(parseInt(countResult.rows[0]?.total || 0) / parseInt(limit))
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        total: parseInt(countResult.rows[0]?.total || 0, 10),
+        totalPages: Math.ceil(parseInt(countResult.rows[0]?.total || 0, 10) / parseInt(limit, 10))
       }
     });
   } catch (error) {
@@ -70,6 +76,29 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch tenants' });
   }
 });
+
+// ===== SYSTEM STATS =====
+const systemStatsHandler = async (req, res) => {
+  try {
+    const stats = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM tenants) as total_tenants,
+        (SELECT COUNT(*) FROM tbl_users) as total_users,
+        (SELECT COUNT(*) FROM tbl_products) as total_products,
+        (SELECT COUNT(*) FROM tbl_orders) as total_orders,
+        (SELECT COALESCE(SUM(total), 0) FROM tbl_orders) as total_revenue,
+        (SELECT COUNT(*) FROM tbl_customers) as total_customers
+    `);
+
+    res.json(stats.rows[0]);
+  } catch (error) {
+    console.error('❌ System stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch system stats' });
+  }
+};
+
+router.get('/system/stats', authenticate, requireSuperAdmin, systemStatsHandler);
+router.systemStatsHandler = systemStatsHandler;
 
 // ===== GET SINGLE TENANT DETAILS =====
 router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
@@ -80,8 +109,8 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
         COUNT(DISTINCT u.userid) as user_count,
         COUNT(DISTINCT p.id) as product_count,
         COUNT(DISTINCT o.or_id) as order_count,
-        COALESCE(SUM(o.amount_us), 0) as total_revenue,
-        MAX(o.order_date) as last_order_date
+        COALESCE(SUM(o.total), 0) as total_revenue,
+        MAX(o.created_at) as last_order_date
        FROM tenants t
        LEFT JOIN tbl_users u ON u.tenant_id = t.id
        LEFT JOIN tbl_products p ON p.tenant_id = t.id
@@ -133,7 +162,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO tenants 
-       (name, subdomain, email, phone, address, status, subscription_plan, max_users, max_products, settings, created_at)
+        (name, subdomain, email, phone, address, status, subscription_plan, max_users, max_products, settings, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
        RETURNING *`,
       [
@@ -153,9 +182,10 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
     const defaultPassword = 'admin123';
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
     
+    // Fixed: 'created_at' column name instead of 'createdat'
     await pool.query(
       `INSERT INTO tbl_users 
-       (tenant_id, username, password, fullname, email, role, status, createdat)
+        (tenant_id, username, password, fullname, email, role, status, created_at)
        VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', NOW())`,
       [result.rows[0].id, 'admin', hashedPassword, name, email]
     );
@@ -225,7 +255,7 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    await client.query('DELETE FROM order_items WHERE tenant_id = $1', [req.params.id]);
+    await client.query('DELETE FROM tbl_order_items WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_orders WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_products WHERE tenant_id = $1', [req.params.id]);
     await client.query('DELETE FROM tbl_customers WHERE tenant_id = $1', [req.params.id]);
@@ -249,33 +279,5 @@ router.delete('/:id', authenticate, requireSuperAdmin, async (req, res) => {
     client.release();
   }
 });
-
-// ===== SYSTEM STATS (standalone handler, also exposed for direct mounting) =====
-const systemStatsHandler = async (req, res) => {
-  try {
-    const stats = await pool.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM tenants) as total_tenants,
-        (SELECT COUNT(*) FROM tbl_users) as total_users,
-        (SELECT COUNT(*) FROM tbl_products) as total_products,
-        (SELECT COUNT(*) FROM tbl_orders) as total_orders,
-        (SELECT COALESCE(SUM(amount_us), 0) FROM tbl_orders) as total_revenue,
-        (SELECT COUNT(*) FROM tbl_customers) as total_customers
-    `);
-
-    res.json(stats.rows[0]);
-  } catch (error) {
-    console.error('❌ System stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch system stats' });
-  }
-};
-
-// Keep it reachable at /api/tenants/system/stats too, for backward compatibility
-router.get('/system/stats', authenticate, requireSuperAdmin, systemStatsHandler);
-
-// Expose the handler itself so app.js can bind it directly to /api/system/stats
-// (router is a function, so attaching a property to it is safe and doesn't
-// change how existing `app.use('/api/tenants', tenantRoutes)` calls work)
-router.systemStatsHandler = systemStatsHandler;
 
 module.exports = router;

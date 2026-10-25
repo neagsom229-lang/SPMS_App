@@ -8,6 +8,7 @@ import {
   CubeIcon, 
   UsersIcon, 
   ShoppingBagIcon,
+  ShoppingCartIcon,
   ChartBarIcon,
   DocumentTextIcon,
   CogIcon,
@@ -16,6 +17,7 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
+  { name: 'POS Selling', href: '/pos', icon: ShoppingCartIcon },
   { name: 'Products', href: '/products', icon: CubeIcon },
   { name: 'Customers', href: '/customers', icon: UsersIcon },
   { name: 'Orders', href: '/orders', icon: ShoppingBagIcon },

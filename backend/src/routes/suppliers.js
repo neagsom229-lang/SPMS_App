@@ -26,24 +26,21 @@ router.get('/', authenticate, async (req, res) => {
 
     if (search) {
       const paramIndex = params.length + 1;
-      sql += ` AND (company ILIKE $${paramIndex} OR first_name ILIKE $${paramIndex} OR last_name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR e_mail ILIKE $${paramIndex})`;
+      sql += ` AND (sup_name ILIKE $${paramIndex} OR contact_person ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR email ILIKE $${paramIndex} OR address ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
     }
 
-    sql += " ORDER BY company";
+    sql += " ORDER BY sup_name";
 
     const result = await pool.query(sql, params);
     const suppliers = result.rows.map((row) => ({
-      SUP_ID: row.sup_id,
-      SUP_NAME: row.company,
-      CONTACT_PERSON: [row.first_name, row.last_name].filter(Boolean).join(' '),
-      PHONE: row.phone,
-      EMAIL: row.e_mail,
-      ADDRESS: row.address,
-      STATUS: row.status,
-      WEBSITE: row.website,
-      TAX_ID: row.tax_id,
-      NOTES: row.notes,
+      SUP_ID: row.id,
+      SUP_NAME: row.sup_name,
+      CONTACT_PERSON: row.contact_person || '',
+      PHONE: row.phone || '',
+      EMAIL: row.email || '',
+      ADDRESS: row.address || '',
+      STATUS: row.status || 'Active',
     }));
     
     res.json(suppliers);
@@ -61,47 +58,31 @@ router.post('/', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
-  const { SUP_NAME, CONTACT_PERSON, PHONE, EMAIL, ADDRESS, WEBSITE, STATUS, TAX_ID, NOTES } = req.body;
+  const { SUP_NAME, CONTACT_PERSON, PHONE, EMAIL, ADDRESS, STATUS } = req.body;
 
   if (!SUP_NAME || SUP_NAME.trim() === '') {
     return res.status(400).json({ error: 'Supplier name is required' });
   }
 
-  let firstName = '', lastName = '';
-  if (CONTACT_PERSON) {
-    const parts = CONTACT_PERSON.trim().split(' ');
-    if (parts.length > 1) {
-      firstName = parts[0];
-      lastName = parts.slice(1).join(' ');
-    } else {
-      firstName = parts[0];
-    }
-  }
-
   try {
     const result = await pool.query(
       `INSERT INTO tbl_suppliers 
-       (tenant_id, sup_id, company, first_name, last_name, phone, e_mail, address, status, website, tax_id, notes) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
-       RETURNING sup_id`,
+       (tenant_id, sup_name, contact_person, phone, email, address, status, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) 
+       RETURNING id`,
       [
         tenantId,
-        `SUP${String(Date.now()).slice(-6)}`,
         SUP_NAME.trim(),
-        firstName || null,
-        lastName || null,
+        CONTACT_PERSON || null,
         PHONE || null,
         EMAIL || null,
         ADDRESS || null,
         STATUS || 'Active',
-        WEBSITE || null,
-        TAX_ID || null,
-        NOTES || null,
       ]
     );
 
     res.status(201).json({
-      SUP_ID: result.rows[0].sup_id,
+      SUP_ID: result.rows[0].id,
       message: 'Supplier created successfully',
     });
   } catch (err) {

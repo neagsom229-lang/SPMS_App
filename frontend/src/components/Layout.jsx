@@ -105,6 +105,7 @@ const Layout = ({ children }) => {
   const getMenuItems = useCallback(() => {
     const baseMenu = [
       { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', color: 'text-indigo-400', bg: 'bg-indigo-500/10', keywords: ['home', 'main', 'overview'] },
+      { path: '/pos', icon: Zap, label: 'POS Selling', color: 'text-blue-400', bg: 'bg-blue-500/10', keywords: ['pos', 'sales', 'terminal', 'checkout'] },
       { path: '/orders', icon: ShoppingCart, label: 'Orders', color: 'text-purple-400', bg: 'bg-purple-500/10', keywords: ['sales', 'purchase', 'cart'] },
       { path: '/products', icon: Package, label: 'Products', color: 'text-emerald-400', bg: 'bg-emerald-500/10', keywords: ['items', 'inventory', 'stock'] },
       { path: '/customers', icon: Users, label: 'Customers', color: 'text-blue-400', bg: 'bg-blue-500/10', keywords: ['clients', 'users', 'people'] },

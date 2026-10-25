@@ -1,27 +1,26 @@
-// test-db.js
 require('dotenv').config();
-// ✅ CORRECT PATH - config is in src/config/
-const db = require('./src/config/postgres');
+const { Pool } = require('pg');
+
+const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL || 'postgresql://postgres:761SiW4njgzrV0GV@db.kimpbipjxnoeyvaabrqr.supabase.co:5432/postgres';
 
 async function testConnection() {
-  console.log('🔍 Testing PostgreSQL connection...');
-  console.log('📡 DATABASE_URL:', process.env.DATABASE_URL ? '✅ Set' : '❌ Missing');
-  
-  if (!process.env.DATABASE_URL) {
-    console.error('❌ DATABASE_URL is not set in .env file');
-    process.exit(1);
-  }
+  console.log('🔍 Testing PostgreSQL connection with:', connectionString.replace(/:[^:@]+@/, ':****@'));
+  const pool = new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
   
   try {
-    const result = await db.query('SELECT NOW() as time, current_database() as db, version() as version');
+    const client = await pool.connect();
+    const result = await client.query('SELECT NOW() as time, current_database() as db, version() as version');
     console.log('✅ Connected successfully!');
     console.log('📊 Database:', result.rows[0].db);
     console.log('🕐 Time:', result.rows[0].time);
-    console.log('📦 Version:', result.rows[0].version);
+    client.release();
+    await pool.end();
     process.exit(0);
   } catch (err) {
     console.error('❌ Connection failed:', err.message);
-    console.error('❌ Full error:', err);
     process.exit(1);
   }
 }

@@ -1,7 +1,10 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL;
+if (!API_URL) {
+  console.error('❌ VITE_API_URL environment variable is missing');
+}
 
 console.log('🔧 API URL:', API_URL);
 
