@@ -10,31 +10,6 @@ import {
 import '../styles/users.css'
 
 // ============================================
-// API INTERCEPTORS
-// ============================================
-apiClient.interceptors.request.use(
-  config => {
-    console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
-    console.log('📤 Request Data:', config.data);
-    return config;
-  },
-  error => Promise.reject(error)
-);
-
-apiClient.interceptors.response.use(
-  response => {
-    console.log('📥 API Response:', response.status, response.config.url);
-    return response;
-  },
-  error => {
-    console.error('❌ API Error:', error.response?.status);
-    console.error('❌ Error Data:', error.response?.data);
-    console.error('❌ Error Message:', error.message);
-    return Promise.reject(error);
-  }
-);
-
-// ============================================
 // MAIN USERS COMPONENT
 // ============================================
 const Users = () => {

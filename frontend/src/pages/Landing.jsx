@@ -8,59 +8,7 @@ import apiClient from '../api/client';
 import '../styles/landing.css';
 
 // ✅ ONLY IMPORT CONFIRMED WORKING ICONS
-import {
-  ArrowRight,
-  Star,
-  Users,
-  Shield,
-  ChevronRight,
-  Play,
-  BarChart3,
-  Truck,
-  Boxes,
-  Receipt,
-  Landmark,
-  Quote,
-  Menu,
-  X,
-  LogIn,
-  UserPlus,
-  LayoutDashboard,
-  LogOut,
-  ChevronDown,
-  Clock,
-  RefreshCw,
-  CheckCircle,
-  AlertCircle,
-  TrendingUp,
-  ShoppingCart,
-  Package,
-  Warehouse,
-  Award,
-  Heart,
-  Zap,
-  Coffee,
-  BookOpen,
-  Target,
-  Compass,
-  Sparkles,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
-  Globe,
-  Send,
-  MessageCircle,
-  Headphones,
-  LifeBuoy,
-  Lightbulb,
-  ThumbsUp,
-  ThumbsDown,
-  Copy,
-  Link as LinkIcon,
-  ExternalLink,
-  Bot
-} from 'lucide-react';
+import { ArrowRight, Star, Users, Shield, ChevronRight, Play, BarChart3, Truck, Boxes, Receipt, Landmark, Quote, Menu, X, LogIn, UserPlus, LayoutDashboard, LogOut, ChevronDown, Clock, RefreshCw, CheckCircle, AlertCircle, TrendingUp, ShoppingCart, Package, Warehouse, Award, Heart, Zap, Coffee, BookOpen, Target, Compass, Sparkles, Mail, Phone, MapPin, Calendar, Globe, Send, MessageCircle, Headphones, LifeBuoy, Lightbulb, ThumbsUp, ThumbsDown, Copy, Link as LinkIcon, ExternalLink, Bot, Search } from "lucide-react";
 
 // ============================================================
 // CUSTOM ICON COMPONENTS
@@ -484,6 +432,9 @@ useEffect(() => {
       ticking = true;
       requestAnimationFrame(() => {
         const scrollY = window.scrollY;
+        if (scrollY < 150) {
+          setActiveSection('home');
+        }
         setScrolled(scrollY > 24);
         setShowScrollTop(scrollY > 600);
         const h = document.documentElement.scrollHeight - window.innerHeight;

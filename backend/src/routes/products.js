@@ -138,61 +138,111 @@ router.post('/', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'Tenant ID is required for creation' });
   }
 
-  const {
-    product_id, supplier_id, barcode, name, name_en, name_kh, brand, model,
-    category_id, price, saleout_price, qty_alert, status, qty_instock
-  } = req.body;
+  const b = req.body || {};
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (b[k] !== undefined && b[k] !== null && b[k] !== '') return b[k];
+    }
+    return undefined;
+  };
 
-  const effectiveName = name || name_en;
-  const effectivePrice = parseFloat(price !== undefined ? price : saleout_price) || 0;
+  const name = String(pick('name', 'name_en') || '').trim();
+  const nameKh = pick('name_kh') ? String(pick('name_kh')).trim() : null;
+  const barcodeRaw = pick('barcode', 'product_id');
+  const barcode = barcodeRaw !== undefined ? String(barcodeRaw).trim() : null;
+  const brand = pick('brand') ? String(pick('brand')).trim().slice(0, 100) : null;
+  const model = pick('model') ? String(pick('model')).trim().slice(0, 100) : null;
+  const price = Number(pick('price', 'saleout_price'));
+  const costRaw = pick('cost', 'buyin_price');
+  const cost = costRaw === undefined ? 0 : Number(costRaw);
+  const stockRaw = pick('stock', 'qty_instock');
+  const initialQty = stockRaw === undefined ? 0 : Number(stockRaw);
+  const alertRaw = pick('qty_alert');
+  const qtyAlert = alertRaw === undefined ? 5 : Number(alertRaw);
+  const categoryId = pick('category_id') !== undefined ? Number(pick('category_id')) : null;
+  const supplierId = pick('supplier_id') !== undefined ? Number(pick('supplier_id')) : null;
+  const status = String(pick('status') || 'Active').trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active';
+  const isPublished = b.is_published === undefined ? true : (b.is_published === true || b.is_published === 'true' || b.is_published === 1 || b.is_published === '1');
+  const descEn = pick('description_en') ? String(pick('description_en')).slice(0, 2000) : null;
+  const descKh = pick('description_kh') ? String(pick('description_kh')).slice(0, 2000) : null;
+  const imageUrl = pick('image_url') ? String(pick('image_url')).slice(0, 2000) : null;
 
-  if (!effectiveName || effectivePrice === undefined) {
-    return res.status(400).json({ error: 'Name and sale price are required' });
+  if (!name || name.length > 200) {
+    return res.status(400).json({ error: 'Product name is required (max 200 characters)' });
+  }
+  if (!Number.isFinite(price) || price < 0 || price > 10000000) {
+    return res.status(400).json({ error: 'A valid sale price is required' });
+  }
+  if (!Number.isFinite(cost) || cost < 0 || cost > 10000000) {
+    return res.status(400).json({ error: 'Cost must be a number of 0 or more' });
+  }
+  if (!Number.isInteger(initialQty) || initialQty < 0 || initialQty > 1000000) {
+    return res.status(400).json({ error: 'Stock must be a whole number between 0 and 1,000,000' });
+  }
+  if (!Number.isInteger(qtyAlert) || qtyAlert < 0) {
+    return res.status(400).json({ error: 'Alert level must be a whole number of 0 or more' });
+  }
+  if (categoryId !== null && !Number.isInteger(categoryId)) {
+    return res.status(400).json({ error: 'category_id must be a number' });
+  }
+  if (supplierId !== null && !Number.isInteger(supplierId)) {
+    return res.status(400).json({ error: 'supplier_id must be a number' });
   }
 
-  const initialQty = parseInt(qty_instock, 10) || 0;
-  const client = await pool.connect();
+  try {
+    if (categoryId !== null) {
+      const c = await pool.query('SELECT 1 FROM tbl_categories WHERE id = $1 AND tenant_id = $2', [categoryId, tenantId]);
+      if (c.rowCount === 0) return res.status(400).json({ error: 'Category not found' });
+    }
+    if (supplierId !== null) {
+      const s = await pool.query('SELECT 1 FROM tbl_suppliers WHERE id = $1 AND tenant_id = $2', [supplierId, tenantId]);
+      if (s.rowCount === 0) return res.status(400).json({ error: 'Supplier not found' });
+    }
+    if (barcode) {
+      const d = await pool.query('SELECT 1 FROM tbl_products WHERE tenant_id = $1 AND LOWER(barcode) = LOWER($2)', [tenantId, barcode]);
+      if (d.rowCount > 0) return res.status(409).json({ error: 'A product with this barcode already exists' });
+    }
+  } catch (checkErr) {
+    console.error('Create product check error:', checkErr.message);
+    return res.status(500).json({ error: 'Failed to create product' });
+  }
 
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     const productResult = await client.query(
-      `INSERT INTO tbl_products 
-        (tenant_id, barcode, name, name_kh, brand, model,
-         category_id, supplier_id, price, qty_alert, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-       RETURNING *`,
-      [
-        tenantId,
-        barcode || product_id || null,
-        effectiveName,
-        name_kh ? name_kh.trim() : null,
-        brand || null,
-        model || null,
-        category_id || null,
-        supplier_id || null,
-        effectivePrice,
-        parseInt(qty_alert, 10) || 0,
-        status || 'ACTIVE'
-      ]
+      'INSERT INTO tbl_products (tenant_id, barcode, name, name_kh, brand, model, category_id, supplier_id, price, cost, stock, qty_alert, status, is_published, description_en, description_kh, image_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW()) RETURNING *',
+      [tenantId, barcode, name, nameKh, brand, model, categoryId, supplierId, price, cost, initialQty, qtyAlert, status, isPublished, descEn, descKh, imageUrl]
     );
-
     const product = productResult.rows[0];
-    product.name_en = product.name;
 
-    // Maintain inventory in tbl_stock
     await client.query(
-      `INSERT INTO tbl_stock (productid, qtyinstock, qtyavailable, tenant_id)
-       VALUES ($1, $2, $3, $4)`,
+      'INSERT INTO tbl_stock (productid, qtyinstock, qtyavailable, tenant_id) VALUES ($1, $2, $3, $4)',
       [product.id, initialQty, initialQty, tenantId]
     );
 
+    if (initialQty > 0) {
+      const who = req.user && (req.user.userId || req.user.id);
+      await client.query(
+        'INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes) VALUES ($1, $2, $3, $4, $5, $6)',
+        [tenantId, product.id, initialQty, 'RESTOCK', null, 'Initial stock' + (who ? ' (user ' + who + ')' : '')]
+      );
+    }
+
     await client.query('COMMIT');
     clearTenantCache(tenantId);
+
+    product.name_en = product.name;
+    product.saleout_price = product.price;
+    product.qty_instock = initialQty;
+    product.stock = initialQty;
     res.status(201).json(product);
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('❌ Create product error:', error);
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Create product error:', error.message);
+    if (error.code === '23505') return res.status(409).json({ error: 'A product with this barcode already exists' });
+    if (error.code === '23503') return res.status(400).json({ error: 'Invalid category or supplier' });
     res.status(500).json({ error: 'Failed to create product' });
   } finally {
     client.release();
@@ -231,6 +281,12 @@ router.put('/:id', authenticate, async (req, res) => {
       supplier_id: 'supplier_id',
       price: 'price',
       saleout_price: 'price',
+      cost: 'cost',
+      buyin_price: 'cost',
+      image_url: 'image_url',
+      description_en: 'description_en',
+      description_kh: 'description_kh',
+      is_published: 'is_published',
       qty_alert: 'qty_alert',
       status: 'status'
     };
@@ -244,8 +300,11 @@ router.put('/:id', authenticate, async (req, res) => {
         updates.push(`${column} = $${paramIndex}`);
         let val = req.body[key];
         if (key === 'name_kh' && val) val = val.trim();
-        if (['price', 'saleout_price'].includes(key)) val = parseFloat(val) || 0;
-        if (['qty_alert'].includes(key)) val = parseInt(val, 10) || 0;
+        if (key === 'status') val = String(val).trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active';
+        if (key === 'cost' || key === 'buyin_price') { val = Number(val); if (!Number.isFinite(val) || val < 0 || val > 10000000) return res.status(400).json({ error: 'Cost must be a number of 0 or more' }); }
+        if (key === 'is_published') val = (val === true || val === 'true' || val === 1 || val === '1');
+        if (['price', 'saleout_price'].includes(key)) { val = Number(val); if (!Number.isFinite(val) || val < 0 || val > 10000000) return res.status(400).json({ error: 'A valid sale price is required' }); }
+        if (['qty_alert'].includes(key)) { val = parseInt(val, 10); if (!Number.isInteger(val) || val < 0) return res.status(400).json({ error: 'Alert level must be a whole number of 0 or more' }); }
         values.push(val);
         paramIndex++;
       }
@@ -283,7 +342,7 @@ router.delete('/:id', authenticate, async (req, res) => {
   if (!scope) return;
 
   try {
-    let query = 'DELETE FROM tbl_products WHERE id = $1';
+    let query = "UPDATE tbl_products SET status = 'Inactive', is_published = false WHERE id = $1";
     const params = [req.params.id];
 
     if (!scope.isSuperAdmin && scope.tenantId) {

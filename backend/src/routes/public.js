@@ -204,6 +204,11 @@ router.post('/store/:slug/orders', async (req, res) => {
 
     for (const item of items) {
       const prodId = item.product_id;
+      if (!prodId || isNaN(Number(prodId))) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: `Product ID ${prodId} is missing or invalid` });
+      }
       const orderQty = parseInt(item.qty, 10);
       if (isNaN(orderQty) || orderQty <= 0) {
         throw new Error(`Invalid quantity for product ID ${prodId}`);
@@ -211,7 +216,7 @@ router.post('/store/:slug/orders', async (req, res) => {
 
       // Lock product & stock row
       const prodRes = await client.query(
-        'SELECT id, price, cost, name FROM tbl_products WHERE id = $1 AND tenant_id = $2 AND is_published = true',
+        `SELECT id, price, cost, name FROM tbl_products WHERE id = $1 AND tenant_id = $2 AND is_published = true AND COALESCE(LOWER(status), 'active') = 'active'`,
         [prodId, store.tenant_id]
       );
       if (prodRes.rowCount === 0) {

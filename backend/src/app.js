@@ -232,6 +232,8 @@ app.delete("/api/activity-logs", authenticate, requireSuperAdmin, async (req, re
 // ============================================
 // ROUTES - MOUNT ALL ROUTES
 // ============================================
+const rolePolicy = require('./middleware/rolePolicy');
+app.use('/api', rolePolicy);
 app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/products', productRoutes);

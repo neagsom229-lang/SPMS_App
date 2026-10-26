@@ -58,7 +58,7 @@ router.post('/', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
-  const { SUP_NAME, CONTACT_PERSON, PHONE, EMAIL, ADDRESS, STATUS } = req.body;
+  const _b = req.body || {}; const _pick = (...k) => { for (const x of k) { if (_b[x] !== undefined) return _b[x]; } return undefined; }; const SUP_NAME = _pick('SUP_NAME', 'sup_name', 'name'); const CONTACT_PERSON = _pick('CONTACT_PERSON', 'contact_person'); const PHONE = _pick('PHONE', 'phone'); const EMAIL = _pick('EMAIL', 'email'); const ADDRESS = _pick('ADDRESS', 'address'); const STATUS = _pick('STATUS', 'status');
 
   if (!SUP_NAME || SUP_NAME.trim() === '') {
     return res.status(400).json({ error: 'Supplier name is required' });
