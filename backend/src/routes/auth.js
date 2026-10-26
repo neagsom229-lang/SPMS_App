@@ -238,6 +238,21 @@ router.post('/register-client', async (req, res) => {
 
     const user = userResult.rows[0];
 
+    // 6.5 Insert store_settings
+    await client.query(
+      `INSERT INTO store_settings 
+       (tenant_id, slug, store_name, phone, address, currency, exchange_rate, is_open, accepts_online_orders, delivery_enabled, pickup_enabled, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'USD', 4000, true, true, false, true, NOW(), NOW())
+       ON CONFLICT (slug) DO NOTHING`,
+      [tenant.id, subdomain.toLowerCase(), businessName, phone || null, address || null]
+    );
+
+    // 6.6 Insert default category "General"
+    await client.query(
+      `INSERT INTO tbl_categories (name, tenant_id, created_at) VALUES ('General', $1, NOW())`,
+      [tenant.id]
+    );
+
     await client.query('COMMIT');
 
     // 7. Generate JWT

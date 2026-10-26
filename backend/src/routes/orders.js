@@ -202,15 +202,30 @@ router.post('/', authenticate, async (req, res) => {
   }
 
   const userId = req.user?.userId;
-  const { customer_id, items, discount, payment_method, notes, idempotency_key } = req.body;
+  const { items, discount, payment_method, notes, idempotency_key } = req.body;
+  let customer_id = req.body.customer_id;
 
-  if (!customer_id || !items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Customer and items are required' });
+  if (!items || !Array.isArray(items) || items.length === 0 || items.length > 200) {
+    return res.status(400).json({ error: 'At least one item is required' });
   }
 
   const client = await pool.connect();
 
   try {
+    // Optional customer: walk-in sales have none; a given customer must belong to this tenant
+    if (customer_id === undefined || customer_id === null || customer_id === '') {
+      customer_id = null;
+    } else {
+      const customerNum = Number(customer_id);
+      if (!Number.isInteger(customerNum) || customerNum < 1) {
+        return res.status(400).json({ error: 'Invalid customer' });
+      }
+      const customerRes = await client.query('SELECT id FROM tbl_customers WHERE id = $1 AND tenant_id = $2', [customerNum, tenantId]);
+      if (customerRes.rowCount === 0) {
+        return res.status(400).json({ error: 'Customer not found' });
+      }
+      customer_id = customerNum;
+    }
     // 0. Check Idempotency Key
     if (idempotency_key) {
       const existingKeyRes = await client.query(
@@ -240,7 +255,16 @@ router.post('/', authenticate, async (req, res) => {
     // 1. Authoritative DB pricing and inventory check
     for (const item of items) {
       const prodId = item.product_id || item.id;
-      const requestedQty = parseInt(item.quantity || item.qty, 10) || 1;
+      if (!prodId || isNaN(Number(prodId))) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Product ID ${prodId} is missing or invalid` });
+      }
+      const rawQty = item.quantity !== undefined ? item.quantity : item.qty;
+        const requestedQty = Number(rawQty);
+        if (!Number.isInteger(requestedQty) || requestedQty < 1 || requestedQty > 100000) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Quantity must be a whole number of 1 or more' });
+        }
 
       const stockRes = await client.query(
         `SELECT s.qtyavailable, p.id as product_id, 
@@ -250,8 +274,8 @@ router.post('/', authenticate, async (req, res) => {
                 p.cost
          FROM tbl_stock s
          JOIN tbl_products p ON p.id = s.productid
-         WHERE s.productid = $1 AND s.tenant_id = $2
-         FOR UPDATE`,
+         WHERE s.productid = $1 AND s.tenant_id = $2 AND COALESCE(LOWER(p.status), 'active') = 'active'
+         FOR UPDATE OF s`,
         [prodId, tenantId]
       );
 
@@ -285,7 +309,12 @@ router.post('/', authenticate, async (req, res) => {
       });
     }
 
-    const finalDiscount = Number(parseFloat(discount || 0).toFixed(2));
+    const discountNum = Number(discount || 0);
+    if (!Number.isFinite(discountNum) || discountNum < 0 || discountNum > calculatedSubtotal) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Discount must be between 0 and the order subtotal' });
+    }
+    const finalDiscount = Number(discountNum.toFixed(2));
     const finalTotal = Number(Math.max(0, calculatedSubtotal - finalDiscount).toFixed(2));
     const orderNo = `ORD-${Date.now().toString().slice(-6)}`;
     const method = payment_method || 'Cash';

@@ -17,7 +17,9 @@ api.interceptors.request.use(
     if (config.url && !config.url.startsWith('/api') && !config.url.startsWith('http')) {
       config.url = `/api${config.url}`
     }
-    console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`)
+    if (import.meta.env.DEV) {
+      console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`)
+    }
     return config
   },
   error => Promise.reject(error)

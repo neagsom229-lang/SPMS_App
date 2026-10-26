@@ -30,10 +30,12 @@ export const AuthProvider = ({ children }) => {
         const userData = localStorage.getItem('user');
         const tenantData = localStorage.getItem('tenant');
         
-        console.log('🔍 Loading user...');
-        console.log('📦 Token found:', token ? '✅ Yes' : '❌ No');
-        console.log('📦 User found:', userData ? '✅ Yes' : '❌ No');
-        console.log('📦 Tenant found:', tenantData ? '✅ Yes' : '❌ No');
+        if (import.meta.env.DEV) {
+          console.log('🔍 Loading user...');
+          console.log('📦 Token found:', token ? '✅ Yes' : '❌ No');
+          console.log('📦 User found:', userData ? '✅ Yes' : '❌ No');
+          console.log('📦 Tenant found:', tenantData ? '✅ Yes' : '❌ No');
+        }
         
         if (token && userData) {
           const parsedUser = JSON.parse(userData);
@@ -64,8 +66,9 @@ export const AuthProvider = ({ children }) => {
   // ===== REGISTER (Self-Registration) =====
   const register = useCallback(async (formData) => {
     try {
-      console.log('📤 Registering business...', formData.businessName);
-      console.log('📤 API URL:', apiClient.defaults.baseURL);
+      if (import.meta.env.DEV) {
+        console.log('📤 Registering business...');
+      }
       
       const response = await apiClient.post('/auth/register-client', {
         businessName: formData.businessName,
@@ -76,7 +79,9 @@ export const AuthProvider = ({ children }) => {
         subdomain: formData.subdomain
       });
 
-      console.log('✅ Registration response:', response.data);
+      if (import.meta.env.DEV) {
+        console.log('✅ Registration response received');
+      }
 
       const { token, user: userData, tenant: tenantData } = response.data;
 
@@ -104,8 +109,6 @@ export const AuthProvider = ({ children }) => {
       
     } catch (error) {
       console.error('❌ Registration error:', error);
-      console.error('❌ Error response:', error.response?.data);
-      console.error('❌ Error status:', error.response?.status);
       
       const errorMessage = error.response?.data?.error || error.response?.data?.details || error.message || 'Registration failed';
       toast.error(`❌ ${errorMessage}`);
@@ -126,8 +129,9 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      console.log('📤 Logging in...', username);
-      console.log('📤 API URL:', apiClient.defaults.baseURL);
+      if (import.meta.env.DEV) {
+        console.log('📤 Logging in...');
+      }
       
       const response = await apiClient.post('/auth/login', {
         username,
@@ -136,7 +140,9 @@ export const AuthProvider = ({ children }) => {
         timeout: 60000
       });
 
-      console.log('✅ Login response:', response.data);
+      if (import.meta.env.DEV) {
+        console.log('✅ Login response received');
+      }
 
       const { token, user: userData } = response.data;
 

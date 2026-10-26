@@ -31,39 +31,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import apiClient from "../api/client";
 import SalesSummary from "./dashboard/SalesSummary";
-import {
-  Users,
-  Package,
-  ShoppingCart,
-  DollarSign,
-  TrendingUp,
-  Plus,
-  ClipboardList,
-  Clock,
-  ArrowRight,
-  BarChart3,
-  PieChart,
-  Bell,
-  Eye,
-  X,
-  Sun,
-  Moon,
-  Sparkles,
-  Activity,
-  Award,
-  Target,
-  BarChart as BarChartIcon,
-  AlertTriangle,
-  CheckCircle,
-  Rocket,
-  RefreshCw,
-  Zap,
-  WifiOff,
-  User,
-  Settings,
-  HelpCircle,
-  LogOut,
-} from "lucide-react";
+import { Users, Package, ShoppingCart, DollarSign, TrendingUp, Plus, ClipboardList, Clock, ArrowRight, BarChart3, PieChart, Bell, Eye, X, Sun, Moon, Sparkles, Activity, Award, Target, BarChart as BarChartIcon, AlertTriangle, CheckCircle, Rocket, RefreshCw, Zap, WifiOff, User, Settings, HelpCircle, LogOut, Icon } from "lucide-react";
 import "../styles/dashboard.css";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
