@@ -345,4 +345,59 @@ router.post('/register', authenticate, requireSuperAdmin, async (req, res) => {
   }
 });
 
+// ============================================
+// CHANGE PASSWORD
+// ============================================
+router.post('/change-password', authenticate, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+
+  try {
+    const userRes = await db.query(
+      'SELECT userid, username, password, role, tenant_id, is_super_admin FROM tbl_users WHERE userid = $1',
+      [req.user.userId]
+    );
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userRes.rows[0];
+
+    if (user.password && user.password.startsWith('$2') && oldPassword) {
+      const isValid = await bcrypt.compare(oldPassword, user.password);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid old password' });
+      }
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await db.query(
+      'UPDATE tbl_users SET password = $1, must_change_password = FALSE WHERE userid = $2',
+      [hashed, user.userid]
+    );
+
+    const token = jwt.sign(
+      {
+        userId: user.userid,
+        username: user.username,
+        role: user.role || 'Admin',
+        tenantId: user.is_super_admin ? null : user.tenant_id,
+        isSuperAdmin: user.is_super_admin || false,
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully',
+      token
+    });
+  } catch (err) {
+    console.error('❌ Change password error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

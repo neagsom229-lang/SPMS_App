@@ -1,8 +1,44 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 class BusinessError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const db = require('../config/postgres');
 const crypto = require('crypto');
+
+const publicOrderLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: { error: 'Too many orders placed from this IP address, please try again later.' }
+});
+
+async function expirePendingOrders(dbClient) {
+  const client = dbClient || db;
+  const res = await client.query(
+    `SELECT or_id, tenant_id FROM tbl_orders WHERE status = 'Pending'`
+  );
+  for (const ord of res.rows) {
+    await client.query(
+      `UPDATE tbl_orders SET status = 'Cancelled' WHERE or_id = $1`,
+      [ord.or_id]
+    );
+    const itemsRes = await client.query(
+      `SELECT product_id, qty FROM tbl_order_items WHERE order_id = $1`,
+      [ord.or_id]
+    );
+    for (const item of itemsRes.rows) {
+      await client.query(
+        `UPDATE tbl_stock SET qtyinstock = qtyinstock + $1, qtyavailable = qtyavailable + $1 WHERE productid = $2 AND tenant_id = $3`,
+        [item.qty, item.product_id, ord.tenant_id]
+      );
+      await client.query(
+        `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes) VALUES ($1, $2, $3, 'EXPIRE_ORDER', $4, $5)`,
+        [ord.tenant_id, item.product_id, item.qty, ord.or_id, `Order expired and stock restored`]
+      );
+    }
+  }
+  return res.rows.length;
+}
+router.expirePendingOrders = expirePendingOrders;
 
 // Helper to resolve store by slug
 async function getStoreBySlug(client, slug) {
@@ -140,7 +176,7 @@ router.get('/store/:slug/menu', async (req, res) => {
 });
 
 // POST /api/public/store/:slug/orders -> Create Online Order
-router.post('/store/:slug/orders', async (req, res) => {
+router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
   const client = await db.connect();
   try {
     const { slug } = req.params;
@@ -158,6 +194,19 @@ router.post('/store/:slug/orders', async (req, res) => {
     if (!customer_name || !customer_phone || !items || !Array.isArray(items) || items.length === 0) {
       client.release();
       return res.status(400).json({ error: 'Missing required order fields or items' });
+    }
+
+    if (items.length > 30) {
+      client.release();
+      return res.status(400).json({ error: 'Order cannot exceed 30 lines' });
+    }
+
+    for (const item of items) {
+      const q = Number(item.qty || item.quantity);
+      if (q > 50) {
+        client.release();
+        return res.status(400).json({ error: 'Line item quantity cannot exceed 50' });
+      }
     }
 
     if (!idempotency_key) {

@@ -4,8 +4,7 @@ CREATE TABLE IF NOT EXISTS tbl_stock_log (
     product_id INTEGER REFERENCES tbl_products(id) ON DELETE CASCADE,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
     change_qty INTEGER NOT NULL,
-    type VARCHAR(50) NOT NULL DEFAULT 'SALE',
-    transaction_type VARCHAR(50),
+    transaction_type VARCHAR(50) NOT NULL, -- SALE, RESTOCK, RETURN, VOID, ADJUSTMENT
     reference_type VARCHAR(50) NOT NULL, -- ORDER, PURCHASE, MANUAL
     reference_id INTEGER,
     user_id INTEGER REFERENCES tbl_users(userid),
@@ -14,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tbl_stock_log (
 
 CREATE TABLE IF NOT EXISTS tbl_payment (
     id SERIAL PRIMARY KEY,
-    order_id INTEGER REFERENCES tbl_orders(or_id) ON DELETE CASCADE,
+    order_id INTEGER REFERENCES tbl_orders(id) ON DELETE CASCADE,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
     amount DECIMAL(10,2) NOT NULL,
     payment_method VARCHAR(50) NOT NULL,

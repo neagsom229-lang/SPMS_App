@@ -57,6 +57,12 @@ apiClient.interceptors.response.use(
         window.location.href = '/login';
       }
     }
+
+    if (status === 403 && error.response?.data?.error === 'PASSWORD_CHANGE_REQUIRED') {
+      if (currentPath !== '/change-password' && currentPath !== '/profile') {
+        window.location.href = '/change-password';
+      }
+    }
     
     return Promise.reject(error);
   }
