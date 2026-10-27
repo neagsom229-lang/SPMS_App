@@ -90,7 +90,7 @@ export default function Storefront() {
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
-        return prev.map(item => 
+        return prev.map(item =>
           item.id === product.id ? { ...item, qty: item.qty + qty } : item
         );
       }
@@ -111,7 +111,7 @@ export default function Storefront() {
   const taxRate = store?.tax_rate ? parseFloat(store.tax_rate) : 0;
   const taxAmount = (cartSubtotal * taxRate) / 100;
   const cartTotal = cartSubtotal + taxAmount;
-  const exchangeRate = store?.exchange_rate ? parseFloat(store.exchange_rate) : 4000;
+  const exchangeRate = store?.exchangeRate? parseFloat(store.exchangeRate) : 4000;
 
   const handleCheckout = async (e) => {
     e.preventDefault();
@@ -368,7 +368,7 @@ export default function Storefront() {
                     <div className="mt-4 flex items-center justify-between">
                       <div>
                         <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">${product.price.toFixed(2)}</span>
-                        <span className="block text-xs text-gray-400">៛{(product.price * exchange_rate).toLocaleString()}</span>
+                        <span className="block text-xs text-gray-400">៛{(product.price * exchangeRate).toLocaleString()}</span>
                       </div>
                       <button
                         disabled={isOut}
@@ -459,7 +459,7 @@ export default function Storefront() {
                       <span>Total</span>
                       <span className="text-indigo-600 dark:text-indigo-400">${cartTotal.toFixed(2)}</span>
                     </div>
-                    <div className="text-right text-xs text-gray-400">៛{(cartTotal * exchange_rate).toLocaleString()}</div>
+                    <div className="text-right text-xs text-gray-400">៛{(cartTotal * exchangeRate).toLocaleString()}</div>
                   </div>
 
                   <button
@@ -627,7 +627,7 @@ export default function Storefront() {
               <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
                 <div>
                   <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">${selectedProduct.price.toFixed(2)}</span>
-                  <span className="block text-xs text-gray-400">៛{(selectedProduct.price * exchange_rate).toLocaleString()}</span>
+                  <span className="block text-xs text-gray-400">៛{(selectedProduct.price * exchangeRate).toLocaleString()}</span>
                 </div>
                 <button
                   onClick={() => {
