@@ -114,6 +114,7 @@ async function newTenant(label) {
   expect('missing customer name is refused', await place(1, { customer_name: '' }), 400);
   expect('missing phone is refused', await place(1, { customer_phone: '' }), 400);
   expect('missing idempotency key is refused', await place(1, { idempotency_key: undefined }), 400);
+  expect('delivery is refused when delivery_enabled is false on store', await place(1, { delivery_type: 'delivery' }), 400);
   await expectStock('stock unchanged by refused orders', 3);
   const del = await api('DELETE', '/products/' + pid, null, A.token);
   expect('admin deactivates the product', del, [200, 204]);

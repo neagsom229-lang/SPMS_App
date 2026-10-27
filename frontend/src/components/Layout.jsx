@@ -65,12 +65,22 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../api/client';
 
 const Layout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { darkMode, toggleDarkMode } = useTheme();
   const { user, logout, tenant, isSuperAdmin } = useAuth();
+  const { data: onlineCounts } = useQuery({
+    queryKey: ['online-orders-count'],
+    queryFn: async () => { const res = await apiClient.get('/orders/online/count'); return res.data || {}; },
+    enabled: !!user && !isSuperAdmin,
+    staleTime: 30000,
+    refetchInterval: 60000,
+  });
+  const pendingOnlineCount = Number(onlineCounts?.Pending || 0);
   
   // ===== STATE =====
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -666,6 +676,9 @@ const Layout = ({ children }) => {
           >
             <Icon className={`w-5 h-5 ${isActive ? item.color : ''}`} />
             <span className="text-sm font-medium">{item.label}</span>
+              {item.path === '/online-orders' && pendingOnlineCount > 0 && (
+                <span className="ml-auto px-2 py-0.5 text-xs font-bold rounded-full bg-amber-500 text-white shadow-sm">{pendingOnlineCount}</span>
+              )}
             {isActive && (
               <span className="ml-auto w-1 h-6 bg-indigo-400 rounded-full shadow-lg shadow-indigo-400/50" />
             )}
@@ -676,7 +689,7 @@ const Layout = ({ children }) => {
         );
       })}
     </nav>
-  ), [location.pathname, menu]);
+  ), [location.pathname, menu, pendingOnlineCount]);
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">

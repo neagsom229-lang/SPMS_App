@@ -314,7 +314,7 @@ router.post('/store/:slug/orders', async (req, res) => {
 
       // Decrement stock
       await client.query(
-        `UPDATE tbl_stock SET qtyavailable = qtyavailable - $1 WHERE productid = $2 AND tenant_id = $3`,
+        `UPDATE tbl_stock SET qtyinstock = qtyinstock - $1, qtyavailable = qtyavailable - $1 WHERE productid = $2 AND tenant_id = $3`,
         [item.qty, item.product_id, store.tenant_id]
       );
 
