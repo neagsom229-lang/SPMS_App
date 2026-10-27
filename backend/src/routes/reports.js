@@ -3,6 +3,7 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
+const { REVENUE_STATUSES, EXCLUDED_STATUSES } = require('../constants/sales');
 
 const router = express.Router();
 
@@ -17,8 +18,16 @@ const REPORTS = {
   orders: {
     sql: `SELECT o.or_id, o.order_no, c.name AS customer, o.total, o.discount, o.payment_method, o.status, o.source, o.created_at
           FROM tbl_orders o LEFT JOIN tbl_customers c ON c.id = o.customer_id
-          WHERE ($1::int IS NULL OR o.tenant_id = $1) ORDER BY o.or_id DESC`,
-    columns: [['ID', 'or_id'], ['Order No', 'order_no'], ['Customer', 'customer'], ['Total', 'total'], ['Discount', 'discount'], ['Payment', 'payment_method'], ['Status', 'status'], ['Source', 'source'], ['Created', 'created_at']]
+          WHERE ($1::int IS NULL OR o.tenant_id = $1) AND NOT (o.status = ANY($2)) ORDER BY o.or_id DESC`,
+    columns: [['ID', 'or_id'], ['Order No', 'order_no'], ['Customer', 'customer'], ['Total', 'total'], ['Discount', 'discount'], ['Payment', 'payment_method'], ['Status', 'status'], ['Source', 'source'], ['Created', 'created_at']],
+    params: EXCLUDED_STATUSES
+  },
+  sales: {
+    sql: `SELECT o.or_id, o.order_no, c.name AS customer, o.total, o.payment_method, o.status, o.created_at
+          FROM tbl_orders o LEFT JOIN tbl_customers c ON c.id = o.customer_id
+          WHERE ($1::int IS NULL OR o.tenant_id = $1) AND o.status = ANY($2) ORDER BY o.or_id DESC`,
+    columns: [['ID', 'or_id'], ['Order No', 'order_no'], ['Customer', 'customer'], ['Total', 'total'], ['Payment', 'payment_method'], ['Status', 'status'], ['Created', 'created_at']],
+    params: REVENUE_STATUSES
   },
   customers: {
     sql: `SELECT id, cus_id, name, phone, email, address, status, created_at FROM tbl_customers
@@ -41,7 +50,8 @@ router.get('/export/:type', authenticate, async (req, res) => {
     if (!report) {
       return res.status(400).json({ error: 'Unknown report type', supported: Object.keys(REPORTS) });
     }
-    const { rows } = await pool.query(report.sql, [scope.tenantId]);
+    const queryParams = report.params ? [scope.tenantId, report.params] : [scope.tenantId];
+    const { rows } = await pool.query(report.sql, queryParams);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet(req.params.type);
     ws.columns = report.columns.map(([header, key]) => ({ header, key, width: 18 }));

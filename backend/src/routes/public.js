@@ -179,23 +179,23 @@ router.post('/store/:slug/orders', async (req, res) => {
       await client.query('ROLLBACK');
       client.release();
       return res.status(400).json({ error: 'Store is currently closed for online orders' });
-      }
-      const reqDeliveryType = (delivery_type || 'pickup').toLowerCase();
-      if (reqDeliveryType === 'pickup' && store.pickup_enabled === false) {
-        await client.query('ROLLBACK');
-        client.release();
-        return res.status(400).json({ error: 'In-store pickup is currently disabled for this store' });
-      }
-      if (reqDeliveryType === 'delivery' && store.delivery_enabled === false) {
-        await client.query('ROLLBACK');
-        client.release();
-        return res.status(400).json({ error: 'Delivery is currently disabled for this store' });
+    }
+    const reqDeliveryType = (delivery_type || 'pickup').toLowerCase();
+    if (reqDeliveryType === 'pickup' && store.pickup_enabled === false) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'In-store pickup is currently disabled for this store' });
+    }
+    if (reqDeliveryType === 'delivery' && store.delivery_enabled === false) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'Delivery is currently disabled for this store' });
     }
 
-    // 2. Check Idempotency Key
+    // 2. Check Idempotency Key (tenant-scoped)
     const existingOrder = await client.query(
-      'SELECT or_id, order_no, tracking_code FROM tbl_orders WHERE idempotency_key = $1',
-      [idempotency_key]
+      'SELECT or_id, order_no, tracking_code FROM tbl_orders WHERE tenant_id = $1 AND idempotency_key = $2',
+      [store.tenant_id, idempotency_key]
     );
     if (existingOrder.rowCount > 0) {
       await client.query('COMMIT');
@@ -210,21 +210,26 @@ router.post('/store/:slug/orders', async (req, res) => {
       });
     }
 
-    // 3. Re-read prices & validate stock with SELECT ... FOR UPDATE
+    // Aggregate cart lines by product_id
+    const aggregatedMap = new Map();
+    for (const item of items) {
+      const prodId = Number(item.product_id);
+      const orderQty = Number(item.qty || item.quantity);
+      if (!prodId || isNaN(prodId) || !Number.isInteger(orderQty) || orderQty <= 0 || orderQty > 100000) {
+        throw new BusinessError(400, `Invalid product ID or quantity`);
+      }
+      aggregatedMap.set(prodId, (aggregatedMap.get(prodId) || 0) + orderQty);
+    }
+
+    // Sort product IDs ascending to avoid deadlocks
+    const sortedProductIds = Array.from(aggregatedMap.keys()).sort((a, b) => a - b);
+
+    // 3. Re-read prices & validate stock with SELECT ... FOR UPDATE on sorted product IDs
     let totalAmount = 0;
     const orderItemsParsed = [];
 
-    for (const item of items) {
-      const prodId = item.product_id;
-      if (!prodId || isNaN(Number(prodId))) {
-        await client.query('ROLLBACK');
-        client.release();
-        return res.status(400).json({ error: `Product ID ${prodId} is missing or invalid` });
-      }
-      const orderQty = Number(item.qty);
-      if (!Number.isInteger(orderQty) || orderQty <= 0 || orderQty > 100000) {
-        throw new BusinessError(400, `Quantity for product ID ${prodId} must be a whole number of 1 or more`);
-      }
+    for (const prodId of sortedProductIds) {
+      const orderQty = aggregatedMap.get(prodId);
 
       // Lock product & stock row
       const prodRes = await client.query(
@@ -276,8 +281,21 @@ router.post('/store/:slug/orders', async (req, res) => {
     const taxAmount = (totalAmount * taxRate) / 100;
     const finalTotal = totalAmount + taxAmount;
 
-    // Generate Order Number & Tracking Code
-    const orderNo = `ONLINE-${Date.now().toString().slice(-6)}`;
+    // Generate Order Number & Tracking Code using per-tenant sequence
+    async function getNextOrderNoLocal(client, tenantId, prefix = 'ONLINE') {
+      await client.query(
+        `INSERT INTO tenant_order_counters (tenant_id, last_seq) VALUES ($1, 0) ON CONFLICT (tenant_id) DO NOTHING`,
+        [tenantId]
+      );
+      const res = await client.query(
+        `UPDATE tenant_order_counters SET last_seq = last_seq + 1 WHERE tenant_id = $1 RETURNING last_seq`,
+        [tenantId]
+      );
+      const seq = res.rows[0].last_seq;
+      return `${prefix}-${String(seq).padStart(5, '0')}`;
+    }
+
+    const orderNo = await getNextOrderNoLocal(client, store.tenant_id, 'ONLINE');
     const trackingCode = crypto.randomBytes(12).toString('hex');
 
     // 4. Insert Order
@@ -304,7 +322,7 @@ router.post('/store/:slug/orders', async (req, res) => {
     );
     const orderId = insertOrderRes.rows[0].or_id;
 
-    // 5. Insert Order Items and Decrement Stock & Write Stock Log
+    // 5. Insert Order Items and Atomic Stock Decrement & Write Stock Log
     for (const item of orderItemsParsed) {
       await client.query(
         `INSERT INTO tbl_order_items (order_id, product_id, qty, unit_price, buy_price, subtotal, tenant_id)
@@ -312,13 +330,21 @@ router.post('/store/:slug/orders', async (req, res) => {
         [orderId, item.product_id, item.qty, item.price, item.buy_price, item.subtotal, store.tenant_id]
       );
 
-      // Decrement stock
-      await client.query(
-        `UPDATE tbl_stock SET qtyinstock = qtyinstock - $1, qtyavailable = qtyavailable - $1 WHERE productid = $2 AND tenant_id = $3`,
+      const updateStockRes = await client.query(
+        `UPDATE tbl_stock 
+         SET qtyinstock = qtyinstock - $1, 
+             qtyavailable = qtyavailable - $1 
+         WHERE productid = $2 AND tenant_id = $3 AND qtyavailable >= $1
+         RETURNING qtyavailable`,
         [item.qty, item.product_id, store.tenant_id]
       );
 
-      // Write stock log
+      if (updateStockRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(409).json({ error: `Insufficient stock during atomic update for product ID ${item.product_id}` });
+      }
+
       await client.query(
         `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
          VALUES ($1, $2, $3, $4, $5, $6)`,

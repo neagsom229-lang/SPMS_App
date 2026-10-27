@@ -15,7 +15,6 @@
     "concurrently": "^8.0.1"
   },
   "dependencies": {
-    "@emailjs/browser": "^4.4.1",
-    "claude": "^0.1.1"
+    "@emailjs/browser": "^4.4.1"
   }
 }

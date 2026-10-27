@@ -1,15 +1,17 @@
 // backend/src/config/env.js
+const isProd = process.env.NODE_ENV === 'production';
 const requiredEnv = [
   'DATABASE_URL',
   'JWT_SECRET',
-  // 'STRIPE_SECRET_KEY', // ← Comment this out if not using Stripe
+  ...(isProd ? ['CORS_ORIGINS'] : [])
 ];
 
 const optionalEnv = [
   'PORT',
   'NODE_ENV',
   'FRONTEND_URL',
-  'STRIPE_SECRET_KEY', // ← Move here
+  'CORS_ORIGINS',
+  'STRIPE_SECRET_KEY',
   'STRIPE_PUBLISHABLE_KEY',
   'SMTP_USER',
   'SMTP_PASS',
@@ -27,7 +29,6 @@ const checkEnv = () => {
 
   console.log('✅ All required environment variables are set');
 
-  // Check optional variables
   const optional = optionalEnv.filter(key => !process.env[key]);
   if (optional.length > 0) {
     console.log('⚠️ Optional environment variables missing:');

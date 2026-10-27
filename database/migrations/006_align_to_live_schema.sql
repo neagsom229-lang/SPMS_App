@@ -73,11 +73,21 @@ CREATE TABLE IF NOT EXISTS tbl_stock_log (
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
     product_id INTEGER REFERENCES tbl_products(id) ON DELETE CASCADE,
     change_qty INTEGER NOT NULL,
-    type VARCHAR(50) NOT NULL,
+    type VARCHAR(50),
+    transaction_type VARCHAR(50),
+    reference_type VARCHAR(50),
     reference_id INTEGER,
+    user_id INTEGER,
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS type VARCHAR(50);
+ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS transaction_type VARCHAR(50);
+ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS reference_type VARCHAR(50) DEFAULT 'ORDER';
+ALTER TABLE tbl_stock_log ALTER COLUMN reference_type DROP NOT NULL;
+ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS user_id INTEGER;
 
 CREATE TABLE IF NOT EXISTS store_settings (
     id SERIAL PRIMARY KEY,

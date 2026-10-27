@@ -3,19 +3,25 @@ const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/cache');
+const { BusinessError } = require('../lib/errors');
 
 const router = express.Router();
 
-const getTenantId = (req) => {
+const getTenantId = (req, res) => {
   if (req.user?.isSuperAdmin) {
     return req.query.tenant_id || req.query.tenantId || null;
   }
-  return req.user?.tenantId || null;
+  if (!req.user?.tenantId) {
+    if (res) res.status(403).json({ error: 'Tenant context required' });
+    return null;
+  }
+  return req.user.tenantId;
 };
 
 // ===== GET ALL ORDERS =====
 router.get('/', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const { page = 1, limit = 20, status, search } = req.query;
   const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
@@ -84,7 +90,8 @@ router.get('/', authenticate, async (req, res) => {
 
 // ===== RECENT ORDERS =====
 router.get('/recent', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const { limit = 5 } = req.query;
 
@@ -115,7 +122,8 @@ router.get('/recent', authenticate, async (req, res) => {
 
 // ===== PENDING ORDERS =====
 router.get('/pending', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const { limit = 10 } = req.query;
 
@@ -146,7 +154,8 @@ router.get('/pending', authenticate, async (req, res) => {
 
 // ===== GET ONLINE ORDERS COUNT PER STATUS =====
 router.get('/online/count', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   if (!tenantId) {
     return res.status(403).json({ error: 'Tenant context required' });
   }
@@ -184,7 +193,8 @@ router.get('/online/count', authenticate, async (req, res) => {
 
 // ===== GET ONLINE ORDERS =====
 router.get('/online', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   if (!tenantId) {
     return res.status(403).json({ error: 'Tenant context required' });
   }
@@ -258,7 +268,8 @@ router.get('/online', authenticate, async (req, res) => {
 
 // ===== GET ORDER BY ID WITH ITEMS =====
 router.get('/:id', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const orderId = req.params.id;
 
@@ -306,9 +317,23 @@ router.get('/:id', authenticate, async (req, res) => {
   }
 });
 
+async function getNextOrderNo(client, tenantId, prefix = 'ORD') {
+  await client.query(
+    `INSERT INTO tenant_order_counters (tenant_id, last_seq) VALUES ($1, 0) ON CONFLICT (tenant_id) DO NOTHING`,
+    [tenantId]
+  );
+  const res = await client.query(
+    `UPDATE tenant_order_counters SET last_seq = last_seq + 1 WHERE tenant_id = $1 RETURNING last_seq`,
+    [tenantId]
+  );
+  const seq = res.rows[0].last_seq;
+  return `${prefix}-${String(seq).padStart(5, '0')}`;
+}
+
 // ===== CREATE ORDER (POS CHECKOUT) =====
 router.post('/', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   if (!tenantId) {
     return res.status(403).json({ error: 'Tenant context required' });
   }
@@ -324,21 +349,23 @@ router.post('/', authenticate, async (req, res) => {
   const client = await pool.connect();
 
   try {
-    // Optional customer: walk-in sales have none; a given customer must belong to this tenant
     if (customer_id === undefined || customer_id === null || customer_id === '') {
       customer_id = null;
     } else {
       const customerNum = Number(customer_id);
       if (!Number.isInteger(customerNum) || customerNum < 1) {
+        client.release();
         return res.status(400).json({ error: 'Invalid customer' });
       }
       const customerRes = await client.query('SELECT id FROM tbl_customers WHERE id = $1 AND tenant_id = $2', [customerNum, tenantId]);
       if (customerRes.rowCount === 0) {
+        client.release();
         return res.status(400).json({ error: 'Customer not found' });
       }
       customer_id = customerNum;
     }
-    // 0. Check Idempotency Key
+
+    // 0. Check Idempotency Key (tenant-scoped)
     if (idempotency_key) {
       const existingKeyRes = await client.query(
         `SELECT * FROM tbl_orders WHERE tenant_id = $1 AND idempotency_key = $2`,
@@ -361,22 +388,28 @@ router.post('/', authenticate, async (req, res) => {
 
     await client.query('BEGIN');
 
+    // Aggregate cart lines by product_id
+    const aggregatedMap = new Map();
+    for (const item of items) {
+      const prodId = Number(item.product_id || item.id);
+      const rawQty = Number(item.quantity !== undefined ? item.quantity : item.qty);
+      if (!prodId || isNaN(prodId) || !Number.isInteger(rawQty) || rawQty < 1 || rawQty > 100000) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: 'Invalid product ID or quantity' });
+      }
+      aggregatedMap.set(prodId, (aggregatedMap.get(prodId) || 0) + rawQty);
+    }
+
+    // Sort product IDs ascending before locking to prevent deadlocks
+    const sortedProductIds = Array.from(aggregatedMap.keys()).sort((a, b) => a - b);
+
     let calculatedSubtotal = 0;
     const validatedItems = [];
 
-    // 1. Authoritative DB pricing and inventory check
-    for (const item of items) {
-      const prodId = item.product_id || item.id;
-      if (!prodId || isNaN(Number(prodId))) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ error: `Product ID ${prodId} is missing or invalid` });
-      }
-      const rawQty = item.quantity !== undefined ? item.quantity : item.qty;
-        const requestedQty = Number(rawQty);
-        if (!Number.isInteger(requestedQty) || requestedQty < 1 || requestedQty > 100000) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ error: 'Quantity must be a whole number of 1 or more' });
-        }
+    // 1. Authoritative DB pricing and inventory check with sorted locks
+    for (const prodId of sortedProductIds) {
+      const requestedQty = aggregatedMap.get(prodId);
 
       const stockRes = await client.query(
         `SELECT s.qtyavailable, p.id as product_id, 
@@ -393,6 +426,7 @@ router.post('/', authenticate, async (req, res) => {
 
       if (stockRes.rows.length === 0) {
         await client.query('ROLLBACK');
+        client.release();
         return res.status(409).json({ error: `Product ID ${prodId} not found in stock` });
       }
 
@@ -400,6 +434,7 @@ router.post('/', authenticate, async (req, res) => {
       const available = row.qtyavailable;
       if (available < requestedQty) {
         await client.query('ROLLBACK');
+        client.release();
         return res.status(409).json({ 
           error: `Insufficient stock for "${row.product_name}". Requested: ${requestedQty}, Available: ${available}`,
           product_id: prodId,
@@ -424,11 +459,12 @@ router.post('/', authenticate, async (req, res) => {
     const discountNum = Number(discount || 0);
     if (!Number.isFinite(discountNum) || discountNum < 0 || discountNum > calculatedSubtotal) {
       await client.query('ROLLBACK');
+      client.release();
       return res.status(400).json({ error: 'Discount must be between 0 and the order subtotal' });
     }
     const finalDiscount = Number(discountNum.toFixed(2));
     const finalTotal = Number(Math.max(0, calculatedSubtotal - finalDiscount).toFixed(2));
-    const orderNo = `ORD-${Date.now().toString().slice(-6)}`;
+    const orderNo = await getNextOrderNo(client, tenantId, 'ORD');
     const method = payment_method || 'Cash';
 
     // 2. Insert order
@@ -442,7 +478,7 @@ router.post('/', authenticate, async (req, res) => {
 
     const order = orderResult.rows[0];
 
-    // 3. Insert items, decrement tbl_stock, record stock log
+    // 3. Insert items, atomic stock decrement, record stock log
     for (const vItem of validatedItems) {
       await client.query(
         `INSERT INTO tbl_order_items 
@@ -451,16 +487,21 @@ router.post('/', authenticate, async (req, res) => {
         [tenantId, order.or_id, vItem.product_id, vItem.qty, vItem.unit_price, vItem.buy_price, vItem.subtotal]
       );
 
-      // Decrement authoritative inventory
-      await client.query(
+      const updateStockRes = await client.query(
         `UPDATE tbl_stock 
          SET qtyinstock = qtyinstock - $1,
              qtyavailable = qtyavailable - $1
-         WHERE productid = $2 AND tenant_id = $3`,
+         WHERE productid = $2 AND tenant_id = $3 AND qtyavailable >= $1
+         RETURNING qtyavailable`,
         [vItem.qty, vItem.product_id, tenantId]
       );
 
-      // Write audit log
+      if (updateStockRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(409).json({ error: `Insufficient stock during atomic update for product ID ${vItem.product_id}` });
+      }
+
       await client.query(
         `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
          VALUES ($1, $2, $3, 'SALE', $4, $5)`,
@@ -468,7 +509,6 @@ router.post('/', authenticate, async (req, res) => {
       );
     }
 
-    // 4. Record payment
     await client.query(
       `INSERT INTO tbl_payment (order_id, tenant_id, amount, payment_method, status, created_at)
        VALUES ($1, $2, $3, $4, 'COMPLETED', NOW())`,
@@ -478,7 +518,6 @@ router.post('/', authenticate, async (req, res) => {
     await client.query('COMMIT');
     clearTenantCache(tenantId);
 
-    // Retrieve full order with items
     const fullOrderRes = await pool.query(
       `SELECT o.*, c.name as customer_name 
        FROM tbl_orders o 
@@ -497,21 +536,110 @@ router.post('/', authenticate, async (req, res) => {
     const responseOrder = fullOrderRes.rows[0];
     responseOrder.items = itemsRes.rows;
 
+    client.release();
     res.status(201).json(responseOrder);
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Create order error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create order' });
-  } finally {
     client.release();
+    console.error('❌ Create order error:', error);
+    if (error.code === '23505') {
+      return res.status(200).json({ error: 'Idempotency conflict / duplicate order' });
+    }
+    res.status(500).json({ error: error.message || 'Failed to create order' });
   }
 });
 
+async function reverseOrder(client, order, type, userId, reason) {
+  const orderId = order.or_id;
+  const tenantId = order.tenant_id;
+
+  if (['Refunded', 'Cancelled', 'Voided'].includes(order.status)) {
+    throw new BusinessError(`Order is already ${order.status.toLowerCase()}`, 409);
+  }
+
+  const itemsRes = await client.query(
+    `SELECT * FROM tbl_order_items WHERE order_id = $1`,
+    [orderId]
+  );
+
+  for (const item of itemsRes.rows) {
+    const prodId = item.product_id;
+    const qty = item.qty || item.quantity;
+
+    const stockRes = await client.query(
+      `UPDATE tbl_stock 
+       SET qtyinstock = qtyinstock + $1,
+           qtyavailable = qtyavailable + $1
+       WHERE productid = $2 AND tenant_id = $3
+       RETURNING productid`,
+      [qty, prodId, tenantId]
+    );
+
+    if (stockRes.rowCount === 0) {
+      throw new BusinessError(`Stock record not found for product id ${prodId}`, 409);
+    }
+
+    await client.query(
+      `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [tenantId, prodId, qty, type, orderId, `${type} order #${order.order_no || orderId} by user ${userId || 'system'}${reason ? ': ' + reason : ''}`]
+    );
+  }
+
+  const paymentStatusMap = {
+    'REFUND': 'REFUNDED',
+    'CANCEL': 'CANCELLED',
+    'VOID': 'VOIDED'
+  };
+  const payStatus = paymentStatusMap[type] || 'REFUNDED';
+
+  await client.query(
+    `UPDATE tbl_payment SET status = $1 WHERE order_id = $2 AND tenant_id = $3`,
+    [payStatus, orderId, tenantId]
+  );
+
+  const newStatusMap = {
+    'REFUND': 'Refunded',
+    'CANCEL': 'Cancelled',
+    'VOID': 'Voided'
+  };
+  const newStatus = newStatusMap[type];
+
+  if (type === 'VOID') {
+    await client.query(
+      `UPDATE tbl_orders 
+       SET status = $1, voided_at = NOW(), voided_by = $2, void_reason = $3, updated_at = NOW() 
+       WHERE or_id = $4 AND tenant_id = $5`,
+      [newStatus, userId, reason, orderId, tenantId]
+    );
+    await client.query(
+      `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [userId || 1, 'VOID_ORDER', 'tbl_orders', orderId, tenantId]
+    );
+  } else {
+    await client.query(
+      `UPDATE tbl_orders SET status = $1, updated_at = NOW() WHERE or_id = $2 AND tenant_id = $3`,
+      [newStatus, orderId, tenantId]
+    );
+    await client.query(
+      `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [userId || 1, `${type}_ORDER`, 'tbl_orders', orderId, tenantId]
+    );
+  }
+}
+
 // ===== CANCEL ORDER =====
 router.post('/:id/cancel', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const userId = req.user?.userId;
   const orderId = req.params.id;
+
+  if (!/^[1-9]\d{0,9}$/.test(String(orderId))) {
+    return res.status(400).json({ error: 'Invalid order ID format' });
+  }
 
   const client = await pool.connect();
   try {
@@ -528,59 +656,33 @@ router.post('/:id/cancel', authenticate, async (req, res) => {
     }
 
     const order = orderRes.rows[0];
-    if (order.status === 'Refunded' || order.status === 'Cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Order is already cancelled or refunded' });
-    }
-
-    const itemsRes = await client.query(
-      `SELECT * FROM tbl_order_items WHERE order_id = $1`,
-      [orderId]
-    );
-
-    for (const item of itemsRes.rows) {
-      const prodId = item.product_id;
-      const qty = item.qty || item.quantity;
-
-      // Restore stock in tbl_stock
-      await client.query(
-        `UPDATE tbl_stock 
-         SET qtyinstock = qtyinstock + $1,
-             qtyavailable = qtyavailable + $1
-         WHERE productid = $2 AND tenant_id = $3`,
-        [qty, prodId, tenantId]
-      );
-
-      // Audit log for cancel
-      await client.query(
-        `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
-         VALUES ($1, $2, $3, 'CANCEL', $4, $5)`,
-        [tenantId, prodId, qty, orderId, `Cancel order #${orderId} by user ${userId || 'system'}`]
-      );
-    }
-
-    await client.query(
-      `UPDATE tbl_orders SET status = 'Cancelled', updated_at = NOW() WHERE or_id = $1`,
-      [orderId]
-    );
+    await reverseOrder(client, order, 'CANCEL', userId, req.body.reason);
 
     await client.query('COMMIT');
     clearTenantCache(tenantId);
     res.json({ success: true, message: 'Order cancelled and stock restored successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error instanceof BusinessError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('❌ Cancel order error:', error);
-    res.status(500).json({ error: 'Failed to process order cancellation' });
+    res.status(500).json({ error: error.message || 'Failed to process order cancellation' });
   } finally {
     client.release();
   }
 });
 
-// ===== VOID / REFUND ORDER =====
+// ===== REFUND ORDER =====
 router.post('/:id/refund', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const userId = req.user?.userId;
   const orderId = req.params.id;
+
+  if (!/^[1-9]\d{0,9}$/.test(String(orderId))) {
+    return res.status(400).json({ error: 'Invalid order ID format' });
+  }
 
   const client = await pool.connect();
   try {
@@ -597,49 +699,18 @@ router.post('/:id/refund', authenticate, async (req, res) => {
     }
 
     const order = orderRes.rows[0];
-    if (order.status === 'Refunded' || order.status === 'Cancelled') {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Order is already refunded or cancelled' });
-    }
-
-    const itemsRes = await client.query(
-      `SELECT * FROM tbl_order_items WHERE order_id = $1`,
-      [orderId]
-    );
-
-    for (const item of itemsRes.rows) {
-      const prodId = item.product_id;
-      const qty = item.qty || item.quantity;
-
-      // Restore stock in tbl_stock
-      await client.query(
-        `UPDATE tbl_stock 
-         SET qtyinstock = qtyinstock + $1,
-             qtyavailable = qtyavailable + $1
-         WHERE productid = $2 AND tenant_id = $3`,
-        [qty, prodId, tenantId]
-      );
-
-      // Audit log for refund
-      await client.query(
-        `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
-         VALUES ($1, $2, $3, 'REFUND', $4, $5)`,
-        [tenantId, prodId, qty, orderId, `Refund order #${orderId} by user ${userId || 'system'}`]
-      );
-    }
-
-    await client.query(
-      `UPDATE tbl_orders SET status = 'Refunded' WHERE or_id = $1`,
-      [orderId]
-    );
+    await reverseOrder(client, order, 'REFUND', userId, req.body.reason);
 
     await client.query('COMMIT');
     clearTenantCache(tenantId);
     res.json({ success: true, message: 'Order refunded and stock restored successfully' });
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error instanceof BusinessError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('❌ Refund order error:', error);
-    res.status(500).json({ error: 'Failed to process refund' });
+    res.status(500).json({ error: error.message || 'Failed to process refund' });
   } finally {
     client.release();
   }
@@ -647,10 +718,15 @@ router.post('/:id/refund', authenticate, async (req, res) => {
 
 // ===== UPDATE ORDER STATUS =====
 router.patch('/:id/status', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const userId = req.user?.userId;
   const orderId = req.params.id;
   const { status: newStatus } = req.body;
+
+  if (!/^[1-9]\d{0,9}$/.test(String(orderId))) {
+    return res.status(400).json({ error: 'Invalid order ID format' });
+  }
 
   if (!newStatus || !['Pending', 'Confirmed', 'Preparing', 'Ready', 'Completed', 'Cancelled'].includes(newStatus)) {
     return res.status(400).json({ error: 'A valid status is required' });
@@ -690,29 +766,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
     }
 
     if (newStatus === 'Cancelled') {
-      const itemsRes = await client.query(
-        `SELECT * FROM tbl_order_items WHERE order_id = $1`,
-        [orderId]
-      );
-
-      for (const item of itemsRes.rows) {
-        const prodId = item.product_id;
-        const qty = item.qty || item.quantity;
-
-        await client.query(
-          `UPDATE tbl_stock 
-           SET qtyinstock = qtyinstock + $1,
-               qtyavailable = qtyavailable + $1
-           WHERE productid = $2 AND tenant_id = $3`,
-          [qty, prodId, tenantId]
-        );
-
-        await client.query(
-          `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
-           VALUES ($1, $2, $3, 'CANCEL', $4, $5)`,
-          [tenantId, prodId, qty, orderId, `Cancel order #${order.order_no} by user ${userId || 'system'}`]
-        );
-      }
+      await reverseOrder(client, order, 'CANCEL', userId, 'Status changed to Cancelled');
     }
 
     if (newStatus === 'Completed' && (order.payment_method || '').toLowerCase() === 'cash') {
@@ -726,12 +780,18 @@ router.patch('/:id/status', authenticate, async (req, res) => {
       }
     }
 
+    if (newStatus !== 'Cancelled') {
+      await client.query(
+        `UPDATE tbl_orders 
+         SET status = $1, updated_at = NOW()
+         WHERE or_id = $2 AND tenant_id = $3`,
+        [newStatus, orderId, tenantId]
+      );
+    }
+
     const updateRes = await client.query(
-      `UPDATE tbl_orders 
-       SET status = $1, updated_at = NOW()
-       WHERE or_id = $2 AND tenant_id = $3
-       RETURNING *`,
-      [newStatus, orderId, tenantId]
+      `SELECT * FROM tbl_orders WHERE or_id = $1 AND tenant_id = $2`,
+      [orderId, tenantId]
     );
 
     await client.query('COMMIT');
@@ -750,6 +810,9 @@ router.patch('/:id/status', authenticate, async (req, res) => {
     res.json(updatedOrder);
   } catch (error) {
     await client.query('ROLLBACK');
+    if (error instanceof BusinessError) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error('❌ Update order status error:', error);
     res.status(500).json({ error: error.message || 'Failed to update order status' });
   } finally {
@@ -757,25 +820,50 @@ router.patch('/:id/status', authenticate, async (req, res) => {
   }
 });
 
-// ===== DELETE ORDER =====
+// ===== DELETE ORDER (SOFT VOID) =====
 router.delete('/:id', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
+  const userId = req.user?.userId;
+  const orderId = req.params.id;
+  const { reason } = req.body || {};
 
+  if (!/^[1-9]\d{0,9}$/.test(String(orderId))) {
+    return res.status(400).json({ error: 'Invalid order ID format' });
+  }
+
+  if (!reason) {
+    return res.status(400).json({ error: 'Void reason is required' });
+  }
+
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
-      'DELETE FROM tbl_orders WHERE or_id = $1 AND tenant_id = $2 RETURNING or_id',
-      [req.params.id, tenantId]
+    await client.query('BEGIN');
+    const orderRes = await client.query(
+      `SELECT * FROM tbl_orders WHERE or_id = $1 AND tenant_id = $2 FOR UPDATE`,
+      [orderId, tenantId]
     );
 
-    if (result.rows.length === 0) {
+    if (orderRes.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    const order = orderRes.rows[0];
+    await reverseOrder(client, order, 'VOID', userId, reason);
+
+    await client.query('COMMIT');
     clearTenantCache(tenantId);
     res.status(204).end();
   } catch (error) {
-    console.error('❌ Delete order error:', error);
-    res.status(500).json({ error: 'Failed to delete order' });
+    await client.query('ROLLBACK');
+    if (error instanceof BusinessError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('❌ Delete/void order error:', error);
+    res.status(500).json({ error: error.message || 'Failed to void order' });
+  } finally {
+    client.release();
   }
 });
 
