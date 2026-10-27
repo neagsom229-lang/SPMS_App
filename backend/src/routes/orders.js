@@ -652,8 +652,8 @@ router.patch('/:id/status', authenticate, async (req, res) => {
   const orderId = req.params.id;
   const { status: newStatus } = req.body;
 
-  if (!newStatus) {
-    return res.status(400).json({ error: 'Status is required' });
+  if (!newStatus || !['Pending', 'Confirmed', 'Preparing', 'Ready', 'Completed', 'Cancelled'].includes(newStatus)) {
+    return res.status(400).json({ error: 'A valid status is required' });
   }
 
   const client = await pool.connect();
