@@ -21,12 +21,12 @@ const rnd = () => crypto.randomBytes(4).toString('hex');
 async function newTenant(label) {
   const sub = 'esc-' + label + '-' + rnd();
   const pw = 'Qa!' + crypto.randomBytes(8).toString('hex');
-  const reg = const reg = await api('POST', '/auth/register-client', { businessName: sub, email: sub + '@test.com', password: pw, subdomain: sub });
+  const reg = await api('POST', '/auth/register-client', { businessName: sub, email: sub + '@test.com', password: pw, subdomain: sub });
   const login = await api('POST', '/auth/login', { username: sub + '_admin', password: pw });
   const token = login.data && login.data.token;
   const me = token ? await api('GET', '/auth/me', null, token) : { data: {} };
   const u = (me.data && me.data.user) || {};
-  console.log('setup ' + label + ': register ' + reg.status + ' login ' + login.status + ' tenantId ' + u.tenantId + ' userId ' + u.id); console.log('setup ' + label + ': register ' + reg.status + ' login ' + login.status + ' tenantId ' + u.tenantId + ' userId ' + u.id); return { sub: sub, token: token, tid: u.tenantId, uid: u.id, adminName: sub + '_admin' };
+  console.log('setup ' + label + ': register ' + reg.status + ' login ' + login.status + ' tenantId ' + u.tenantId + ' userId ' + u.id); return { sub: sub, token: token, tid: u.tenantId, uid: u.id, adminName: sub + '_admin' };
 }
 (async () => {
   const A = await newTenant('a');
