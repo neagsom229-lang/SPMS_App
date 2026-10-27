@@ -579,13 +579,13 @@ const Help = () => {
         >
           <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center">Share: </span>
           <button onClick={() => handleShare('twitter')} className="p-1.5 bg-[#1DA1F2] text-white rounded-lg hover:scale-110 transition-transform text-xs flex items-center gap-1">
-            <Twitter className="w-3 h-3" /> Twitter
+            <Share2 className="w-3 h-3" /> Twitter
           </button>
           <button onClick={() => handleShare('facebook')} className="p-1.5 bg-[#4267B2] text-white rounded-lg hover:scale-110 transition-transform text-xs flex items-center gap-1">
-            <Facebook className="w-3 h-3" /> Facebook
+            <ExternalLink className="w-3 h-3" /> Facebook
           </button>
           <button onClick={() => handleShare('linkedin')} className="p-1.5 bg-[#0077B5] text-white rounded-lg hover:scale-110 transition-transform text-xs flex items-center gap-1">
-            <Linkedin className="w-3 h-3" /> LinkedIn
+            <Link className="w-3 h-3" /> LinkedIn
           </button>
           <button onClick={() => handleShare('email')} className="p-1.5 bg-gray-600 text-white rounded-lg hover:scale-110 transition-transform text-xs flex items-center gap-1">
             <Mail className="w-3 h-3" /> Email

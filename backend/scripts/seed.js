@@ -1,334 +1,201 @@
-// backend/scripts/seed.js
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+const bcrypt = require('bcryptjs');
+const { Pool } = require('pg');
+require('dotenv').config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+console.log('🔍 Environment variables check (names present):');
+['DATABASE_URL', 'DIRECT_URL', 'SEED_ADMIN_PASSWORD', 'NODE_ENV'].forEach(key => {
+  console.log(`   - ${key}: ${process.env[key] ? 'PRESENT (hidden)' : 'MISSING'}`);
+});
 
-dotenv.config({ path: join(__dirname, '..', '.env') });
+const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error('❌ DATABASE_URL or DIRECT_URL required for seeding');
+  process.exit(1);
+}
 
-// ====== DEFINE MODELS INLINE ======
-const tenantSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  subdomain: { type: String, required: true, unique: true },
-  settings: { type: mongoose.Schema.Types.Mixed, default: {} },
-  isActive: { type: Boolean, default: true }
-}, { timestamps: true });
+const isCloud = connectionString.includes('neon.tech') || connectionString.includes('supabase.co') || connectionString.includes('pooler.supabase.com');
+const pool = new Pool({
+  connectionString,
+  ssl: isCloud ? { rejectUnauthorized: false } : false,
+});
 
-const userSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  firstName: { type: String, required: true },
-  lastName: { type: String, required: true },
-  role: { type: String, enum: ['admin', 'manager', 'staff'], default: 'staff' },
-  tenantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant' },
-  isActive: { type: Boolean, default: true }
-}, { timestamps: true });
-
-const productSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  sku: { type: String, required: true, unique: true },
-  category: { type: String, required: true },
-  price: { type: Number, required: true },
-  quantity: { type: Number, default: 0 },
-  minStock: { type: Number, default: 5 },
-  tenantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant' }
-}, { timestamps: true });
-
-const customerSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true },
-  phone: String,
-  address: { type: mongoose.Schema.Types.Mixed },
-  tenantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant' }
-}, { timestamps: true });
-
-const orderSchema = new mongoose.Schema({
-  orderNumber: { type: String, required: true, unique: true },
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
-  items: [{
-    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
-    quantity: Number,
-    price: Number,
-    total: Number
-  }],
-  total: { type: Number, required: true },
-  status: { type: String, default: 'pending' },
-  tenantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant' }
-}, { timestamps: true });
-
-// Register models
-const Tenant = mongoose.model('Tenant', tenantSchema);
-const User = mongoose.model('User', userSchema);
-const Product = mongoose.model('Product', productSchema);
-const Customer = mongoose.model('Customer', customerSchema);
-const Order = mongoose.model('Order', orderSchema);
-
-// ====== CONNECTION WITH RETRY ======
-const connectWithRetry = async (retries = 5, delay = 2000) => {
-  const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/spms';
-  
-  for (let i = 0; i < retries; i++) {
-    try {
-      console.log(`📡 Attempt ${i + 1}/${retries} connecting to MongoDB...`);
-      await mongoose.connect(mongoURI, {
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-      });
-      console.log('✅ Connected to MongoDB successfully!');
-      return true;
-    } catch (error) {
-      console.log(`❌ Connection attempt ${i + 1} failed: ${error.message}`);
-      if (i < retries - 1) {
-        console.log(`⏳ Retrying in ${delay/1000} seconds...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-  throw new Error('Failed to connect to MongoDB after multiple retries');
-};
-
-// ====== SEED FUNCTION ======
-const seedDatabase = async () => {
+async function seed() {
+  const client = await pool.connect();
   try {
-    // Connect with retry
-    await connectWithRetry();
+    await client.query('BEGIN');
+    console.log('🌱 Starting database seed (ONE transaction)...');
 
-    // Clear existing data
-    console.log('🗑️  Clearing old data...');
-    await Promise.all([
-      User.deleteMany({}),
-      Product.deleteMany({}),
-      Customer.deleteMany({}),
-      Tenant.deleteMany({}),
-      Order.deleteMany({})
-    ]);
-    console.log('✅ Data cleared');
+    // 1. Seed Tenant
+    let tenantRes = await client.query('SELECT id FROM tenants WHERE subdomain = $1', ['demo']);
+    let tenantId;
+    if (tenantRes.rowCount === 0) {
+      const insTenant = await client.query(
+        'INSERT INTO tenants (name, subdomain, status) VALUES ($1, $2, $3) RETURNING id',
+        ['Demo Store', 'demo', 'ACTIVE']
+      );
+      tenantId = insTenant.rows[0].id;
+      console.log(`✅ Created tenant: Demo Store (ID: ${tenantId})`);
+    } else {
+      tenantId = tenantRes.rows[0].id;
+      console.log(`ℹ️ Tenant already exists (ID: ${tenantId})`);
+    }
 
-    // Create Tenant
-    console.log('🏢 Creating tenant...');
-    const tenant = await Tenant.create({
-      name: 'Demo Company',
-      subdomain: 'demo',
-      settings: { currency: 'USD' },
-      isActive: true
-    });
-    console.log(`✅ Tenant created: ${tenant.name}`);
+    // 2. Seed Store Settings
+    let settingsRes = await client.query('SELECT id FROM store_settings WHERE tenant_id = $1 OR slug = $2', [tenantId, 'demo-store']);
+    if (settingsRes.rowCount === 0) {
+      await client.query(
+        `INSERT INTO store_settings (tenant_id, slug, store_name, phone, address, currency, exchange_rate, is_open, accepts_online_orders, delivery_enabled, pickup_enabled)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [tenantId, 'demo-store', 'Demo Store Cambodia', '+855 12 345 678', 'Monivong Blvd, Phnom Penh', 'USD', 4000.00, true, true, true, true]
+      );
+      console.log('✅ Created store_settings for demo-store');
+    } else {
+      console.log('ℹ️ store_settings already exists');
+    }
 
-    // Create Admin User
-    console.log('👤 Creating admin user...');
-    const hashedPassword = await bcrypt.hash('admin123', 10);
-    const admin = await User.create({
-      username: 'admin',
-      email: 'admin@demo.com',
-      password: hashedPassword,
-      firstName: 'Admin',
-      lastName: 'User',
-      role: 'admin',
-      tenantId: tenant._id,
-      isActive: true
-    });
-    console.log(`✅ Admin created: admin / admin123`);
+    // 3. Seed Admin User
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin123!';
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    const userRes = await client.query('SELECT userid FROM tbl_users WHERE username = $1 AND tenant_id = $2', ['admin', tenantId]);
+    let adminUserId;
+    if (userRes.rowCount === 0) {
+      const insUser = await client.query(
+        `INSERT INTO tbl_users (username, email, password, fullname, role, role_name, status, is_super_admin, tenant_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING userid`,
+        ['admin', 'admin@demostore.com', passwordHash, 'System Admin', 'Admin', 'Administrator', 'ACTIVE', false, tenantId]
+      );
+      adminUserId = insUser.rows[0].userid;
+      console.log('✅ Created admin user (username: admin)');
+    } else {
+      adminUserId = userRes.rows[0].userid;
+      console.log('ℹ️ Admin user already exists');
+    }
 
-    // Create Manager
-    const managerPassword = await bcrypt.hash('manager123', 10);
-    const manager = await User.create({
-      username: 'manager',
-      email: 'manager@demo.com',
-      password: managerPassword,
-      firstName: 'Manager',
-      lastName: 'User',
-      role: 'manager',
-      tenantId: tenant._id,
-      isActive: true
-    });
-    console.log(`✅ Manager created: manager / manager123`);
+    // 4. Seed Categories
+    const categories = [
+      { name: 'Coffee & Drinks' },
+      { name: 'Bakery & Pastry' },
+      { name: 'Fast Food' }
+    ];
 
-    // Create Products
-    console.log('📦 Creating products...');
-    const products = await Product.create([
-      {
-        name: 'iPhone 15 Pro',
-        sku: 'PHN-001',
-        category: 'Electronics',
-        price: 999,
-        quantity: 25,
-        minStock: 5,
-        tenantId: tenant._id
-      },
-      {
-        name: 'MacBook Pro 16"',
-        sku: 'LPT-002',
-        category: 'Electronics',
-        price: 2499,
-        quantity: 15,
-        minStock: 3,
-        tenantId: tenant._id
-      },
-      {
-        name: 'Sony WH-1000XM5',
-        sku: 'AUD-003',
-        category: 'Audio',
-        price: 349,
-        quantity: 30,
-        minStock: 10,
-        tenantId: tenant._id
-      },
-      {
-        name: 'Samsung Galaxy S24',
-        sku: 'PHN-004',
-        category: 'Electronics',
-        price: 799,
-        quantity: 20,
-        minStock: 5,
-        tenantId: tenant._id
-      },
-      {
-        name: 'Dell XPS 15',
-        sku: 'LPT-005',
-        category: 'Electronics',
-        price: 1899,
-        quantity: 12,
-        minStock: 3,
-        tenantId: tenant._id
-      },
-      {
-        name: 'Apple Watch Series 9',
-        sku: 'WCH-006',
-        category: 'Wearables',
-        price: 399,
-        quantity: 18,
-        minStock: 5,
-        tenantId: tenant._id
+    const categoryIds = [];
+    for (const cat of categories) {
+      let catRes = await client.query('SELECT id FROM tbl_categories WHERE tenant_id = $1 AND name = $2', [tenantId, cat.name]);
+      let catId;
+      if (catRes.rowCount === 0) {
+        const ins = await client.query(
+          'INSERT INTO tbl_categories (tenant_id, name) VALUES ($1, $2) RETURNING id',
+          [tenantId, cat.name]
+        );
+        catId = ins.rows[0].id;
+        console.log(`✅ Created category: ${cat.name}`);
+      } else {
+        catId = catRes.rows[0].id;
       }
-    ]);
-    console.log(`✅ ${products.length} products created`);
+      categoryIds.push(catId);
+    }
 
-    // Create Customers
-    console.log('👥 Creating customers...');
-    const customers = await Customer.create([
-      {
-        name: 'John Doe',
-        email: 'john@example.com',
-        phone: '+1-555-0101',
-        address: { street: '123 Main St', city: 'New York', state: 'NY', zipCode: '10001' },
-        tenantId: tenant._id
-      },
-      {
-        name: 'Jane Smith',
-        email: 'jane@example.com',
-        phone: '+1-555-0102',
-        address: { street: '456 Oak Ave', city: 'Los Angeles', state: 'CA', zipCode: '90001' },
-        tenantId: tenant._id
-      },
-      {
-        name: 'Bob Johnson',
-        email: 'bob@example.com',
-        phone: '+1-555-0103',
-        address: { street: '789 Pine Rd', city: 'Chicago', state: 'IL', zipCode: '60601' },
-        tenantId: tenant._id
-      },
-      {
-        name: 'Alice Williams',
-        email: 'alice@example.com',
-        phone: '+1-555-0104',
-        address: { street: '321 Elm St', city: 'Houston', state: 'TX', zipCode: '77001' },
-        tenantId: tenant._id
-      },
-      {
-        name: 'Charlie Brown',
-        email: 'charlie@example.com',
-        phone: '+1-555-0105',
-        address: { street: '654 Maple Dr', city: 'Phoenix', state: 'AZ', zipCode: '85001' },
-        tenantId: tenant._id
+    // 5. Seed 20 Bilingual Products with Stock
+    const productsData = [
+      { name: 'Iced Latte', name_kh: 'កាហ្វេឡាតទឹកកក', price: 3.50, cost: 1.50, cat: categoryIds[0], barcode: 'COF001' },
+      { name: 'Cappuccino', name_kh: 'កាហ្វេខាប់ប៊ូឈីណូ', price: 3.00, cost: 1.20, cat: categoryIds[0], barcode: 'COF002' },
+      { name: 'Mocha', name_kh: 'កាហ្វេម៉ូខា', price: 3.75, cost: 1.60, cat: categoryIds[0], barcode: 'COF003' },
+      { name: 'Americano', name_kh: 'កាហ្វេអាមេរិកាណូ', price: 2.50, cost: 1.00, cat: categoryIds[0], barcode: 'COF004' },
+      { name: 'Matcha Green Tea', name_kh: 'តែខៀវម៉ាត់ឆា', price: 4.00, cost: 1.80, cat: categoryIds[0], barcode: 'BEV001' },
+      { name: 'Peach Tea', name_kh: 'តែផ្លែប៉ែស', price: 3.25, cost: 1.30, cat: categoryIds[0], barcode: 'BEV002' },
+      { name: 'Chocolate Croissant', name_kh: 'នំប៉័ងគ្រ័ស្សងសូកូឡា', price: 2.75, cost: 1.10, cat: categoryIds[1], barcode: 'BAK001' },
+      { name: 'Butter Croissant', name_kh: 'នំប៉័ងគ្រ័ស្សងប៊ឺរ', price: 2.25, cost: 0.90, cat: categoryIds[1], barcode: 'BAK002' },
+      { name: 'Blueberry Muffin', name_kh: 'នំម៉ัហ្វិនប្លូបឺរី', price: 2.50, cost: 1.00, cat: categoryIds[1], barcode: 'BAK003' },
+      { name: 'Cinnamon Roll', name_kh: 'នំវិលអប់ជីនណាម៉ុន', price: 3.00, cost: 1.20, cat: categoryIds[1], barcode: 'BAK004' },
+      { name: 'Almond Danish', name_kh: 'នំដាណុបអាល់ម៉ុន', price: 3.25, cost: 1.30, cat: categoryIds[1], barcode: 'BAK005' },
+      { name: 'Garlic Bread', name_kh: 'នំប៉័ងទឹម', price: 2.00, cost: 0.80, cat: categoryIds[1], barcode: 'BAK006' },
+      { name: 'Classic Beef Burger', name_kh: 'បឺហ្គឺសាច់គោ', price: 5.50, cost: 2.50, cat: categoryIds[2], barcode: 'FBS001' },
+      { name: 'Crispy Chicken Burger', name_kh: 'បឺហ្គឺសាច់មាន់', price: 5.00, cost: 2.20, cat: categoryIds[2], barcode: 'FBS002' },
+      { name: 'French Fries', name_kh: 'ដំឡូងបារាំងបំពង', price: 2.50, cost: 0.90, cat: categoryIds[2], barcode: 'FBS003' },
+      { name: 'Chicken Nuggets (6pcs)', name_kh: 'មាន់ដុំបំពង (៦ដុំ)', price: 3.50, cost: 1.40, cat: categoryIds[2], barcode: 'FBS004' },
+      { name: 'Cheese Pizza Slice', name_kh: 'ភីហ្សាចុះជីស', price: 3.75, cost: 1.50, cat: categoryIds[2], barcode: 'FBS005' },
+      { name: 'Hot Dog', name_kh: 'ហត់ដុក', price: 3.00, cost: 1.10, cat: categoryIds[2], barcode: 'FBS006' },
+      { name: 'Lemonade', name_kh: 'ទឹកក្រូចឆ្មា', price: 2.75, cost: 1.00, cat: categoryIds[0], barcode: 'BEV003' },
+      { name: 'Strawberry Smoothie', name_kh: 'ស្មូឌីស្ត្របឺរី', price: 4.25, cost: 1.80, cat: categoryIds[0], barcode: 'BEV004' }
+    ];
+
+    const seededProductIds = [];
+    for (const p of productsData) {
+      let prodRes = await client.query('SELECT id FROM tbl_products WHERE tenant_id = $1 AND barcode = $2', [tenantId, p.barcode]);
+      let prodId;
+      if (prodRes.rowCount === 0) {
+        const ins = await client.query(
+          `INSERT INTO tbl_products (tenant_id, name, name_kh, category_id, barcode, price, cost, stock, status, is_published)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+          [tenantId, p.name, p.name_kh, p.cat, p.barcode, p.price, p.cost, 100, 'Active', true]
+        );
+        prodId = ins.rows[0].id;
+
+        // Insert stock record
+        await client.query(
+          `INSERT INTO tbl_stock (tenant_id, productid, qtyinstock, qtyavailable)
+           VALUES ($1, $2, $3, $4)`,
+          [tenantId, prodId, 100, 100]
+        );
+        console.log(`✅ Created product & stock: ${p.name}`);
+      } else {
+        prodId = prodRes.rows[0].id;
       }
-    ]);
-    console.log(`✅ ${customers.length} customers created`);
+      seededProductIds.push(prodId);
+    }
 
-    // Create Orders
-    console.log('📦 Creating orders...');
-    const orders = await Order.create([
-      {
-        orderNumber: 'ORD-000001',
-        customer: customers[0]._id,
-        items: [
-          { product: products[0]._id, quantity: 2, price: 999, total: 1998 },
-          { product: products[2]._id, quantity: 1, price: 349, total: 349 }
-        ],
-        total: 2347,
-        status: 'delivered',
-        tenantId: tenant._id
-      },
-      {
-        orderNumber: 'ORD-000002',
-        customer: customers[1]._id,
-        items: [
-          { product: products[1]._id, quantity: 1, price: 2499, total: 2499 }
-        ],
-        total: 2499,
-        status: 'processing',
-        tenantId: tenant._id
-      },
-      {
-        orderNumber: 'ORD-000003',
-        customer: customers[2]._id,
-        items: [
-          { product: products[3]._id, quantity: 1, price: 799, total: 799 },
-          { product: products[5]._id, quantity: 2, price: 399, total: 798 }
-        ],
-        total: 1597,
-        status: 'pending',
-        tenantId: tenant._id
-      },
-      {
-        orderNumber: 'ORD-000004',
-        customer: customers[3]._id,
-        items: [
-          { product: products[4]._id, quantity: 1, price: 1899, total: 1899 }
-        ],
-        total: 1899,
-        status: 'shipped',
-        tenantId: tenant._id
-      },
-      {
-        orderNumber: 'ORD-000005',
-        customer: customers[4]._id,
-        items: [
-          { product: products[0]._id, quantity: 1, price: 999, total: 999 }
-        ],
-        total: 999,
-        status: 'cancelled',
-        tenantId: tenant._id
-      }
-    ]);
-    console.log(`✅ ${orders.length} orders created`);
+    // 6. Seed Customers
+    let custRes = await client.query('SELECT id FROM tbl_customers WHERE tenant_id = $1 AND phone = $2', [tenantId, '+855 11 222 333']);
+    let customerId;
+    if (custRes.rowCount === 0) {
+      const insCust = await client.query(
+        `INSERT INTO tbl_customers (tenant_id, cus_id, name, phone, email, address)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [tenantId, 'CUS-0001', 'Sok Dara', '+855 11 222 333', 'dara@example.com', 'Phnom Penh']
+      );
+      customerId = insCust.rows[0].id;
+      console.log('✅ Created demo customer: Sok Dara');
+    } else {
+      customerId = custRes.rows[0].id;
+    }
 
-    // Summary
-    console.log('\n🎉 ====== SEED COMPLETE ======');
-    console.log(`🏢 Tenant: ${tenant.name}`);
-    console.log(`👤 Admin: admin / admin123`);
-    console.log(`👤 Manager: manager / manager123`);
-    console.log(`📦 Products: ${products.length}`);
-    console.log(`👥 Customers: ${customers.length}`);
-    console.log(`📦 Orders: ${orders.length}`);
-    console.log('===============================\n');
+    // 7. Seed Historic Completed Order
+    let orderRes = await client.query('SELECT or_id FROM tbl_orders WHERE tenant_id = $1 AND order_no = $2', [tenantId, 'ORD-HIST-01']);
+    if (orderRes.rowCount === 0) {
+      const insOrd = await client.query(
+        `INSERT INTO tbl_orders (tenant_id, order_no, customer_id, user_id, total, discount, payment_method, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING or_id`,
+        [tenantId, 'ORD-HIST-01', customerId, adminUserId, 7.00, 0.00, 'Cash', 'Completed']
+      );
+      const orderId = insOrd.rows[0].or_id;
 
-    await mongoose.connection.close();
-    console.log('✅ Database connection closed');
-    process.exit(0);
+      // Insert order items
+      await client.query(
+        `INSERT INTO tbl_order_items (tenant_id, order_id, product_id, qty, unit_price, subtotal)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [tenantId, orderId, seededProductIds[0], 2, 3.50, 7.00]
+      );
+      console.log('✅ Created historic completed order ORD-HIST-01');
+    } else {
+      console.log('ℹ️ Historic order already exists');
+    }
 
-  } catch (error) {
-    console.error('❌ SEED ERROR:', error.message);
-    console.error('\n💡 TROUBLESHOOTING TIPS:');
-    console.error('1. Make sure MongoDB is running (Status: Running ✅)');
-    console.error('2. Check if models are defined correctly');
-    console.error('3. Verify MongoDB connection string in .env');
+    await client.query('COMMIT');
+    console.log('🎉 Database seeding completed successfully.');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Seeding failed with error:', err.message);
+    console.error(err.stack);
     process.exit(1);
+  } finally {
+    client.release();
+    await pool.end();
   }
-};
+}
 
-seedDatabase();
+if (require.main === module) {
+  seed().catch((err) => {
+    console.error('❌ Fatal error in seed script:', err.message);
+    process.exit(1);
+  });
+}

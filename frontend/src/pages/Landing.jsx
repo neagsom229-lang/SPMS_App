@@ -3,62 +3,12 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '../api/client';
 import '../styles/landing.css';
 
 // ✅ ONLY IMPORT CONFIRMED WORKING ICONS
-import {
-  ArrowRight,
-  Star,
-  Users,
-  Shield,
-  ChevronRight,
-  Play,
-  BarChart3,
-  Truck,
-  Boxes,
-  Receipt,
-  Landmark,
-  Quote,
-  Menu,
-  X,
-  LogIn,
-  UserPlus,
-  LayoutDashboard,
-  LogOut,
-  ChevronDown,
-  Clock,
-  RefreshCw,
-  CheckCircle,
-  AlertCircle,
-  TrendingUp,
-  ShoppingCart,
-  Package,
-  Warehouse,
-  Award,
-  Heart,
-  Zap,
-  Coffee,
-  BookOpen,
-  Target,
-  Compass,
-  Sparkles,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
-  Globe,
-  Send,
-  MessageCircle,
-  Headphones,
-  LifeBuoy,
-  Lightbulb,
-  ThumbsUp,
-  ThumbsDown,
-  Copy,
-  Link as LinkIcon,
-  ExternalLink,
-  Bot
-} from 'lucide-react';
+import { ArrowRight, Star, Users, Shield, ChevronRight, Play, BarChart3, Truck, Boxes, Receipt, Landmark, Quote, Menu, X, LogIn, UserPlus, LayoutDashboard, LogOut, ChevronDown, Clock, RefreshCw, CheckCircle, AlertCircle, TrendingUp, ShoppingCart, Package, Warehouse, Award, Heart, Zap, Coffee, BookOpen, Target, Compass, Sparkles, Mail, Phone, MapPin, Calendar, Globe, Send, MessageCircle, Headphones, LifeBuoy, Lightbulb, ThumbsUp, ThumbsDown, Copy, Link as LinkIcon, ExternalLink, Bot, Search } from "lucide-react";
 
 // ============================================================
 // CUSTOM ICON COMPONENTS
@@ -328,12 +278,75 @@ useEffect(() => {
   // ─── CONSTANTS ───
   const NAV_LINKS = [
     { id: 'home', label: 'Home' },
+    { id: 'menu', label: 'Menu' },
     { id: 'features', label: 'Features' },
     { id: 'how-it-works', label: 'How it works' },
     { id: 'testimonials', label: 'Testimonials' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'faq', label: 'FAQ' },
   ];
+
+  // ─── MENU STATE & STORE SLUG ───
+  const storeSlug = import.meta.env.VITE_DEFAULT_STORE_SLUG || 'demo-store';
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [menuSearch, setMenuSearch] = useState('');
+  const [menuLang, setMenuLang] = useState('en');
+  const [landingCart, setLandingCart] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`cart_${storeSlug}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isLandingCartOpen, setIsLandingCartOpen] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(`cart_${storeSlug}`, JSON.stringify(landingCart));
+  }, [landingCart, storeSlug]);
+
+  const { data: storeData } = useQuery({
+    queryKey: ['publicStore', storeSlug],
+    queryFn: () => apiClient.get(`/public/store/${storeSlug}`).then(res => res.data.store)
+  });
+
+  const { data: categories = [], isLoading: catLoading, error: catError } = useQuery({
+    queryKey: ['publicCategories', storeSlug],
+    queryFn: () => apiClient.get(`/public/store/${storeSlug}/categories`).then(res => res.data.categories || [])
+  });
+
+  const { data: menuProducts = [], isLoading: menuLoading, error: menuError } = useQuery({
+    queryKey: ['publicMenu', storeSlug, selectedCategory, menuSearch],
+    queryFn: () => {
+      const params = {};
+      if (selectedCategory) params.category = selectedCategory;
+      if (menuSearch) params.q = menuSearch;
+      return apiClient.get(`/public/store/${storeSlug}/menu`, { params }).then(res => res.data.products || []);
+    }
+  });
+
+  const addToLandingCart = (prod) => {
+    if (prod.stock_status === 'out') {
+      toast.error('Product is out of stock');
+      return;
+    }
+    setLandingCart(prev => {
+      const existing = prev.find(i => i.id === prod.id);
+      if (existing) {
+        return prev.map(i => i.id === prod.id ? { ...i, qty: i.qty + 1 } : i);
+      }
+      return [...prev, { ...prod, qty: 1 }];
+    });
+    toast.success(`Added ${prod.name_en || prod.name} to cart`);
+  };
+
+  const updateLandingCartQty = (id, qty) => {
+    if (qty <= 0) {
+      setLandingCart(prev => prev.filter(i => i.id !== id));
+    } else {
+      setLandingCart(prev => prev.map(i => i.id === id ? { ...i, qty } : i));
+    }
+  };
 
   const FEATURES = [
     { icon: Boxes, title: 'Smart Inventory Management', desc: 'Live stock counts across every branch, with low-stock alerts before you run out at the counter.', tag: 'Real-time sync', color: 'from-emerald-500 to-teal-500' },
@@ -419,6 +432,9 @@ useEffect(() => {
       ticking = true;
       requestAnimationFrame(() => {
         const scrollY = window.scrollY;
+        if (scrollY < 150) {
+          setActiveSection('home');
+        }
         setScrolled(scrollY > 24);
         setShowScrollTop(scrollY > 600);
         const h = document.documentElement.scrollHeight - window.innerHeight;
@@ -1148,6 +1164,198 @@ useEffect(() => {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ================= OUR MENU SECTION ================= */}
+      <section id="menu" className="kf-section kf-anchor bg-white dark:bg-gray-900 py-16 sm:py-20 lg:py-24">
+        <div className="container mx-auto px-4 sm:px-6 max-w-7xl">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <span className="px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-full uppercase tracking-wider">Our Menu</span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white mt-3">Featured Products & Menu</h2>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">Explore live stock availability, pricing in USD and KHR, and order instantly.</p>
+          </div>
+
+          {/* Controls: Search, Lang, Cart Drawer Toggle */}
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-8 bg-gray-50 dark:bg-gray-800/60 p-4 rounded-2xl border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+              <Search className="w-5 h-5 text-gray-400 ml-2" />
+              <input
+                type="text"
+                placeholder="Search menu products..."
+                value={menuSearch}
+                onChange={e => setMenuSearch(e.target.value)}
+                className="w-full px-2 py-2 bg-transparent text-gray-900 dark:text-white text-sm focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setMenuLang(l => l === 'en' ? 'kh' : 'en')}
+                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+              >
+                🌐 {menuLang === 'en' ? 'ខ្មែរ (KH)' : 'English (EN)'}
+              </button>
+              <button
+                onClick={() => setIsLandingCartOpen(true)}
+                className="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow transition"
+              >
+                <ShoppingCart className="w-4 h-4" /> Cart ({landingCart.reduce((s, i) => s + i.qty, 0)})
+              </button>
+              <Link
+                to={`/shop/${storeSlug}`}
+                className="px-4 py-2 bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-xl text-xs font-bold flex items-center gap-1 border border-gray-200 dark:border-gray-600 transition"
+              >
+                View Full Menu <ExternalLink className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Category Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 scrollbar-none">
+            <button
+              onClick={() => setSelectedCategory('')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition shadow-sm ${
+                selectedCategory === '' ? 'bg-indigo-600 text-white shadow-indigo-500/25' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+              }`}
+            >
+              All Categories
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition shadow-sm ${
+                  selectedCategory === cat.id ? 'bg-indigo-600 text-white shadow-indigo-500/25' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+                }`}
+              >
+                {menuLang === 'kh' ? (cat.name_kh || cat.name) : cat.name} ({cat.product_count || 0})
+              </button>
+            ))}
+          </div>
+
+          {/* States: Loading, Error, Empty, Products Grid */}
+          {(menuLoading || catLoading) ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
+                <div key={n} className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow animate-pulse h-72">
+                  <div className="h-40 bg-gray-200 dark:bg-gray-700 rounded-xl mb-4" />
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : (menuError || catError) ? (
+            <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+              <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+              <p className="text-gray-800 dark:text-white font-semibold">Failed to load menu items</p>
+              <p className="text-xs text-gray-500 mt-1">Please check your connection and try again.</p>
+            </div>
+          ) : menuProducts.length === 0 ? (
+            <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
+              <Package className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+              <p className="text-gray-800 dark:text-white font-semibold">No products found</p>
+              <p className="text-xs text-gray-500 mt-1">Try adjusting your search or category filter.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {menuProducts.map(prod => {
+                const productName = menuLang === 'kh' ? (prod.name_kh || prod.name) : (prod.name_en || prod.name);
+                const priceUsd = Number(prod.price || 0);
+                const exchangeRate = storeData?.exchange_rate ? Number(storeData.exchange_rate) : 4000;
+                const priceKhr = Math.round(priceUsd * exchangeRate);
+                const stockStatus = prod.stock_status || 'in';
+
+                return (
+                  <div key={prod.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition">
+                    <div className="h-48 bg-gray-100 dark:bg-gray-700 relative flex items-center justify-center overflow-hidden">
+                      {prod.image_url ? (
+                        <img src={prod.image_url} alt={productName} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                      ) : (
+                        <Package className="w-12 h-12 text-gray-400" />
+                      )}
+                      <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold shadow-sm ${
+                        stockStatus === 'in' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                        stockStatus === 'low' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
+                      }`}>
+                        {stockStatus === 'in' ? 'In Stock' : stockStatus === 'low' ? 'Low Stock' : 'Out of Stock'}
+                      </span>
+                    </div>
+                    <div className="p-4 flex-1 flex flex-col">
+                      <h3 className="font-bold text-gray-900 dark:text-white text-base mb-1 line-clamp-1">{productName}</h3>
+                      <div className="mt-auto pt-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-lg font-extrabold text-indigo-600 dark:text-indigo-400">${priceUsd.toFixed(2)}</p>
+                          <p className="text-xs text-gray-400">៛{priceKhr.toLocaleString()}</p>
+                        </div>
+                        <button
+                          onClick={() => addToLandingCart(prod)}
+                          disabled={stockStatus === 'out'}
+                          className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-sm"
+                        >
+                          {stockStatus === 'out' ? 'Out' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Cart Drawer Modal */}
+        {isLandingCartOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex justify-end">
+            <div className="w-full max-w-md bg-white dark:bg-gray-800 h-full shadow-2xl flex flex-col animate-slideLeft">
+              <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                  <ShoppingCart className="w-5 h-5 text-indigo-600" /> Your Cart ({landingCart.reduce((s, i) => s + i.qty, 0)})
+                </h3>
+                <button onClick={() => setIsLandingCartOpen(false)} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {landingCart.length === 0 ? (
+                  <div className="text-center py-20 text-gray-400">
+                    <ShoppingCart className="w-16 h-16 mx-auto mb-3 opacity-30" />
+                    <p className="font-semibold">Your cart is empty</p>
+                  </div>
+                ) : (
+                  landingCart.map(item => (
+                    <div key={item.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{menuLang === 'kh' ? (item.name_kh || item.name) : (item.name_en || item.name)}</p>
+                        <p className="text-xs text-indigo-600 dark:text-indigo-400">${Number(item.price || 0).toFixed(2)}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => updateLandingCartQty(item.id, item.qty - 1)} className="w-7 h-7 bg-white dark:bg-gray-800 border rounded-lg font-bold flex items-center justify-center">-</button>
+                        <span className="text-sm font-bold w-6 text-center">{item.qty}</span>
+                        <button onClick={() => updateLandingCartQty(item.id, item.qty + 1)} className="w-7 h-7 bg-white dark:bg-gray-800 border rounded-lg font-bold flex items-center justify-center">+</button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-bold text-gray-600 dark:text-gray-300">Total:</span>
+                  <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">
+                    ${landingCart.reduce((sum, item) => sum + Number(item.price || 0) * item.qty, 0).toFixed(2)}
+                  </span>
+                </div>
+                <Link
+                  to={`/shop/${storeSlug}`}
+                  onClick={() => setIsLandingCartOpen(false)}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-center block shadow transition"
+                >
+                  Proceed to Checkout / Full Menu →
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ================= FEATURES ================= */}

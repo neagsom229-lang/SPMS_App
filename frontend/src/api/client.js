@@ -1,11 +1,14 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-// ✅ FIX: Use hardcoded URL with a safe fallback
-// This avoids the "process is not defined" error in the browser
-const API_URL = 'https://spms-backend-pro.onrender.com/api';
+const API_URL = import.meta.env.VITE_API_URL;
+if (!API_URL) {
+  console.error('❌ VITE_API_URL environment variable is missing');
+}
 
-console.log('🔧 API URL:', API_URL);
+if (import.meta.env.DEV) {
+  console.log('🔧 API URL:', API_URL);
+}
 
 const apiClient = axios.create({
   baseURL: API_URL,
@@ -17,20 +20,15 @@ const apiClient = axios.create({
   withCredentials: true
 });
 
-// ===== REQUEST INTERCEPTOR =====
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     const tenant = JSON.parse(localStorage.getItem('tenant') || '{}');
     
-    console.log('🔑 Full URL:', config.baseURL + config.url);
-    console.log('🔑 Token exists:', token ? '✅ YES' : '❌ NO');
-    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // ✅ Only add tenant headers if tenant exists and not super admin
     if (tenant.id && !tenant.isSuperAdmin) {
       config.headers['x-tenant-id'] = tenant.id;
       config.headers['x-tenant-subdomain'] = tenant.subdomain;
@@ -38,40 +36,34 @@ apiClient.interceptors.request.use(
     
     return config;
   },
+  (error) => Promise.reject(error)
+);
+
+apiClient.interceptors.response.use(
+  (response) => response,
   (error) => {
-    console.error('❌ Request error:', error);
+    const status = error.response?.status;
+    const requestUrl = error.config?.url || '';
+    const currentPath = window.location.pathname;
+
+    if (status === 401) {
+      const isLoginRequest = requestUrl.includes('/auth/login');
+      const isPublicRoute = ['/', '/login', '/register', '/pricing', '/landing'].includes(currentPath);
+      
+      if (!isLoginRequest && !isPublicRoute) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('tenant');
+        window.location.href = '/login';
+      }
+    }
+    
     return Promise.reject(error);
   }
 );
 
-// ===== RESPONSE INTERCEPTOR =====
-apiClient.interceptors.response.use(
-  (response) => {
-    console.log('📥 Response:', response.status, response.config.url);
-    return response;
-  },
-  (error) => {
-    const status = error.response?.status || 'No Response';
-    const data = error.response?.data || null;
-    const message = error.message || 'Network Error';
-    
-    console.error('❌ Response error:', status, data);
-    console.error('❌ Error Message:', message);
-    
-    if (status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      localStorage.removeItem('tenant');
-      window.location.href = '/login';
-    }
-    
-    return Promise.reject({
-      status: status,
-      data: data,
-      message: message,
-      isTimeout: error.code === 'ECONNABORTED' || message.includes('timeout')
-    });
-  }
-);
+export const getErrorMessage = (err) => {
+  return err.response?.data?.error || err.response?.data?.message || err.message || 'An unexpected error occurred';
+};
 
 export default apiClient;

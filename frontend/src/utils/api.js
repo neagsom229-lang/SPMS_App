@@ -1,10 +1,9 @@
 // src/utils/api.js
 import axios from 'axios'
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api'
+import { API_BASE_URL } from '../api/baseUrl'
 
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: API_BASE_URL,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
@@ -17,7 +16,9 @@ api.interceptors.request.use(
     if (config.url && !config.url.startsWith('/api') && !config.url.startsWith('http')) {
       config.url = `/api${config.url}`
     }
-    console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`)
+    if (import.meta.env.DEV) {
+      console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`)
+    }
     return config
   },
   error => Promise.reject(error)

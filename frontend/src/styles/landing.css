@@ -49,6 +49,7 @@
     "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
   --kf-font-body:
     "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --kf-font-khmer: "Noto Sans Khmer", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --kf-font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
   /* Rhythm */
