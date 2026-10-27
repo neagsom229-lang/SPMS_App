@@ -334,11 +334,14 @@ const generateSalesDistribution = (orders) => {
 // 📊 USE DASHBOARD DATA HOOK
 // ============================================
 const useDashboardData = () => {
+  const { user } = useAuth();
+  const isCashier = String(user?.role || '').toLowerCase() === 'cashier';
   const queryClient = useQueryClient();
   const [salesRange, setSalesRange] = useState('30d');
 
   const salesSummaryQuery = useQuery({
     queryKey: ['dashboard', salesRange],
+    enabled: !isCashier,
     queryFn: async () => {
       const response = await apiClient.get('/dashboard/sales-summary', { params: { range: salesRange } });
       return response.data || {};
@@ -1196,7 +1199,7 @@ const Dashboard = () => {
       <FetchErrorBanner show={hasAnySampleData} onRetry={refreshData} />
 
       {/* ===== SALES SUMMARY COMPONENT ===== */}
-      <SalesSummary />
+      {String(user?.role || '').toLowerCase() !== 'cashier' && <SalesSummary />}
 
       {/* ===== TOP BAR ===== */}
       <div className="dashboard-topbar">

@@ -179,6 +179,17 @@ router.post('/store/:slug/orders', async (req, res) => {
       await client.query('ROLLBACK');
       client.release();
       return res.status(400).json({ error: 'Store is currently closed for online orders' });
+      }
+      const reqDeliveryType = (delivery_type || 'pickup').toLowerCase();
+      if (reqDeliveryType === 'pickup' && store.pickup_enabled === false) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: 'In-store pickup is currently disabled for this store' });
+      }
+      if (reqDeliveryType === 'delivery' && store.delivery_enabled === false) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: 'Delivery is currently disabled for this store' });
     }
 
     // 2. Check Idempotency Key

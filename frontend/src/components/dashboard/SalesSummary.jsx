@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import apiClient from "../../api/client";
+import { useAuth } from "../../context/AuthContext";
 import {
   TrendingUp,
   TrendingDown,
@@ -69,6 +70,8 @@ const ChangeIndicator = ({ value }) => {
 };
 
 export default function SalesSummary() {
+  const { user } = useAuth();
+  const isCashier = String(user?.role || '').toLowerCase() === 'cashier';
   const [range, setRange] = useState('30d');
   const [exporting, setExporting] = useState(null);
 
@@ -79,6 +82,7 @@ export default function SalesSummary() {
       return res.data;
     },
     staleTime: 60000,
+    enabled: !isCashier,
   });
 
   const handleExportExcel = async (type) => {

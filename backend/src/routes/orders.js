@@ -709,7 +709,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
 
         await client.query(
           `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
-           VALUES ($1, $2, $3, 'RETURN', $4, $5)`,
+           VALUES ($1, $2, $3, 'CANCEL', $4, $5)`,
           [tenantId, prodId, qty, orderId, `Cancel order #${order.order_no} by user ${userId || 'system'}`]
         );
       }

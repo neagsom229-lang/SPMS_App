@@ -17,7 +17,8 @@ import {
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-  { name: 'POS Selling', href: '/pos', icon: ShoppingCartIcon },
+  { name: 'POS Selling', href: '/sell', icon: ShoppingCartIcon },
+  { name: 'Online Orders', href: '/online-orders', icon: ShoppingBagIcon },
   { name: 'Products', href: '/products', icon: CubeIcon },
   { name: 'Customers', href: '/customers', icon: UsersIcon },
   { name: 'Orders', href: '/orders', icon: ShoppingBagIcon },
