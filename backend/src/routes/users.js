@@ -148,6 +148,9 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
   }
+  if (role !== undefined && !(isSuperAdmin ? ['admin', 'manager', 'cashier', 'super admin'] : ['admin', 'manager', 'cashier']).includes(String(role).trim().toLowerCase())) {
+    return res.status(400).json({ error: 'Role not allowed' });
+  }
   if (role !== undefined) {
     if (!role || typeof role !== 'string' || role.trim().length === 0) {
       return res.status(400).json({ error: 'Role cannot be empty' });
@@ -195,7 +198,7 @@ router.put('/:id', authenticate, async (req, res) => {
            password = COALESCE($6, password)
        WHERE userid = $7
        RETURNING userid, username, fullname, role, status, email`,
-      [username?.trim(), fullname?.trim(), email?.trim(), role?.trim(), status?.trim(), hashedPassword, userId]
+      [username?.trim(), fullname?.trim(), email?.trim(), (role === undefined ? undefined : (String(role).trim().toLowerCase() === 'super admin' ? 'Super Admin' : String(role).trim().charAt(0).toUpperCase() + String(role).trim().slice(1).toLowerCase())), status?.trim(), hashedPassword, userId]
     );
 
     res.json({

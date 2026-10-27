@@ -165,7 +165,9 @@ console.log("✅ CORS allowed origins:", allowedOrigins);
 // RATE LIMITING
 // ============================================
 app.use("/api", generalLimiter);
-app.use("/api/auth", authLimiter);
+const { registerLimiter } = require("./middleware/rateLimit");
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register-client", registerLimiter);
 app.use("/api/reports", apiLimiter);
 app.use("/api/analytics", apiLimiter);
 app.use("/api/export", apiLimiter);
