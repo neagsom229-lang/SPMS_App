@@ -144,6 +144,118 @@ router.get('/pending', authenticate, async (req, res) => {
   }
 });
 
+// ===== GET ONLINE ORDERS COUNT PER STATUS =====
+router.get('/online/count', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req);
+  if (!tenantId) {
+    return res.status(403).json({ error: 'Tenant context required' });
+  }
+
+  try {
+    const countRes = await pool.query(
+      `SELECT status, COUNT(*) as count 
+       FROM tbl_orders 
+       WHERE tenant_id = $1 AND source = 'ONLINE' 
+       GROUP BY status`,
+      [tenantId]
+    );
+
+    const counts = {
+      Pending: 0,
+      Confirmed: 0,
+      Preparing: 0,
+      Ready: 0,
+      Completed: 0,
+      Cancelled: 0
+    };
+
+    for (const row of countRes.rows) {
+      if (counts.hasOwnProperty(row.status) || row.status) {
+        counts[row.status] = parseInt(row.count, 10);
+      }
+    }
+
+    res.json(counts);
+  } catch (error) {
+    console.error('❌ Get online orders count error:', error);
+    res.status(500).json({ error: 'Failed to fetch online order counts' });
+  }
+});
+
+// ===== GET ONLINE ORDERS =====
+router.get('/online', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req);
+  if (!tenantId) {
+    return res.status(403).json({ error: 'Tenant context required' });
+  }
+
+  const { status, page = 1, limit = 20 } = req.query;
+  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+
+  try {
+    let whereClause = ' WHERE o.tenant_id = $1 AND o.source = \'ONLINE\'';
+    const params = [tenantId];
+    let paramIndex = 2;
+
+    if (status) {
+      whereClause += ` AND o.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM tbl_orders o
+      ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.total || 0, 10);
+
+    const query = `
+      SELECT o.or_id, o.order_no, o.total, o.discount, o.status, o.payment_method,
+             o.source, o.customer_name, o.customer_phone, o.delivery_type,
+             o.delivery_address, o.notes, o.tracking_code, o.created_at,
+             c.name as customer_name_rel
+      FROM tbl_orders o
+      LEFT JOIN tbl_customers c ON c.id = o.customer_id
+      ${whereClause}
+      ORDER BY o.or_id DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+    params.push(parseInt(limit, 10), offset);
+
+    const result = await pool.query(query, params);
+    const orders = result.rows;
+
+    for (const ord of orders) {
+      if (!ord.customer_name && ord.customer_name_rel) {
+        ord.customer_name = ord.customer_name_rel;
+      }
+      const itemsRes = await pool.query(
+        `SELECT i.qty, i.unit_price, i.subtotal, p.name as product_name, p.name as name
+         FROM tbl_order_items i
+         LEFT JOIN tbl_products p ON p.id = i.product_id
+         WHERE i.order_id = $1`,
+        [ord.or_id]
+      );
+      ord.items = itemsRes.rows;
+    }
+
+    res.json({
+      orders,
+      pagination: {
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit, 10))
+      }
+    });
+  } catch (error) {
+    console.error('❌ Get online orders error:', error);
+    res.status(500).json({ error: 'Failed to fetch online orders' });
+  }
+});
+
 // ===== GET ORDER BY ID WITH ITEMS =====
 router.get('/:id', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
@@ -536,30 +648,112 @@ router.post('/:id/refund', authenticate, async (req, res) => {
 // ===== UPDATE ORDER STATUS =====
 router.patch('/:id/status', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
-  const { status } = req.body;
+  const userId = req.user?.userId;
+  const orderId = req.params.id;
+  const { status: newStatus } = req.body;
 
-  if (!status) {
+  if (!newStatus) {
     return res.status(400).json({ error: 'Status is required' });
   }
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+
+    const orderRes = await client.query(
+      `SELECT * FROM tbl_orders WHERE or_id = $1 AND tenant_id = $2 FOR UPDATE`,
+      [orderId, tenantId]
+    );
+
+    if (orderRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const order = orderRes.rows[0];
+    const currentStatus = order.status;
+
+    const allowedTransitions = {
+      'Pending': ['Confirmed', 'Cancelled'],
+      'Confirmed': ['Preparing', 'Cancelled'],
+      'Preparing': ['Ready', 'Cancelled'],
+      'Ready': ['Completed', 'Cancelled']
+    };
+
+    const allowed = allowedTransitions[currentStatus] || [];
+    if (!allowed.includes(newStatus)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ 
+        error: `Invalid status transition from ${currentStatus} to ${newStatus}`, 
+        current_status: currentStatus 
+      });
+    }
+
+    if (newStatus === 'Cancelled') {
+      const itemsRes = await client.query(
+        `SELECT * FROM tbl_order_items WHERE order_id = $1`,
+        [orderId]
+      );
+
+      for (const item of itemsRes.rows) {
+        const prodId = item.product_id;
+        const qty = item.qty || item.quantity;
+
+        await client.query(
+          `UPDATE tbl_stock 
+           SET qtyinstock = qtyinstock + $1,
+               qtyavailable = qtyavailable + $1
+           WHERE productid = $2 AND tenant_id = $3`,
+          [qty, prodId, tenantId]
+        );
+
+        await client.query(
+          `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
+           VALUES ($1, $2, $3, 'RETURN', $4, $5)`,
+          [tenantId, prodId, qty, orderId, `Cancel order #${order.order_no} by user ${userId || 'system'}`]
+        );
+      }
+    }
+
+    if (newStatus === 'Completed' && (order.payment_method || '').toLowerCase() === 'cash') {
+      const payCheck = await client.query('SELECT id FROM tbl_payment WHERE order_id = $1 AND tenant_id = $2', [orderId, tenantId]);
+      if (payCheck.rowCount === 0) {
+        await client.query(
+          `INSERT INTO tbl_payment (order_id, tenant_id, amount, payment_method, status, created_at)
+           VALUES ($1, $2, $3, $4, 'COMPLETED', NOW())`,
+          [orderId, tenantId, order.total, order.payment_method || 'Cash']
+        );
+      }
+    }
+
+    const updateRes = await client.query(
       `UPDATE tbl_orders 
        SET status = $1, updated_at = NOW()
        WHERE or_id = $2 AND tenant_id = $3
        RETURNING *`,
-      [status, req.params.id, tenantId]
+      [newStatus, orderId, tenantId]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
+    await client.query('COMMIT');
     clearTenantCache(tenantId);
-    res.json(result.rows[0]);
+
+    const updatedOrder = updateRes.rows[0];
+    const itemsRes = await client.query(
+      `SELECT i.qty, i.unit_price, i.subtotal, p.name as product_name, p.name as name
+       FROM tbl_order_items i
+       LEFT JOIN tbl_products p ON p.id = i.product_id
+       WHERE i.order_id = $1`,
+      [orderId]
+    );
+    updatedOrder.items = itemsRes.rows;
+
+    res.json(updatedOrder);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('❌ Update order status error:', error);
-    res.status(500).json({ error: 'Failed to update order status' });
+    res.status(500).json({ error: error.message || 'Failed to update order status' });
+  } finally {
+    client.release();
   }
 });
 
