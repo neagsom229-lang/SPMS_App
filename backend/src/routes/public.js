@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+class BusinessError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const db = require('../config/postgres');
 const crypto = require('crypto');
 
@@ -209,9 +210,9 @@ router.post('/store/:slug/orders', async (req, res) => {
         client.release();
         return res.status(400).json({ error: `Product ID ${prodId} is missing or invalid` });
       }
-      const orderQty = parseInt(item.qty, 10);
-      if (isNaN(orderQty) || orderQty <= 0) {
-        throw new Error(`Invalid quantity for product ID ${prodId}`);
+      const orderQty = Number(item.qty);
+      if (!Number.isInteger(orderQty) || orderQty <= 0 || orderQty > 100000) {
+        throw new BusinessError(400, `Quantity for product ID ${prodId} must be a whole number of 1 or more`);
       }
 
       // Lock product & stock row
@@ -220,7 +221,7 @@ router.post('/store/:slug/orders', async (req, res) => {
         [prodId, store.tenant_id]
       );
       if (prodRes.rowCount === 0) {
-        throw new Error(`Product ID ${prodId} not found or unavailable`);
+        throw new BusinessError(404, `Product ID ${prodId} not found or unavailable`);
       }
       const prod = prodRes.rows[0];
 
@@ -329,7 +330,7 @@ router.post('/store/:slug/orders', async (req, res) => {
     await client.query('ROLLBACK');
     client.release();
     console.error('❌ Create online order error:', err.message);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
   }
 });
 

@@ -1,7 +1,7 @@
 require("dotenv").config();
 const { Pool } = require("pg");
 const EXECUTE = process.argv.includes("--execute");
-const PATTERN = "^(qa|sec|esc|rl)-";
+const PATTERN = "^(qa|sec|esc|rl|oo)-";
 const FIRST = ["tbl_order_items", "tbl_orders_details", "tbl_payment", "tbl_stock_log", "tbl_held_sales", "tbl_warranty", "tbl_service_requests", "tbl_orders", "tbl_stock", "tbl_products", "tbl_customers", "tbl_categories", "tbl_suppliers", "tbl_payment_method", "tbl_activity_logs", "store_settings"];
 (async () => {
   const p = new Pool({ connectionString: process.env.DIRECT_URL || process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });

@@ -21,6 +21,7 @@ import Analytics from "./components/Analytics";
 import Payment from "./components/Payment";
 import Profile from "./components/Profile";
 import SellPage from "./components/sell/SellPage";
+import OnlineOrders from "./components/orders/OnlineOrders";
 import ErrorBoundary from './components/ErrorBoundary';
 import RegisterBusiness from './pages/RegisterBusiness';
 
@@ -178,6 +179,7 @@ function App() {
                   <Route path="/orders" element={<Layout><Orders /></Layout>} />
                   <Route path="/orders/new" element={<Layout><SellPage /></Layout>} />
                   <Route path="/sell" element={<Layout><SellPage /></Layout>} />
+        <Route path="/online-orders" element={<Layout><OnlineOrders /></Layout>} />
                   <Route path="/orders/:id" element={<Layout><Orders /></Layout>} />
                   <Route path="/orders/:id/process" element={<Layout><Orders /></Layout>} />
                   <Route path="/products" element={<Layout><Products /></Layout>} />
