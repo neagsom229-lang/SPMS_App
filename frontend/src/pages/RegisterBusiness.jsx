@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../api/baseUrl';
 import { toast } from 'react-hot-toast';
 import { 
   Building2, Mail, Lock, Eye, EyeOff, ArrowRight, 
@@ -135,7 +136,7 @@ const RegisterBusiness = () => {
     setLoading(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/register-client`, {
+      const response = await fetch(`${API_BASE_URL}/auth/register-client`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

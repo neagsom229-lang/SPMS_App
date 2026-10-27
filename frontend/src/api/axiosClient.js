@@ -1,14 +1,9 @@
 // src/api/axiosClient.js
 import axios from 'axios';
-
-// ✅ SINGLE SOURCE OF TRUTH - One place to configure API
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-
-// Ensure baseURL always ends with /api — this is the ONLY place /api gets added
-const finalBaseURL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
+import { API_BASE_URL } from './baseUrl';
 
 const apiClient = axios.create({
-  baseURL: finalBaseURL,
+  baseURL: API_BASE_URL,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',

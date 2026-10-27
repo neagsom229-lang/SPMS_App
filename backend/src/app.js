@@ -98,33 +98,19 @@ if (!isProd) {
 // ============================================
 // CORS CONFIGURATION
 // ============================================
-const allowedOrigins = [
-  "https://spms-chh-sn-pro.vercel.app",
-  "https://spms-chh-sn-new.vercel.app",
-  "https://spms-chh-sn.vercel.app",
-  "https://chheangsamnangs-projects.vercel.app",
-  "https://spms-chh-sn-git-main-chheangsamnangs-projects.vercel.app",
-  "https://spms-chh-sn.onrender.com",
-  /\.vercel\.app$/,
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "http://localhost:5000",
-];
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
 
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    const isAllowed = allowedOrigins.some((allowed) => {
-      if (typeof allowed === "string") return allowed === origin;
-      if (allowed instanceof RegExp) return allowed.test(origin);
-      return false;
-    });
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.log("❌ CORS blocked origin:", origin);
-      callback(null, false);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+    console.warn('[CORS] blocked origin:', origin);
+    return callback(new Error('CORS blocked'));
   },
   credentials: true,
   optionsSuccessStatus: 200,
