@@ -13,6 +13,25 @@ if (!JWT_SECRET) {
 }
 
 // ============================================
+// SELF-SERVICE PROFILE UPDATE
+// ============================================
+router.put('/profile', authenticate, async (req, res) => {
+  const userId = req.user?.userId;
+  const { fullname, name, email, phone } = req.body;
+  const targetName = fullname || name;
+  try {
+    const result = await db.query(
+      `UPDATE tbl_users SET fullname = COALESCE($1, fullname), email = COALESCE($2, email) WHERE userid = $3 RETURNING userid, username, fullname, email, role, status`,
+      [targetName, email, userId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: 'Profile updated successfully', user: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
 // TEST ROUTE
 // ============================================
 router.get('/test', (req, res) => {

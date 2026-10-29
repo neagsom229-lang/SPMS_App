@@ -6,6 +6,14 @@ const { REVENUE_STATUSES } = require('../constants/sales');
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+  const role = req.user?.role ? req.user.role.toLowerCase() : '';
+  if (role === 'cashier') {
+    return res.status(403).json({ error: 'Analytics access denied for cashiers' });
+  }
+  next();
+});
+
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };

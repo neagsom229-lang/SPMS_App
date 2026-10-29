@@ -740,6 +740,11 @@ router.patch('/:id/status', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'A valid status is required' });
   }
 
+  const role = req.user?.role ? req.user.role.toLowerCase() : '';
+  if (newStatus === 'Cancelled' && role === 'cashier') {
+    return res.status(403).json({ error: 'Cashiers cannot cancel orders' });
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
