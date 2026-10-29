@@ -128,4 +128,10 @@ BEGIN
     END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_products_tenant_published ON tbl_products(tenant_id, is_published, status);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tbl_products' AND column_name = 'is_published')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tbl_products' AND column_name = 'status') THEN
+        CREATE INDEX IF NOT EXISTS idx_products_tenant_published ON tbl_products(tenant_id, is_published, status);
+    END IF;
+END $$;

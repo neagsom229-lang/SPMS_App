@@ -1,6 +1,7 @@
 -- Migration 019: Revert/Align schema changes previously edited in 002, 003, 006
 ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS type VARCHAR(50);
 ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS transaction_type VARCHAR(50);
+ALTER TABLE tbl_stock_log ALTER COLUMN transaction_type DROP NOT NULL;
 ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS reference_type VARCHAR(50) DEFAULT 'ORDER';
 ALTER TABLE tbl_stock_log ALTER COLUMN reference_type DROP NOT NULL;
 ALTER TABLE tbl_stock_log ADD COLUMN IF NOT EXISTS user_id INTEGER;

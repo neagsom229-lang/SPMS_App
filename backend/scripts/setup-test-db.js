@@ -30,7 +30,7 @@ async function setup() {
   // Run migrations on spms_test
   process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5433/spms_test';
   try {
-    execSync('node scripts/run_migration.js', { stdio: 'inherit', env: process.env });
+    execSync('node run_migration.js', { stdio: 'inherit', env: process.env, cwd: __dirname });
     console.log('✅ Ran migrations on spms_test');
   } catch (err) {
     console.error('❌ Migration failed:', err.message);

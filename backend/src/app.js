@@ -239,6 +239,26 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/reports', reportRoutes);
 
+const mountedRoutes = [
+  ['/api/auth', authRoutes],
+  ['/api/dashboard', dashboardRoutes],
+  ['/api/products', productRoutes],
+  ['/api/orders', orderRoutes],
+  ['/api/customers', customerRoutes],
+  ['/api/suppliers', supplierRoutes],
+  ['/api/users', userRoutes],
+  ['/api/stock', stockRoutes],
+  ['/api/tenants', tenantRoutes],
+  ['/api/categories', categoryRoutes],
+  ['/api/payment', paymentRoutes],
+  ['/api/warranties', warrantyRoutes],
+  ['/api/services', serviceRoutes],
+  ['/api/analytics', analyticsRoutes],
+  ['/api/public', publicRoutes],
+  ['/api/reports', reportRoutes]
+];
+app.mountedRoutes = mountedRoutes;
+
 // System stats route
 app.get('/api/system/stats', authenticate, requireSuperAdmin, tenantRoutes.systemStatsHandler);
 

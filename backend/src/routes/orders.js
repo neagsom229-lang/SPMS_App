@@ -388,10 +388,18 @@ router.post('/', authenticate, async (req, res) => {
 
     await client.query('BEGIN');
 
+    const seenProds = new Set();
     // Aggregate cart lines by product_id
     const aggregatedMap = new Map();
     for (const item of items) {
       const prodId = Number(item.product_id || item.id);
+      if (seenProds.has(prodId)) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(409).json({ error: 'Duplicate line items in cart' });
+      }
+      seenProds.add(prodId);
+
       const rawQty = Number(item.quantity !== undefined ? item.quantity : item.qty);
       if (!prodId || isNaN(prodId) || !Number.isInteger(rawQty) || rawQty < 1 || rawQty > 100000) {
         await client.query('ROLLBACK');

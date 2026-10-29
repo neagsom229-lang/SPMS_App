@@ -4,14 +4,22 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-const getTenantId = (req) => {
-  return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
+const getTenantId = (req, res) => {
+  if (req.user?.isSuperAdmin) {
+    return req.query.tenant_id || req.query.tenantId || null;
+  }
+  if (!req.user?.tenantId) {
+    if (res && !res.headersSent) res.status(403).json({ error: 'Tenant context required' });
+    return null;
+  }
+  return req.user.tenantId;
 };
 
 // ===== GET WARRANTIES =====
 router.get('/', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
+  if (!tenantId && !isSuperAdmin) return;
 
   try {
     let query = `

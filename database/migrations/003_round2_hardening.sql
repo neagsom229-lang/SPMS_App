@@ -89,4 +89,9 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_orders_tenant_date ON tbl_orders(tenant_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_tenant_status ON tbl_orders(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_stock_product ON tbl_stock(productid);
-CREATE INDEX IF NOT EXISTS idx_products_tenant_status ON tbl_products(tenant_id, status);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'tbl_products' AND column_name = 'status') THEN
+        CREATE INDEX IF NOT EXISTS idx_products_tenant_status ON tbl_products(tenant_id, status);
+    END IF;
+END $$;

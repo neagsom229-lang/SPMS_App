@@ -6,10 +6,42 @@ const db = require('../config/postgres');
 const crypto = require('crypto');
 
 const publicOrderLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 5,
-  message: { error: 'Too many orders placed from this IP address, please try again later.' }
+  windowMs: 15 * 60 * 1000,
+  max: 50, // Per-IP limit 30-60/15min on POST orders only
+  message: { error: 'Too many requests from this IP address, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
+
+function normalizePhone(phoneStr) {
+  if (!phoneStr) return '';
+  let digits = String(phoneStr).replace(/\D/g, '');
+  if (digits.startsWith('855')) {
+    digits = digits.slice(3);
+  }
+  if (digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+  return digits;
+}
+
+const phoneRateLimitMap = new Map();
+function checkPhoneRateLimit(phone) {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const maxPerPhone = 5; // Primary control per phone number
+  let record = phoneRateLimitMap.get(phone);
+  if (!record || now > record.resetTime) {
+    record = { count: 1, resetTime: now + windowMs };
+    phoneRateLimitMap.set(phone, record);
+    return true;
+  }
+  if (record.count >= maxPerPhone) {
+    return false;
+  }
+  record.count++;
+  return true;
+}
 
 async function expirePendingOrders(dbClient) {
   const client = dbClient || db;
@@ -196,19 +228,6 @@ router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Missing required order fields or items' });
     }
 
-    if (items.length > 30) {
-      client.release();
-      return res.status(400).json({ error: 'Order cannot exceed 30 lines' });
-    }
-
-    for (const item of items) {
-      const q = Number(item.qty || item.quantity);
-      if (q > 50) {
-        client.release();
-        return res.status(400).json({ error: 'Line item quantity cannot exceed 50' });
-      }
-    }
-
     if (!idempotency_key) {
       client.release();
       return res.status(400).json({ error: 'Idempotency key is required' });
@@ -224,6 +243,41 @@ router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
       return res.status(404).json({ error: 'Store not found' });
     }
     const store = storeRes.rows[0];
+
+    const normPhone = normalizePhone(customer_phone);
+
+    if (!checkPhoneRateLimit(normPhone)) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(429).json({ error: 'Rate limit exceeded for this phone number (max 5 orders per 15 minutes)' });
+    }
+
+    // Cap pending unpaid orders per phone at 2
+    const pendingRes = await client.query(
+      `SELECT COUNT(*) FROM tbl_orders WHERE tenant_id = $1 AND status = 'Pending' AND (customer_phone = $2 OR customer_phone LIKE $3)`,
+      [store.tenant_id, customer_phone, `%${normPhone}%`]
+    );
+    if (parseInt(pendingRes.rows[0].count, 10) >= 2) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'Maximum pending unpaid orders (2) reached for this phone number.' });
+    }
+
+    if (items.length > 30) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'Order cannot exceed 30 lines' });
+    }
+
+    for (const item of items) {
+      const q = Number(item.qty || item.quantity);
+      if (q > 50) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: 'Line item quantity cannot exceed 50' });
+      }
+    }
+
     if (!store.is_open || !store.accepts_online_orders) {
       await client.query('ROLLBACK');
       client.release();
