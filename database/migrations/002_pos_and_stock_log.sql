@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tbl_stock_log (
 
 CREATE TABLE IF NOT EXISTS tbl_payment (
     id SERIAL PRIMARY KEY,
-    order_id INTEGER REFERENCES tbl_orders(or_id) ON DELETE CASCADE,
+    order_id INTEGER REFERENCES tbl_orders(id) ON DELETE CASCADE,
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
     amount DECIMAL(10,2) NOT NULL,
     payment_method VARCHAR(50) NOT NULL,

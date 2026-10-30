@@ -6,6 +6,8 @@ const path = require('path');
 async function setup() {
   const adminPool = new Pool({ connectionString: 'postgresql://postgres:postgres@localhost:5433/postgres' });
   try {
+    await adminPool.query("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF; END $$;");
+    await adminPool.query("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF; END $$;");
     await adminPool.query('DROP DATABASE IF EXISTS spms_test');
     await adminPool.query('CREATE DATABASE spms_test');
     console.log('✅ Created spms_test database on port 5433');

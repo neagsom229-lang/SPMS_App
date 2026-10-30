@@ -13,7 +13,14 @@ BEGIN
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', tbl.tablename);
     END LOOP;
 
-    -- Revoke all privileges on all tables and sequences from anon and authenticated roles
-    REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
-    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+    -- Revoke all privileges on all tables and sequences from anon and authenticated roles if they exist
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+        EXECUTE 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;';
+        EXECUTE 'REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;';
+    END IF;
+
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+        EXECUTE 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM authenticated;';
+        EXECUTE 'REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;';
+    END IF;
 END $$;

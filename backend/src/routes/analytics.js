@@ -1,10 +1,12 @@
 // backend/src/routes/analytics.js
 const express = require('express');
 const pool = require('../config/postgres');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireTenant } = require('../middleware/auth');
 const { REVENUE_STATUSES } = require('../constants/sales');
 
 const router = express.Router();
+
+router.use(authenticate, requireTenant);
 
 router.use((req, res, next) => {
   const role = req.user?.role ? req.user.role.toLowerCase() : '';

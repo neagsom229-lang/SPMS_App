@@ -3,14 +3,13 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:po
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkeyforunitandintegrationtesting123456789';
 
 const { URL } = require('url');
+const db = require('../src/config/postgres');
 
 const dbUrl = process.env.DATABASE_URL;
-console.log('DEBUG dbUrl:', dbUrl);
 try {
   const parsed = new URL(dbUrl);
   const host = parsed.hostname;
   const dbName = parsed.pathname.replace(/^\//, '');
-  console.log('DEBUG host:', host, 'dbName:', dbName);
 
   const isLocalhost = host === 'localhost' || host === '127.0.0.1';
   const endsWithTest = dbName.endsWith('_test');
@@ -24,3 +23,7 @@ try {
   console.error(`❌ Invalid DATABASE_URL in test setup:`, err.message);
   process.exit(1);
 }
+
+afterAll(async () => {
+  await db.end();
+});
