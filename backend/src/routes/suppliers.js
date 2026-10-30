@@ -5,13 +5,21 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-const getTenantId = (req) => {
-  return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
+const getTenantId = (req, res) => {
+  if (req.user?.isSuperAdmin) {
+    return req.query.tenant_id || req.query.tenantId || req.headers['x-tenant-id'] || null;
+  }
+  if (!req.user?.tenantId) {
+    if (res && !res.headersSent) res.status(403).json({ error: 'Tenant context required' });
+    return null;
+  }
+  return req.user.tenantId;
 };
 
 // ===== GET ALL SUPPLIERS =====
 router.get('/', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
+  const tenantId = getTenantId(req, res);
+  if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
   const { search } = req.query;
 
@@ -81,17 +89,56 @@ router.post('/', authenticate, async (req, res) => {
       ]
     );
 
-    res.status(201).json({
+    res.json({
       SUP_ID: result.rows[0].id,
       message: 'Supplier created successfully',
     });
-  } catch (err) {
+    } catch (err) {
     console.error("❌ Create supplier error:", err.message);
     res.status(500).json({ error: err.message });
-  }
-});
+    }
+    });
 
-// ===== BULK DELETE =====
+    // ===== UPDATE SUPPLIER =====
+    router.put('/:id', authenticate, async (req, res) => {
+    const tenantId = getTenantId(req, res);
+    if (!tenantId) return;
+    const id = req.params.id;
+    const { SUP_NAME, sup_name, name, CONTACT_PERSON, contact_person, PHONE, phone, EMAIL, email, ADDRESS, address, STATUS, status } = req.body;
+    const nameVal = SUP_NAME || sup_name || name;
+    const contactVal = CONTACT_PERSON || contact_person;
+    const phoneVal = PHONE || phone;
+    const emailVal = EMAIL || email;
+    const addressVal = ADDRESS || address;
+    const statusVal = STATUS || status || 'Active';
+
+    try {
+    const result = await pool.query(
+      `UPDATE tbl_suppliers SET sup_name = COALESCE($1, sup_name), contact_person = COALESCE($2, contact_person), phone = COALESCE($3, phone), email = COALESCE($4, email), address = COALESCE($5, address), status = COALESCE($6, status) WHERE id = $7 AND tenant_id = $8 RETURNING *`,
+      [nameVal, contactVal, phoneVal, emailVal, addressVal, statusVal, id, tenantId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Supplier not found' });
+    res.json(result.rows[0]);
+    } catch (err) {
+    res.status(500).json({ error: err.message });
+    }
+    });
+
+    // ===== DELETE SUPPLIER =====
+    router.delete('/:id', authenticate, async (req, res) => {
+    const tenantId = getTenantId(req, res);
+    if (!tenantId) return;
+    const id = req.params.id;
+    try {
+    const result = await pool.query(`DELETE FROM tbl_suppliers WHERE id = $1 AND tenant_id = $2 RETURNING id`, [id, tenantId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Supplier not found' });
+    res.json({ message: 'Supplier deleted successfully' });
+    } catch (err) {
+    res.status(500).json({ error: err.message });
+    }
+    });
+
+    // ===== BULK DELETE =====
 router.delete('/bulk', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const { ids } = req.body;

@@ -1,11 +1,7 @@
 // backend/src/constants/sales.js
-// Revenue calculation rule: Only Completed or Paid orders count as revenue.
-// Pending, Confirmed, Preparing are open/active orders.
-// Cancelled and Refunded are excluded from revenue.
-
-const REVENUE_STATUSES = ['Completed', 'Paid', 'Delivered'];
+const REVENUE_STATUSES = ['Completed'];
 const ACTIVE_STATUSES = ['Pending', 'Confirmed', 'Preparing', 'Ready'];
-const EXCLUDED_STATUSES = ['Cancelled', 'Refunded'];
+const EXCLUDED_STATUSES = ['Cancelled', 'Refunded', 'Voided', 'Pending'];
 
 module.exports = {
   REVENUE_STATUSES,

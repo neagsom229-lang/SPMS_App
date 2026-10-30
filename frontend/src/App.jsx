@@ -18,7 +18,6 @@ import ActivityLog from "./components/ActivityLog";
 import Warranty from "./components/Warranty";
 import Layout from "./components/Layout";
 import Analytics from "./components/Analytics";
-import Payment from "./components/Payment";
 import Profile from "./components/Profile";
 import SellPage from "./components/sell/SellPage";
 import OnlineOrders from "./components/orders/OnlineOrders";
@@ -192,7 +191,6 @@ function App() {
                   <Route path="/activity" element={<Layout><ActivityLog /></Layout>} />
                   <Route path="/warranty" element={<Layout><Warranty /></Layout>} />
                   <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
-                  <Route path="/payment/:orderId" element={<Layout><Payment /></Layout>} />
                   <Route path="/profile" element={<Layout><Profile /></Layout>} />
                   <Route path="/settings" element={<Layout><Settings /></Layout>} />
                 </Route>

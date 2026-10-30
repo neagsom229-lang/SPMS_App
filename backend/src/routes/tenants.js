@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../config/postgres');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 
@@ -143,24 +144,35 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Name, subdomain, and email are required' });
   }
 
+  const subdomainRegex = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
+  const reservedSubdomains = ['admin', 'api', 'www', 'app', 'auth', 'dashboard', 'login', 'register', 'status', 'health', 'test', 'public', 'system'];
+  if (!subdomainRegex.test(subdomain.toLowerCase()) || reservedSubdomains.includes(subdomain.toLowerCase())) {
+    return res.status(400).json({ error: 'Invalid or reserved subdomain format' });
+  }
+
+  const client = await pool.connect();
   try {
-    const existing = await pool.query(
+    await client.query('BEGIN');
+
+    const existing = await client.query(
       'SELECT id FROM tenants WHERE subdomain = $1',
       [subdomain.toLowerCase()]
     );
     if (existing.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Subdomain already taken' });
     }
 
-    const existingEmail = await pool.query(
+    const existingEmail = await client.query(
       'SELECT id FROM tenants WHERE email = $1',
       [email]
     );
     if (existingEmail.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Email already registered' });
     }
 
-    const result = await pool.query(
+    const tenantResult = await client.query(
       `INSERT INTO tenants 
         (name, subdomain, email, phone, address, status, subscription_plan, max_users, max_products, settings, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
@@ -178,29 +190,41 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
         settings || '{"theme": "light"}'
       ]
     );
+    const tenant = tenantResult.rows[0];
 
-    const defaultPassword = 'admin123';
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    // Derive unique username with collision check
+    let username = `${subdomain.toLowerCase()}_admin`;
+    const userExist = await client.query('SELECT userid FROM tbl_users WHERE username = $1', [username]);
+    if (userExist.rows.length > 0) {
+      username = `${subdomain.toLowerCase()}_admin_${crypto.randomBytes(2).toString('hex')}`;
+    }
+
+    const tempPassword = crypto.randomBytes(8).toString('hex');
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
     
-    // Fixed: 'created_at' column name instead of 'createdat'
-    await pool.query(
+    await client.query(
       `INSERT INTO tbl_users 
-        (tenant_id, username, password, fullname, email, role, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', NOW())`,
-      [result.rows[0].id, 'admin', hashedPassword, name, email]
+        (tenant_id, username, password, fullname, email, role, status, must_change_password, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', TRUE, NOW())`,
+      [tenant.id, username, hashedPassword, name, email]
     );
+
+    await client.query('COMMIT');
 
     res.status(201).json({
       message: 'Tenant created successfully',
-      tenant: result.rows[0],
-      defaultCredentials: {
-        username: 'admin',
-        password: 'admin123'
+      tenant,
+      adminCredentials: {
+        username,
+        temporaryPassword: tempPassword
       }
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('❌ Create tenant error:', error);
     res.status(500).json({ error: 'Failed to create tenant' });
+  } finally {
+    client.release();
   }
 });
 

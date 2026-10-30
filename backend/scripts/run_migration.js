@@ -1,9 +1,24 @@
 const fs = require('fs');
 const path = require('path');
+const { URL } = require('url');
 const db = require('../src/config/postgres');
 require('dotenv').config();
 
-console.log('🔍 Running migrations using established pool from ../src/config/postgres');
+const dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL || 'postgresql://postgres:postgres@localhost:5432/spms';
+let host = 'localhost';
+let dbName = 'spms';
+try {
+  const parsed = new URL(dbUrl);
+  host = parsed.hostname;
+  dbName = parsed.pathname.replace(/^\//, '');
+} catch (e) {}
+
+console.log(`🔍 Running migrations on host: ${host}, database: ${dbName}`);
+const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+if (!isLocalhost && !process.argv.includes('--confirm-remote')) {
+  console.error(`❌ Refusing to run migrations on remote host '${host}' without --confirm-remote flag.`);
+  process.exit(1);
+}
 
 async function runMigrationsPass(passName) {
   const client = await db.connect();

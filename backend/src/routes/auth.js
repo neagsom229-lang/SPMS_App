@@ -4,13 +4,32 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../config/postgres');
-const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+const { authenticate, requireSuperAdmin, isActiveStatus, isTenantStatusValid } = require('../middleware/auth');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required');
 }
+
+// ============================================
+// SELF-SERVICE PROFILE UPDATE
+// ============================================
+router.put('/profile', authenticate, async (req, res) => {
+  const userId = req.user?.userId;
+  const { fullname, name, email, phone } = req.body;
+  const targetName = fullname || name;
+  try {
+    const result = await db.query(
+      `UPDATE tbl_users SET fullname = COALESCE($1, fullname), email = COALESCE($2, email) WHERE userid = $3 RETURNING userid, username, fullname, email, role, status`,
+      [targetName, email, userId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: 'Profile updated successfully', user: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ============================================
 // TEST ROUTE
@@ -28,7 +47,6 @@ router.get('/test', (req, res) => {
 // ============================================
 router.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  console.log('🔑 Login attempt:', username);
 
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required' });
@@ -37,47 +55,37 @@ router.post('/login', async (req, res) => {
   try {
     const result = await db.query(
   `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
-          u.is_super_admin, u.tenant_id as user_tenant_id,
-          t.id as tenant_row_id, t.name as tenant_name, t.subdomain
+          u.is_super_admin, u.tenant_id as user_tenant_id, u.must_change_password,
+          t.id as tenant_row_id, t.name as tenant_name, t.subdomain, t.status as tenant_status
    FROM tbl_users u
    LEFT JOIN tenants t ON u.tenant_id = t.id
-   WHERE LOWER(u.username) = LOWER($1)`,
+   WHERE LOWER(u.username) = LOWER($1) OR LOWER(u.email) = LOWER($1)`,
   [username]
 );
 
     if (result.rows.length === 0) {
-      console.log('❌ User not found:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const user = result.rows[0];
 
-    if (user.status !== 'ACTIVE') {
-      console.log('❌ User not active:', username);
+    if (!isActiveStatus(user.status)) {
       return res.status(403).json({ error: 'Account is not active' });
     }
 
-    const isBcrypt = user.password && user.password.startsWith('$2');
-    let isValidPassword = false;
-    if (isBcrypt) {
-      isValidPassword = await bcrypt.compare(password, user.password);
-    } else {
-      const inputBuffer = Buffer.from(password);
-      const storedBuffer = Buffer.from(user.password || '');
-      if (inputBuffer.length === storedBuffer.length && crypto.timingSafeEqual(inputBuffer, storedBuffer)) {
-        isValidPassword = true;
-        const newHash = await bcrypt.hash(password, 10);
-        await db.query('UPDATE tbl_users SET password = $1 WHERE userid = $2', [newHash, user.userid]);
-      }
+    if (user.user_tenant_id && !user.tenant_row_id) {
+      return res.status(403).json({ error: 'Tenant account not found (orphaned user)' });
     }
-    console.log('🔑 Password valid:', isValidPassword);
+
+    if (!isTenantStatusValid(user)) {
+      return res.status(403).json({ error: 'Tenant account is not active' });
+    }
+
+    const isValidPassword = user.password && user.password.startsWith('$2') && await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
-      console.log('❌ Password incorrect for:', username);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    console.log('✅ Login successful:', username);
 
     const token = jwt.sign(
       {
@@ -100,14 +108,15 @@ router.post('/login', async (req, res) => {
       status: user.status,
       fullname: user.fullname || user.username,
       isSuperAdmin: user.is_super_admin || false,
+      mustChangePassword: user.must_change_password || false,
     };
 
     if (user.is_super_admin) {
       userResponse.tenant = null;
       userResponse.accessLevel = 'all';
-    } else if (user.tenant_id) {
+    } else if (user.user_tenant_id) {
       userResponse.tenant = {
-        id: user.tenant_id,
+        id: user.user_tenant_id,
         name: user.tenant_name,
         subdomain: user.subdomain,
       };
@@ -167,12 +176,16 @@ router.post('/register-client', async (req, res) => {
     subdomain
   } = req.body;
 
-  console.log('📤 Registering client:', { businessName, email, subdomain });
-
   if (!businessName || !email || !password || !subdomain) {
     return res.status(400).json({
       error: 'Business name, email, password, and subdomain are required'
     });
+  }
+
+  const subdomainRegex = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
+  const reservedSubdomains = ['admin', 'api', 'www', 'app', 'auth', 'dashboard', 'login', 'register', 'status', 'health', 'test', 'public', 'system'];
+  if (!subdomainRegex.test(subdomain.toLowerCase()) || reservedSubdomains.includes(subdomain.toLowerCase())) {
+    return res.status(400).json({ error: 'Invalid or reserved subdomain format' });
   }
 
   if (password.length < 8) {
@@ -222,7 +235,11 @@ router.post('/register-client', async (req, res) => {
     const tenant = tenantResult.rows[0];
 
     // 4. Create unique username
-    const uniqueUsername = `${subdomain.toLowerCase()}_admin`;
+    let uniqueUsername = `${subdomain.toLowerCase()}_admin`;
+    const userExist = await client.query('SELECT userid FROM tbl_users WHERE username = $1', [uniqueUsername]);
+    if (userExist.rows.length > 0) {
+      uniqueUsername = `${subdomain.toLowerCase()}_admin_${crypto.randomBytes(2).toString('hex')}`;
+    }
 
     // 5. Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -230,8 +247,8 @@ router.post('/register-client', async (req, res) => {
     // 6. Create admin user with tenant_id
     const userResult = await client.query(
       `INSERT INTO tbl_users 
-       (tenant_id, username, password, fullname, email, role, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', NOW())
+       (tenant_id, username, password, fullname, email, role, status, must_change_password, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'Admin', 'ACTIVE', FALSE, NOW())
        RETURNING userid, username, fullname, role`,
       [tenant.id, uniqueUsername, hashedPassword, businessName, email]
     );
@@ -288,10 +305,9 @@ router.post('/register-client', async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('❌ Registration error:', error);
+    console.error('❌ Registration error:', error.message);
     res.status(500).json({
-      error: 'Registration failed',
-      details: error.message
+      error: 'Registration failed'
     });
   } finally {
     client.release();
@@ -345,6 +361,61 @@ router.post('/register', authenticate, requireSuperAdmin, async (req, res) => {
   } catch (err) {
     console.error('❌ Registration error:', err.message);
     res.status(500).json({ error: 'Registration failed. Please try again.' });
+  }
+});
+
+// ============================================
+// CHANGE PASSWORD
+// ============================================
+router.post('/change-password', authenticate, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  }
+
+  try {
+    const userRes = await db.query(
+      'SELECT userid, username, password, role, tenant_id, is_super_admin FROM tbl_users WHERE userid = $1',
+      [req.user.userId]
+    );
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userRes.rows[0];
+
+    if (user.password && user.password.startsWith('$2') && oldPassword) {
+      const isValid = await bcrypt.compare(oldPassword, user.password);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid old password' });
+      }
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await db.query(
+      'UPDATE tbl_users SET password = $1, must_change_password = FALSE WHERE userid = $2',
+      [hashed, user.userid]
+    );
+
+    const token = jwt.sign(
+      {
+        userId: user.userid,
+        username: user.username,
+        role: user.role || 'Admin',
+        tenantId: user.is_super_admin ? null : user.tenant_id,
+        isSuperAdmin: user.is_super_admin || false,
+      },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully',
+      token
+    });
+  } catch (err) {
+    console.error('❌ Change password error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

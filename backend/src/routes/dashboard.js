@@ -2,6 +2,7 @@
 const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
+const { REVENUE_STATUSES } = require('../constants/sales');
 
 const router = express.Router();
 
@@ -57,7 +58,7 @@ router.get('/system/stats', authenticate, async (req, res) => {
     }
 
     try {
-      const orderResult = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE status = 'Completed'");
+      const orderResult = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE status = ANY($1)", [REVENUE_STATUSES]);
       totalOrders = parseInt(orderResult.rows[0]?.count || 0);
       totalRevenue = parseFloat(orderResult.rows[0]?.total || 0);
     } catch (e) {
@@ -101,13 +102,13 @@ router.get('/stats', authenticate, async (req, res) => {
     if (isSuperAdmin) {
       const results = await Promise.all([
         pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'"),
-        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE status = 'Completed'"),
+        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE status = ANY($1)", [REVENUE_STATUSES]),
         pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'"),
         pool.query("SELECT COUNT(*) as count FROM tbl_suppliers WHERE status = 'Active'"),
-        pool.query("SELECT COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE status = 'Completed'"),
+        pool.query("SELECT COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE status = ANY($1)", [REVENUE_STATUSES]),
         pool.query("SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE s.qtyavailable <= p.qty_alert AND p.status = 'Active'"),
         pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE status = 'Pending'"),
-        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= NOW() - INTERVAL '7 days' AND status = 'Completed'"),
+        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= NOW() - INTERVAL '7 days' AND status = ANY($1)", [REVENUE_STATUSES]),
       ]);
 
       return res.json({
@@ -137,13 +138,13 @@ router.get('/stats', authenticate, async (req, res) => {
 
     const results = await Promise.all([
       pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1 AND status = 'Active'", [tenantId]),
-      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = 'Completed'", [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = ANY($2)", [tenantId, REVENUE_STATUSES]),
       pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1 AND status = 'Active'", [tenantId]),
       pool.query("SELECT COUNT(*) as count FROM tbl_suppliers WHERE tenant_id = $1 AND status = 'Active'", [tenantId]),
-      pool.query("SELECT COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE tenant_id = $1 AND status = 'Completed'", [tenantId]),
+      pool.query("SELECT COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE tenant_id = $1 AND status = ANY($2)", [tenantId, REVENUE_STATUSES]),
       pool.query("SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE p.tenant_id = $1 AND s.qtyavailable <= p.qty_alert AND p.status = 'Active'", [tenantId]),
       pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = 'Pending'", [tenantId]),
-      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '7 days' AND status = 'Completed'", [tenantId]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '7 days' AND status = ANY($2)", [tenantId, REVENUE_STATUSES]),
     ]);
 
     res.json({
@@ -216,7 +217,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
   }
 
   try {
-    const revenueStatuses = ['Completed', 'Paid', 'Delivered'];
+    const revenueStatuses = REVENUE_STATUSES;
 
     // 1. Current KPIs
     const kpiQuery = `
@@ -375,7 +376,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
           FROM tbl_orders o
           JOIN tbl_order_items i ON i.order_id = o.or_id
           WHERE ($1::int IS NULL OR o.tenant_id = $1)
-            AND o.status = 'Completed'
+            AND o.status = ANY($2::text[])
             AND i.refunded_amount > 0
             AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
         ) as amount,
@@ -387,7 +388,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
             AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
         ) as count
     `;
-    const refundRes = await pool.query(refundQuery, [tenantId]);
+    const refundRes = await pool.query(refundQuery, [tenantId, revenueStatuses]);
 
     // 8. Open online orders
     const openOnlineQuery = `

@@ -280,4 +280,52 @@ router.post('/adjust', authenticate, async (req, res) => {
   }
 });
 
+// ===== CREATE STOCK =====
+router.post('/', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req, res);
+  if (!tenantId) return;
+  const { product_id, qtyinstock, qtyavailable } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO tbl_stock (productid, qtyinstock, qtyavailable, tenant_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [product_id, qtyinstock || 0, qtyavailable || 0, tenantId]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== UPDATE STOCK =====
+router.put('/:id', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req, res);
+  if (!tenantId) return;
+  const id = req.params.id;
+  const { qtyinstock, qtyavailable } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE tbl_stock SET qtyinstock = COALESCE($1, qtyinstock), qtyavailable = COALESCE($2, qtyavailable) WHERE id = $3 AND tenant_id = $4 RETURNING *`,
+      [qtyinstock, qtyavailable, id, tenantId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Stock record not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== DELETE STOCK =====
+router.delete('/:id', authenticate, async (req, res) => {
+  const tenantId = getTenantId(req, res);
+  if (!tenantId) return;
+  const id = req.params.id;
+  try {
+    const result = await pool.query(`DELETE FROM tbl_stock WHERE id = $1 AND tenant_id = $2 RETURNING id`, [id, tenantId]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Stock record not found' });
+    res.json({ message: 'Stock record deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

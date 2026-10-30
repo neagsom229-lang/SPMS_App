@@ -1,9 +1,20 @@
 // backend/src/routes/analytics.js
 const express = require('express');
 const pool = require('../config/postgres');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireTenant } = require('../middleware/auth');
+const { REVENUE_STATUSES } = require('../constants/sales');
 
 const router = express.Router();
+
+router.use(authenticate, requireTenant);
+
+router.use((req, res, next) => {
+  const role = req.user?.role ? req.user.role.toLowerCase() : '';
+  if (role === 'cashier') {
+    return res.status(403).json({ error: 'Analytics access denied for cashiers' });
+  }
+  next();
+});
 
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
@@ -15,26 +26,14 @@ router.get('/stats', authenticate, async (req, res) => {
   const isSuperAdmin = req.user?.isSuperAdmin || false;
 
   try {
-    let queries = {};
-
     if (isSuperAdmin) {
-      queries = {
-        totalCustomers: 'SELECT COUNT(*) as count FROM tbl_customers WHERE status = $1',
-        totalProducts: 'SELECT COUNT(*) as count FROM tbl_products WHERE status = $1',
-        totalOrders: 'SELECT COUNT(*) as count FROM tbl_orders',
-        totalRevenue: 'SELECT COALESCE(SUM(total), 0) as revenue FROM tbl_orders',
-        lowStock: 'SELECT COUNT(*) as count FROM tbl_stock WHERE qtyavailable <= 5',
-        pendingOrders: 'SELECT COUNT(*) as count FROM tbl_orders WHERE status = $1',
-      };
-      const params = ['Active'];
-      
       const results = await Promise.all([
-        pool.query(queries.totalCustomers, params),
-        pool.query(queries.totalProducts, params),
-        pool.query(queries.totalOrders, []),
-        pool.query(queries.totalRevenue, []),
-        pool.query(queries.lowStock, []),
-        pool.query(queries.pendingOrders, params),
+        pool.query('SELECT COUNT(*) as count FROM tbl_customers WHERE status = $1', ['Active']),
+        pool.query('SELECT COUNT(*) as count FROM tbl_products WHERE status = $1', ['Active']),
+        pool.query('SELECT COUNT(*) as count FROM tbl_orders', []),
+        pool.query('SELECT COALESCE(SUM(total), 0) as revenue FROM tbl_orders WHERE status = ANY($1)', [REVENUE_STATUSES]),
+        pool.query('SELECT COUNT(*) as count FROM tbl_stock WHERE qtyavailable <= 5', []),
+        pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE status = $1', ['Pending']),
       ]);
 
       return res.json({
@@ -62,7 +61,7 @@ router.get('/stats', authenticate, async (req, res) => {
       pool.query('SELECT COUNT(*) as count FROM tbl_customers WHERE tenant_id = $1 AND status = $2', [tenantId, 'Active']),
       pool.query('SELECT COUNT(*) as count FROM tbl_products WHERE tenant_id = $1 AND status = $2', [tenantId, 'Active']),
       pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
-      pool.query('SELECT COALESCE(SUM(total), 0) as revenue FROM tbl_orders WHERE tenant_id = $1', [tenantId]),
+      pool.query('SELECT COALESCE(SUM(total), 0) as revenue FROM tbl_orders WHERE tenant_id = $1 AND status = ANY($2)', [tenantId, REVENUE_STATUSES]),
       pool.query('SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE p.tenant_id = $1 AND s.qtyavailable <= 5', [tenantId]),
       pool.query('SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = $2', [tenantId, 'Pending']),
     ]);
@@ -92,12 +91,12 @@ router.get('/monthly-revenue', authenticate, async (req, res) => {
         TO_CHAR(created_at, 'YYYY-MM') as month,
         COALESCE(SUM(total), 0) as revenue
       FROM tbl_orders
-      WHERE status = 'Completed'
+      WHERE status = ANY($1)
     `;
-    const params = [];
+    const params = [REVENUE_STATUSES];
 
     if (!isSuperAdmin && tenantId) {
-      query += ` AND tenant_id = $1`;
+      query += ` AND tenant_id = $2`;
       params.push(tenantId);
     }
 
@@ -129,11 +128,11 @@ router.get('/top-products', authenticate, async (req, res) => {
         COALESCE(SUM(oi.subtotal), 0) as total_revenue
       FROM tbl_products p
       LEFT JOIN tbl_order_items oi ON oi.product_id = p.id
-      LEFT JOIN tbl_orders o ON o.or_id = oi.order_id AND o.status = 'Completed'
+      LEFT JOIN tbl_orders o ON o.or_id = oi.order_id AND o.status = ANY($1)
       WHERE 1=1
     `;
-    const params = [];
-    let paramIndex = 1;
+    const params = [REVENUE_STATUSES];
+    let paramIndex = 2;
 
     if (!isSuperAdmin && tenantId) {
       query += ` AND p.tenant_id = $${paramIndex}`;

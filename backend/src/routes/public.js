@@ -1,8 +1,76 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 class BusinessError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const db = require('../config/postgres');
 const crypto = require('crypto');
+
+const publicOrderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50, // Per-IP limit 30-60/15min on POST orders only
+  message: { error: 'Too many requests from this IP address, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+function normalizePhone(phoneStr) {
+  if (!phoneStr) return '';
+  let digits = String(phoneStr).replace(/\D/g, '');
+  if (digits.startsWith('855')) {
+    digits = digits.slice(3);
+  }
+  if (digits.startsWith('0')) {
+    digits = digits.slice(1);
+  }
+  return digits;
+}
+
+const phoneRateLimitMap = new Map();
+function checkPhoneRateLimit(phone) {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const maxPerPhone = 5; // Primary control per phone number
+  let record = phoneRateLimitMap.get(phone);
+  if (!record || now > record.resetTime) {
+    record = { count: 1, resetTime: now + windowMs };
+    phoneRateLimitMap.set(phone, record);
+    return true;
+  }
+  if (record.count >= maxPerPhone) {
+    return false;
+  }
+  record.count++;
+  return true;
+}
+
+async function expirePendingOrders(dbClient) {
+  const client = dbClient || db;
+  const res = await client.query(
+    `SELECT or_id, tenant_id FROM tbl_orders WHERE status = 'Pending'`
+  );
+  for (const ord of res.rows) {
+    await client.query(
+      `UPDATE tbl_orders SET status = 'Cancelled' WHERE or_id = $1`,
+      [ord.or_id]
+    );
+    const itemsRes = await client.query(
+      `SELECT product_id, qty FROM tbl_order_items WHERE order_id = $1`,
+      [ord.or_id]
+    );
+    for (const item of itemsRes.rows) {
+      await client.query(
+        `UPDATE tbl_stock SET qtyinstock = qtyinstock + $1, qtyavailable = qtyavailable + $1 WHERE productid = $2 AND tenant_id = $3`,
+        [item.qty, item.product_id, ord.tenant_id]
+      );
+      await client.query(
+        `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes) VALUES ($1, $2, $3, 'EXPIRE_ORDER', $4, $5)`,
+        [ord.tenant_id, item.product_id, item.qty, ord.or_id, `Order expired and stock restored`]
+      );
+    }
+  }
+  return res.rows.length;
+}
+router.expirePendingOrders = expirePendingOrders;
 
 // Helper to resolve store by slug
 async function getStoreBySlug(client, slug) {
@@ -140,7 +208,7 @@ router.get('/store/:slug/menu', async (req, res) => {
 });
 
 // POST /api/public/store/:slug/orders -> Create Online Order
-router.post('/store/:slug/orders', async (req, res) => {
+router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
   const client = await db.connect();
   try {
     const { slug } = req.params;
@@ -175,27 +243,62 @@ router.post('/store/:slug/orders', async (req, res) => {
       return res.status(404).json({ error: 'Store not found' });
     }
     const store = storeRes.rows[0];
+
+    const normPhone = normalizePhone(customer_phone);
+
+    if (!checkPhoneRateLimit(normPhone)) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(429).json({ error: 'Rate limit exceeded for this phone number (max 5 orders per 15 minutes)' });
+    }
+
+    // Cap pending unpaid orders per phone at 2
+    const pendingRes = await client.query(
+      `SELECT COUNT(*) FROM tbl_orders WHERE tenant_id = $1 AND status = 'Pending' AND (customer_phone = $2 OR customer_phone LIKE $3)`,
+      [store.tenant_id, customer_phone, `%${normPhone}%`]
+    );
+    if (parseInt(pendingRes.rows[0].count, 10) >= 2) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'Maximum pending unpaid orders (2) reached for this phone number.' });
+    }
+
+    if (items.length > 30) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'Order cannot exceed 30 lines' });
+    }
+
+    for (const item of items) {
+      const q = Number(item.qty || item.quantity);
+      if (q > 50) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: 'Line item quantity cannot exceed 50' });
+      }
+    }
+
     if (!store.is_open || !store.accepts_online_orders) {
       await client.query('ROLLBACK');
       client.release();
       return res.status(400).json({ error: 'Store is currently closed for online orders' });
-      }
-      const reqDeliveryType = (delivery_type || 'pickup').toLowerCase();
-      if (reqDeliveryType === 'pickup' && store.pickup_enabled === false) {
-        await client.query('ROLLBACK');
-        client.release();
-        return res.status(400).json({ error: 'In-store pickup is currently disabled for this store' });
-      }
-      if (reqDeliveryType === 'delivery' && store.delivery_enabled === false) {
-        await client.query('ROLLBACK');
-        client.release();
-        return res.status(400).json({ error: 'Delivery is currently disabled for this store' });
+    }
+    const reqDeliveryType = (delivery_type || 'pickup').toLowerCase();
+    if (reqDeliveryType === 'pickup' && store.pickup_enabled === false) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'In-store pickup is currently disabled for this store' });
+    }
+    if (reqDeliveryType === 'delivery' && store.delivery_enabled === false) {
+      await client.query('ROLLBACK');
+      client.release();
+      return res.status(400).json({ error: 'Delivery is currently disabled for this store' });
     }
 
-    // 2. Check Idempotency Key
+    // 2. Check Idempotency Key (tenant-scoped)
     const existingOrder = await client.query(
-      'SELECT or_id, order_no, tracking_code FROM tbl_orders WHERE idempotency_key = $1',
-      [idempotency_key]
+      'SELECT or_id, order_no, tracking_code FROM tbl_orders WHERE tenant_id = $1 AND idempotency_key = $2',
+      [store.tenant_id, idempotency_key]
     );
     if (existingOrder.rowCount > 0) {
       await client.query('COMMIT');
@@ -210,21 +313,26 @@ router.post('/store/:slug/orders', async (req, res) => {
       });
     }
 
-    // 3. Re-read prices & validate stock with SELECT ... FOR UPDATE
+    // Aggregate cart lines by product_id
+    const aggregatedMap = new Map();
+    for (const item of items) {
+      const prodId = Number(item.product_id);
+      const orderQty = Number(item.qty || item.quantity);
+      if (!prodId || isNaN(prodId) || !Number.isInteger(orderQty) || orderQty <= 0 || orderQty > 100000) {
+        throw new BusinessError(400, `Invalid product ID or quantity`);
+      }
+      aggregatedMap.set(prodId, (aggregatedMap.get(prodId) || 0) + orderQty);
+    }
+
+    // Sort product IDs ascending to avoid deadlocks
+    const sortedProductIds = Array.from(aggregatedMap.keys()).sort((a, b) => a - b);
+
+    // 3. Re-read prices & validate stock with SELECT ... FOR UPDATE on sorted product IDs
     let totalAmount = 0;
     const orderItemsParsed = [];
 
-    for (const item of items) {
-      const prodId = item.product_id;
-      if (!prodId || isNaN(Number(prodId))) {
-        await client.query('ROLLBACK');
-        client.release();
-        return res.status(400).json({ error: `Product ID ${prodId} is missing or invalid` });
-      }
-      const orderQty = Number(item.qty);
-      if (!Number.isInteger(orderQty) || orderQty <= 0 || orderQty > 100000) {
-        throw new BusinessError(400, `Quantity for product ID ${prodId} must be a whole number of 1 or more`);
-      }
+    for (const prodId of sortedProductIds) {
+      const orderQty = aggregatedMap.get(prodId);
 
       // Lock product & stock row
       const prodRes = await client.query(
@@ -276,8 +384,21 @@ router.post('/store/:slug/orders', async (req, res) => {
     const taxAmount = (totalAmount * taxRate) / 100;
     const finalTotal = totalAmount + taxAmount;
 
-    // Generate Order Number & Tracking Code
-    const orderNo = `ONLINE-${Date.now().toString().slice(-6)}`;
+    // Generate Order Number & Tracking Code using per-tenant sequence
+    async function getNextOrderNoLocal(client, tenantId, prefix = 'ONLINE') {
+      await client.query(
+        `INSERT INTO tenant_order_counters (tenant_id, last_seq) VALUES ($1, 0) ON CONFLICT (tenant_id) DO NOTHING`,
+        [tenantId]
+      );
+      const res = await client.query(
+        `UPDATE tenant_order_counters SET last_seq = last_seq + 1 WHERE tenant_id = $1 RETURNING last_seq`,
+        [tenantId]
+      );
+      const seq = res.rows[0].last_seq;
+      return `${prefix}-${String(seq).padStart(5, '0')}`;
+    }
+
+    const orderNo = await getNextOrderNoLocal(client, store.tenant_id, 'ONLINE');
     const trackingCode = crypto.randomBytes(12).toString('hex');
 
     // 4. Insert Order
@@ -304,7 +425,7 @@ router.post('/store/:slug/orders', async (req, res) => {
     );
     const orderId = insertOrderRes.rows[0].or_id;
 
-    // 5. Insert Order Items and Decrement Stock & Write Stock Log
+    // 5. Insert Order Items and Atomic Stock Decrement & Write Stock Log
     for (const item of orderItemsParsed) {
       await client.query(
         `INSERT INTO tbl_order_items (order_id, product_id, qty, unit_price, buy_price, subtotal, tenant_id)
@@ -312,13 +433,21 @@ router.post('/store/:slug/orders', async (req, res) => {
         [orderId, item.product_id, item.qty, item.price, item.buy_price, item.subtotal, store.tenant_id]
       );
 
-      // Decrement stock
-      await client.query(
-        `UPDATE tbl_stock SET qtyinstock = qtyinstock - $1, qtyavailable = qtyavailable - $1 WHERE productid = $2 AND tenant_id = $3`,
+      const updateStockRes = await client.query(
+        `UPDATE tbl_stock 
+         SET qtyinstock = qtyinstock - $1, 
+             qtyavailable = qtyavailable - $1 
+         WHERE productid = $2 AND tenant_id = $3 AND qtyavailable >= $1
+         RETURNING qtyavailable`,
         [item.qty, item.product_id, store.tenant_id]
       );
 
-      // Write stock log
+      if (updateStockRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(409).json({ error: `Insufficient stock during atomic update for product ID ${item.product_id}` });
+      }
+
       await client.query(
         `INSERT INTO tbl_stock_log (tenant_id, product_id, change_qty, type, reference_id, notes)
          VALUES ($1, $2, $3, $4, $5, $6)`,

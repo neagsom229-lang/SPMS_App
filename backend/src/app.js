@@ -207,9 +207,17 @@ app.get("/api/activity-logs", authenticate, async (req, res) => {
   }
 });
 
-app.delete("/api/activity-logs", authenticate, requireSuperAdmin, async (req, res) => {
+app.delete("/api/activity-logs", authenticate, async (req, res) => {
+  const tenantId = req.user?.tenantId || req.headers['x-tenant-id'];
+  if (!tenantId && !req.user?.isSuperAdmin) {
+    return res.status(403).json({ error: 'Tenant context required' });
+  }
   try {
-    await db.query("DELETE FROM tbl_activity_logs");
+    if (req.user?.isSuperAdmin && !tenantId) {
+      await db.query("DELETE FROM tbl_activity_logs");
+    } else {
+      await db.query("DELETE FROM tbl_activity_logs WHERE tenant_id = $1", [tenantId]);
+    }
     res.json({ message: "Activity logs cleared successfully" });
   } catch (err) {
     console.error("❌ Clear activity logs error:", err.message);
@@ -238,6 +246,26 @@ app.use('/api/services', serviceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/reports', reportRoutes);
+
+const mountedRoutes = [
+  ['/api/auth', authRoutes],
+  ['/api/dashboard', dashboardRoutes],
+  ['/api/products', productRoutes],
+  ['/api/orders', orderRoutes],
+  ['/api/customers', customerRoutes],
+  ['/api/suppliers', supplierRoutes],
+  ['/api/users', userRoutes],
+  ['/api/stock', stockRoutes],
+  ['/api/tenants', tenantRoutes],
+  ['/api/categories', categoryRoutes],
+  ['/api/payment', paymentRoutes],
+  ['/api/warranties', warrantyRoutes],
+  ['/api/services', serviceRoutes],
+  ['/api/analytics', analyticsRoutes],
+  ['/api/public', publicRoutes],
+  ['/api/reports', reportRoutes]
+];
+app.mountedRoutes = mountedRoutes;
 
 // System stats route
 app.get('/api/system/stats', authenticate, requireSuperAdmin, tenantRoutes.systemStatsHandler);

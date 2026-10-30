@@ -5,17 +5,18 @@ const { authenticate } = require('./auth');
 const ADMIN_ROLES = ['admin', 'administrator', 'manager', 'owner'];
 const WRITE = ['POST', 'PUT', 'PATCH', 'DELETE'];
 
-// [methods or 'ANY', regex tested against the path after /api]
+// [methods or 'ANY', regex tested against the path after /api with case-insensitivity flag 'i']
 const ADMIN_ONLY = [
-  ['ANY', /^\/users(\/|$)/],
-  ['ANY', /^\/reports(\/|$)/],
-  [WRITE, /^\/products(\/|$)/],
-  [WRITE, /^\/categories(\/|$)/],
-  [WRITE, /^\/suppliers(\/|$)/],
-  [WRITE, /^\/stock(\/|$)/],
-  [['POST', 'PUT', 'PATCH'], /^\/orders\/[^/]+\/(cancel|refund|status)(\/|$)/],
-  [['GET'], /^\/dashboard\/sales-summary(\/|$)/],
-  [['DELETE'], /^\/customers(\/|$)/]
+  ['ANY', /^\/users(\/|$)/i],
+  ['ANY', /^\/reports(\/|$)/i],
+  [WRITE, /^\/products(\/|$)/i],
+  [WRITE, /^\/categories(\/|$)/i],
+  [WRITE, /^\/suppliers(\/|$)/i],
+  [WRITE, /^\/stock(\/|$)/i],
+  [['POST', 'PUT', 'PATCH'], /^\/orders\/[^/]+\/(cancel|refund|status)(\/|$)/i],
+  [['DELETE'], /^\/orders\/[^/]+(\/|$)/i],
+  [['GET'], /^\/dashboard\/sales-summary(\/|$)/i],
+  [['DELETE'], /^\/customers(\/|$)/i]
 ];
 
 function rolePolicy(req, res, next) {
