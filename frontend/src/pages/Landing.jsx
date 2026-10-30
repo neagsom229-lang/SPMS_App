@@ -1,14 +1,20 @@
-// frontend/src/pages/Landing.jsx - Complete Fixed Version
+// frontend/src/pages/Landing.jsx - Refactored for 3D Electronics Storefront & TechFlow
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
-import { useQuery } from '@tanstack/react-query';
-import apiClient from '../api/client';
 import '../styles/landing.css';
 
-// ✅ ONLY IMPORT CONFIRMED WORKING ICONS
-import { ArrowRight, Star, Users, Shield, ChevronRight, Play, BarChart3, Truck, Boxes, Receipt, Landmark, Quote, Menu, X, LogIn, UserPlus, LayoutDashboard, LogOut, ChevronDown, Clock, RefreshCw, CheckCircle, AlertCircle, TrendingUp, ShoppingCart, Package, Warehouse, Award, Heart, Zap, Coffee, BookOpen, Target, Compass, Sparkles, Mail, Phone, MapPin, Calendar, Globe, Send, MessageCircle, Headphones, LifeBuoy, Lightbulb, ThumbsUp, ThumbsDown, Copy, Link as LinkIcon, ExternalLink, Bot, Search } from "lucide-react";
+// ✅ CONFIRMED WORKING ICONS
+import {
+  ArrowRight, Star, Users, Shield, ChevronRight, Play, BarChart3,
+  Truck, Boxes, Receipt, Landmark, Quote, Menu, X, LogIn, UserPlus,
+  LayoutDashboard, LogOut, ChevronDown, Clock, RefreshCw, CheckCircle,
+  AlertCircle, TrendingUp, Package, Warehouse, Award, Heart, Zap,
+  Coffee, BookOpen, Target, Compass, Sparkles, Mail, Phone, MapPin,
+  Calendar, Globe, Send, MessageCircle, Headphones, LifeBuoy, Lightbulb,
+  ThumbsUp, ThumbsDown, Copy, ExternalLink, Bot, Search, Cpu, Laptop, Monitor
+} from "lucide-react";
 
 // ============================================================
 // CUSTOM ICON COMPONENTS
@@ -85,171 +91,104 @@ const Landing = () => {
   const [isNewsletterLoading, setIsNewsletterLoading] = useState(false);
   const [hoveredCard, setHoveredCard] = useState(null);
   const [openFaqs, setOpenFaqs] = useState({});
-  
+
   // ─── SUBSCRIPTION STATE ───
   const [userSubscription, setUserSubscription] = useState(null);
   const [isCheckingSubscription, setIsCheckingSubscription] = useState(true);
-  const [subscriptionError, setSubscriptionError] = useState(false);
 
   // ===== AI ASSISTANT STATE =====
   const [showAiChat, setShowAiChat] = useState(false);
   const [aiMessages, setAiMessages] = useState([
-    { 
-      id: 1, 
-      type: 'assistant', 
-      message: '👋 Hello! I\'m your AI Assistant. How can I help you today?',
+    {
+      id: 1,
+      type: 'assistant',
+      message: '👋 Hello! I\'m your TechFlow AI Assistant. How can I help you build your dream setup today?',
       timestamp: new Date().toISOString()
     }
   ]);
   const [aiInput, setAiInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [aiSuggestions] = useState([
-    'How do I get started?',
-    'What features do you offer?',
-    'Tell me about pricing',
-    'Do you offer support?',
-    'Is there a free trial?'
+    'How do I view the 3D Storefront?',
+    'What hardware specs do you offer?',
+    'Tell me about pricing plans',
+    'Do you offer warranty?',
+    'Can I order custom gaming PCs?'
   ]);
 
   // ─── CHECK USER SUBSCRIPTION ───
-useEffect(() => {
-  const checkSubscription = async () => {
-    // If auth is still loading, wait
-    if (authLoading) {
-      console.log('⏳ Auth still loading...');
-      return;
-    }
-
-    // If no user, set subscription to null and finish
-    if (!user) {
-      console.log('👤 No user logged in');
-      setUserSubscription(null);
-      setIsCheckingSubscription(false);
-      return;
-    }
-
-    console.log('🔍 Checking subscription for user:', user.user_id);
-    
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.warn('⚠️ No token found');
-        // FIX: previously fabricated a fake active "Market Stall"
-        // subscription here. That made hasActivePlan()/getPlanButton()
-        // treat the user as already subscribed, permanently disabling
-        // the "Choose Shophouse"/"Choose Chain" buttons (they rendered
-        // as a disabled "Current: Market Stall" instead). No token means
-        // we don't actually know their subscription — leave it null so
-        // the real subscribe flow (→ /pricing) stays available.
+  useEffect(() => {
+    const checkSubscription = async () => {
+      if (authLoading) return;
+      const userId = user?.userid || user?.id;
+      if (!userId) {
         setUserSubscription(null);
         setIsCheckingSubscription(false);
         return;
       }
 
-      // ✅ Use the same API_URL as client.js
-      const API_URL = 'https://spms-backend-pro.onrender.com/api';
-      const response = await fetch(`${API_URL}/users/${user.user_id}/subscription`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setUserSubscription(null);
+          setIsCheckingSubscription(false);
+          return;
         }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Subscription data:', data);
-        setUserSubscription(data);
-        setSubscriptionError(false);
-      } else if (response.status === 404) {
-        // FIX: same issue — a 404 here means "this user has no
-        // subscription record yet", which is the normal state for
-        // anyone who hasn't paid. It is not the same as "actively
-        // subscribed to the free plan". Fabricating an active
-        // subscription blocked the real subscribe buttons; null lets
-        // them work.
-        console.log('📋 No subscription found — user has not subscribed yet');
-        setUserSubscription(null);
-        setSubscriptionError(false);
-      } else {
-        console.error('❌ Subscription API error:', response.status);
-        // FIX: a transient API error is not evidence the user has an
-        // active plan either — don't invent one.
-        setUserSubscription(null);
-        setSubscriptionError(true);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching subscription:', error.message);
-      // FIX: same — a network/fetch failure tells us nothing about the
-      // user's plan. Leave it null instead of assuming Market Stall is
-      // active.
-      setUserSubscription(null);
-      setSubscriptionError(true);
-    }
-    
-    setIsCheckingSubscription(false);
-  };
 
-  checkSubscription();
-}, [user, authLoading]);
+        const API_URL = 'http://localhost:5000/api';
+        const response = await fetch(`${API_URL}/users/${userId}/subscription`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUserSubscription(data);
+        } else {
+          setUserSubscription(null);
+        }
+      } catch (error) {
+        setUserSubscription(null);
+      } finally {
+        setIsCheckingSubscription(false);
+      }
+    };
+
+    checkSubscription();
+  }, [user?.userid, user?.id, authLoading]);
 
   // ===== AI RESPONSES =====
   const aiResponses = {
-    'started': "🚀 Getting started with KhmerFlow is easy!\n\n1. Click 'Register' to create your account\n2. Set up your shop profile\n3. Add your products and prices\n4. Start selling at the counter\n5. Track your sales and inventory\n\n💡 Pro tip: Start with the free Market Stall plan to explore all features!",
-    
-    'features': "✨ KhmerFlow offers powerful features for your shop:\n\n• 📦 Smart Inventory Management\n• 💳 Fast Point of Sale\n• 📊 Insightful Reports\n• 🚚 Supplier Management\n• 👥 Customer Loyalty\n• 🔒 Secure & Reliable\n\nAll features are designed specifically for Cambodian small businesses!",
-    
-    'pricing': "💰 Simple pricing for every shop:\n\n🆓 Market Stall - $0/month\n• 1 staff account\n• 150 sales/month\n• Basic reports\n\n📈 Shophouse - $19/month\n• 5 staff accounts\n• Unlimited sales\n• Full features\n\n🏢 Chain - $49/month\n• Unlimited staff\n• Multi-branch\n• API access\n\nAll plans include free support!",
-    
-    'support': "🆘 We're here to help!\n\n📧 Email: support@khmerflow.com\n📞 Phone: +855 12 345 678\n💬 Live Chat: Available 24/7\n📚 Knowledge Base: Comprehensive guides\n\nWe typically respond within 24 hours!",
-    
-    'trial': "✅ Yes! You can start with the Market Stall plan for FREE forever.\n\n• No credit card required\n• Full features included\n• 1 staff account\n• 150 sales/month\n\nUpgrade anytime when you need more!",
-    
-    'default': "🤖 I'd be happy to help! I can answer questions about:\n\n• Getting started 🚀\n• Features ✨\n• Pricing 💰\n• Support 🆘\n• Free trial ✅\n\nJust ask me anything about KhmerFlow!"
+    'storefront': "🖥️ You can explore our live 3D Storefront by clicking 'Storefront' in the navigation or the 'Explore the 3D Storefront' button! It features tilt-effect cards, neon cyan glows, and instant cart checkout.",
+    'specs': "⚡ We offer elite hardware:\n\n• Custom Gaming Rigs (RTX 4090 / i9)\n• Pro Laptops (240Hz OLED screens)\n• 4K Curved Ultra-wide Monitors\n• Mechanical Keyboards & Spatial Audio Headsets",
+    'pricing': "💰 Simple SaaS pricing for hardware retailers:\n\n🆓 Market Stall - $0/mo\n📈 Shophouse - $19/mo\n🏢 Chain - $49/mo",
+    'warranty': "🛡️ All electronics come with an official manufacturer warranty (1 to 3 years) plus dedicated local tech support!",
+    'custom': "🎮 Yes! You can configure custom gaming PCs and workstations directly through our POS and online storefront.",
+    'default': "🤖 I'd be happy to help! I can answer questions about our 3D Storefront 🖥️, hardware specs ⚡, pricing 💰, and warranty 🛡️!"
   };
 
-  // ─── AI HANDLERS ───
   const getAiResponse = (message) => {
     const lowerMsg = message.toLowerCase();
-    
-    if (lowerMsg.includes('start') || lowerMsg.includes('get started') || lowerMsg.includes('begin')) {
-      return aiResponses.started;
-    } else if (lowerMsg.includes('feature') || lowerMsg.includes('offer') || lowerMsg.includes('capability')) {
-      return aiResponses.features;
-    } else if (lowerMsg.includes('price') || lowerMsg.includes('cost') || lowerMsg.includes('plan')) {
-      return aiResponses.pricing;
-    } else if (lowerMsg.includes('support') || lowerMsg.includes('help') || lowerMsg.includes('contact')) {
-      return aiResponses.support;
-    } else if (lowerMsg.includes('free') || lowerMsg.includes('trial') || lowerMsg.includes('demo')) {
-      return aiResponses.trial;
-    } else if (lowerMsg.includes('hello') || lowerMsg.includes('hi') || lowerMsg.includes('hey')) {
-      return "👋 Hello! Welcome to KhmerFlow! I'm your AI Assistant. How can I help you today?";
-    } else {
-      return aiResponses.default;
-    }
+    if (lowerMsg.includes('storefront') || lowerMsg.includes('3d') || lowerMsg.includes('shop')) return aiResponses.storefront;
+    if (lowerMsg.includes('spec') || lowerMsg.includes('hardware') || lowerMsg.includes('pc') || lowerMsg.includes('laptop')) return aiResponses.specs;
+    if (lowerMsg.includes('price') || lowerMsg.includes('cost') || lowerMsg.includes('plan')) return aiResponses.pricing;
+    if (lowerMsg.includes('warranty') || lowerMsg.includes('guarantee')) return aiResponses.warranty;
+    if (lowerMsg.includes('custom') || lowerMsg.includes('build')) return aiResponses.custom;
+    return aiResponses.default;
   };
 
   const handleAiSend = async () => {
     if (!aiInput.trim()) return;
-
-    const userMessage = {
-      id: aiMessages.length + 1,
-      type: 'user',
-      message: aiInput,
-      timestamp: new Date().toISOString()
-    };
+    const userMessage = { id: aiMessages.length + 1, type: 'user', message: aiInput, timestamp: new Date().toISOString() };
     setAiMessages(prev => [...prev, userMessage]);
     setAiInput('');
     setIsAiTyping(true);
 
-    await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 600));
-
+    await new Promise(resolve => setTimeout(resolve, 800));
     const response = getAiResponse(aiInput);
-    const aiMessage = {
-      id: aiMessages.length + 2,
-      type: 'assistant',
-      message: response,
-      timestamp: new Date().toISOString()
-    };
+    const aiMessage = { id: aiMessages.length + 2, type: 'assistant', message: response, timestamp: new Date().toISOString() };
     setAiMessages(prev => [...prev, aiMessage]);
     setIsAiTyping(false);
   };
@@ -276,9 +215,11 @@ useEffect(() => {
   const chatEndRef = useRef(null);
 
   // ─── CONSTANTS ───
+  const storeSlug = import.meta.env.VITE_DEFAULT_STORE_SLUG || 'demo-store';
+
   const NAV_LINKS = [
     { id: 'home', label: 'Home' },
-    { id: 'menu', label: 'Menu' },
+    { id: 'storefront', label: 'Storefront', path: `/shop/${storeSlug}` },
     { id: 'features', label: 'Features' },
     { id: 'how-it-works', label: 'How it works' },
     { id: 'testimonials', label: 'Testimonials' },
@@ -286,71 +227,9 @@ useEffect(() => {
     { id: 'faq', label: 'FAQ' },
   ];
 
-  // ─── MENU STATE & STORE SLUG ───
-  const storeSlug = import.meta.env.VITE_DEFAULT_STORE_SLUG || 'demo-store';
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [menuSearch, setMenuSearch] = useState('');
-  const [menuLang, setMenuLang] = useState('en');
-  const [landingCart, setLandingCart] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`cart_${storeSlug}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [isLandingCartOpen, setIsLandingCartOpen] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem(`cart_${storeSlug}`, JSON.stringify(landingCart));
-  }, [landingCart, storeSlug]);
-
-  const { data: storeData } = useQuery({
-    queryKey: ['publicStore', storeSlug],
-    queryFn: () => apiClient.get(`/public/store/${storeSlug}`).then(res => res.data.store)
-  });
-
-  const { data: categories = [], isLoading: catLoading, error: catError } = useQuery({
-    queryKey: ['publicCategories', storeSlug],
-    queryFn: () => apiClient.get(`/public/store/${storeSlug}/categories`).then(res => res.data.categories || [])
-  });
-
-  const { data: menuProducts = [], isLoading: menuLoading, error: menuError } = useQuery({
-    queryKey: ['publicMenu', storeSlug, selectedCategory, menuSearch],
-    queryFn: () => {
-      const params = {};
-      if (selectedCategory) params.category = selectedCategory;
-      if (menuSearch) params.q = menuSearch;
-      return apiClient.get(`/public/store/${storeSlug}/menu`, { params }).then(res => res.data.products || []);
-    }
-  });
-
-  const addToLandingCart = (prod) => {
-    if (prod.stock_status === 'out') {
-      toast.error('Product is out of stock');
-      return;
-    }
-    setLandingCart(prev => {
-      const existing = prev.find(i => i.id === prod.id);
-      if (existing) {
-        return prev.map(i => i.id === prod.id ? { ...i, qty: i.qty + 1 } : i);
-      }
-      return [...prev, { ...prod, qty: 1 }];
-    });
-    toast.success(`Added ${prod.name_en || prod.name} to cart`);
-  };
-
-  const updateLandingCartQty = (id, qty) => {
-    if (qty <= 0) {
-      setLandingCart(prev => prev.filter(i => i.id !== id));
-    } else {
-      setLandingCart(prev => prev.map(i => i.id === id ? { ...i, qty } : i));
-    }
-  };
-
   const FEATURES = [
-    { icon: Boxes, title: 'Smart Inventory Management', desc: 'Live stock counts across every branch, with low-stock alerts before you run out at the counter.', tag: 'Real-time sync', color: 'from-emerald-500 to-teal-500' },
-    { icon: Receipt, title: 'Fast Point of Sale', desc: 'Fast checkout, printed or Telegram receipts, and offline mode for when the connection drops.', tag: '< 2s per sale', color: 'from-purple-500 to-pink-500' },
+    { icon: Boxes, title: 'Smart Inventory Management', desc: 'Live stock counts across every branch, with low-stock alerts before you run out at the counter.', tag: 'Real-time sync', color: 'from-cyan-500 to-teal-500' },
+    { icon: Receipt, title: 'Fast Point of Sale', desc: 'Fast checkout, printed or Telegram receipts, and offline mode for when the connection drops.', tag: '< 2s per sale', color: 'from-purple-500 to-indigo-500' },
     { icon: BarChart3, title: 'Insightful Reports', desc: 'Daily revenue, best-sellers, and margin by product — in Khmer or English, on your phone.', tag: 'Daily digest', color: 'from-blue-500 to-indigo-500' },
     { icon: Truck, title: 'Supplier Management', desc: 'Reorder stock in two taps and track what is owed to each supplier without a paper ledger.', tag: 'No more notebooks', color: 'from-orange-500 to-amber-500' },
     { icon: Users, title: 'Customer Loyalty', desc: 'Remember regulars, run simple loyalty stamps, and see who your best customers really are.', tag: 'Repeat business', color: 'from-rose-500 to-red-500' },
@@ -358,42 +237,41 @@ useEffect(() => {
   ];
 
   const STEPS = [
-    { n: '01', title: 'Set up your shop', desc: 'Add your products, prices, and staff in under ten minutes — templates included for cafés, mini marts, and restaurants.' },
+    { n: '01', title: 'Set up your tech shop', desc: 'Add your PC builds, laptops, peripherals, and staff in under ten minutes.' },
     { n: '02', title: 'Sell at the counter', desc: 'Ring up sales, take cash or ABA/Wing payments, and watch stock levels update automatically.' },
     { n: '03', title: 'Grow with the numbers', desc: 'Check the dashboard each evening to see what sold, what to reorder, and where you are making money.' },
   ];
 
   const TESTIMONIALS = [
-    { name: 'Sopheak Chan', role: 'Owner, Boeng Keng Kang Coffee', content: 'Closing the shop used to take an hour of counting. Now I check KhmerFlow on my phone and I am done in five minutes.', initials: 'SC', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Sopheak+Chan&background=6366f1&color=fff&size=60' },
-    { name: 'Ratanak Vong', role: 'Manager, Mekong Mini Mart', content: 'We stopped running out of best-sellers because the low-stock alerts actually reach us before the shelf is empty.', initials: 'RV', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Ratanak+Vong&background=6366f1&color=fff&size=60' },
-    { name: 'Sreymom Kong', role: 'Founder, Kong Family Restaurant', content: 'My staff learned the till in a day. The reports are the first thing my accountant asks for now.', initials: 'SK', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Sreymom+Kong&background=6366f1&color=fff&size=60' },
+    { name: 'Sopheak Chan', role: 'Owner, Phnom Penh Gaming Rig Co.', content: 'Closing the shop used to take an hour of counting. Now I check TechFlow on my phone and I am done in five minutes.', initials: 'SC', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Sopheak+Chan&background=06b6d4&color=0f172a&size=60' },
+    { name: 'Ratanak Vong', role: 'Manager, Silicon Valley Electronics', content: 'We stopped running out of RTX graphics cards because the low-stock alerts actually reach us before the shelf is empty.', initials: 'RV', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Ratanak+Vong&background=06b6d4&color=0f172a&size=60' },
+    { name: 'Sreymom Kong', role: 'Founder, NextGen Tech Store', content: 'My staff learned the till in a day. The reports are the first thing my accountant asks for now.', initials: 'SK', rating: 5, avatar: 'https://ui-avatars.com/api/?name=Sreymom+Kong&background=06b6d4&color=0f172a&size=60' },
   ];
 
-  // ─── FIXED PLANS WITH PLAN IDs ───
   const PLANS = [
     { id: 'market-stall', name: 'Market Stall', price: '$0', period: '/month', description: 'One counter, kept honest', features: ['1 staff account', '150 sales/month', 'Basic daily report', 'Community support'], highlight: false },
-    { id: 'shophouse', name: 'Shophouse', price: '$19', period: '/month', description: 'Most Cambodian SMEs start here', features: ['5 staff accounts', 'Unlimited sales', 'Inventory + supplier tracking', 'Khmer & English reports', 'ABA / Wing payment tracking', 'Priority Telegram support'], highlight: true },
-    { id: 'chain', name: 'Chain', price: '$49', period: '/month', description: 'For multi-branch operators', features: ['Unlimited staff', 'Multi-branch dashboard', 'Custom reports & exports', 'API access', 'Dedicated onboarding'], highlight: false },
+    { id: 'shophouse', name: 'Shophouse', price: '$19', period: '/month', description: 'Most electronics retailers start here', features: ['5 staff accounts', 'Unlimited sales', 'Inventory + supplier tracking', 'Khmer & English reports', 'ABA / Wing payment tracking', 'Priority Telegram support'], highlight: true },
+    { id: 'chain', name: 'Chain', price: '$49', period: '/month', description: 'For multi-branch tech operators', features: ['Unlimited staff', 'Multi-branch dashboard', 'Custom reports & exports', 'API access', 'Dedicated onboarding'], highlight: false },
   ];
 
   const FAQS = [
     { q: 'Is there a free trial?', a: 'Yes! You can start with the Market Stall plan for free forever. No credit card required.' },
     { q: 'Can I change plans later?', a: 'Absolutely. You can upgrade or downgrade your plan at any time from your account settings.' },
-    { q: 'Do you support offline mode?', a: 'Yes! KhmerFlow works offline and syncs automatically when you reconnect.' },
+    { q: 'Do you support offline mode?', a: 'Yes! TechFlow works offline and syncs automatically when you reconnect.' },
     { q: 'What payment methods do you accept?', a: 'We accept all major credit cards, ABA, Wing, and bank transfers.' },
   ];
 
   const dashboardStats = {
-    totalRevenue: 45678.5,
-    totalOrders: 342,
-    totalCustomers: 1250,
-    totalProducts: 48,
-    todaySales: 1250.0,
-    todayOrders: 8,
-    conversionRate: 4.2,
-    activeUsers: 24,
-    totalRevenueGrowth: 18.6,
-    avgOrderValue: 133.56,
+    totalRevenue: 85678.5,
+    totalOrders: 642,
+    totalCustomers: 2150,
+    totalProducts: 120,
+    todaySales: 3450.0,
+    todayOrders: 14,
+    conversionRate: 6.8,
+    activeUsers: 32,
+    totalRevenueGrowth: 24.6,
+    avgOrderValue: 233.56,
   };
 
   // ─── SCROLL TO BOTTOM OF CHAT ───
@@ -457,7 +335,7 @@ useEffect(() => {
       },
       { threshold: 0.4, rootMargin: '-96px 0px -50% 0px' }
     );
-    NAV_LINKS.forEach((n) => {
+    NAV_LINKS.filter(n => !n.path).forEach((n) => {
       const el = document.getElementById(n.id);
       if (el) sectionObserver.observe(el);
     });
@@ -478,13 +356,6 @@ useEffect(() => {
     );
     document.querySelectorAll('.kf-reveal').forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  // FIX: this used to run once on first mount ([] deps) — which is the
-  // loading-spinner render, before any .kf-reveal markup (feature cards,
-  // steps, pricing cards) exists in the DOM yet. querySelectorAll found
-  // nothing to observe, so isVisible[...] never got set once the real
-  // page mounted, and those elements stayed permanently opacity:0/hidden
-  // no matter how far you scrolled. Re-running this when the loading
-  // gate clears makes it scan the DOM that's actually there.
   }, [authLoading, isCheckingSubscription]);
 
   // ─── TESTIMONIAL ROTATOR ───
@@ -634,142 +505,73 @@ useEffect(() => {
     }));
   };
 
-  // ─── RENDER STARS ───
   const renderStars = (count) => {
     return [...Array(5)].map((_, i) => (
       <Star key={i} className="w-4 h-4" style={{ fill: i < count ? 'var(--kf-gold)' : 'none', color: i < count ? 'var(--kf-gold)' : 'rgba(255,255,255,0.2)' }} />
     ));
   };
 
-  // ─── HELPER: Check if user has this plan active ───
   const hasActivePlan = (planId) => {
-    return user && 
-           userSubscription && 
-           userSubscription.status === 'active' && 
-           userSubscription.plan === planId;
+    return user && userSubscription && userSubscription.status === 'active' && userSubscription.plan === planId;
   };
 
-  // ─── HELPER: Get button text for plan ───
   const getPlanButton = (plan) => {
-    // If user has this exact plan active
     if (hasActivePlan(plan.id)) {
-      return {
-        text: 'Go to Dashboard',
-        action: goToDashboard,
-        className: 'kf-btn-primary w-full justify-center',
-        isActive: true
-      };
+      return { text: 'Go to Dashboard', action: goToDashboard, className: 'kf-btn-primary w-full justify-center', isActive: true };
     }
-
-    // If user has a different active plan
     if (user && userSubscription && userSubscription.status === 'active' && userSubscription.plan !== plan.id) {
-      return {
-        text: `Current: ${userSubscription.planName}`,
-        action: null,
-        className: 'kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60',
-        isActive: false,
-        isDisabled: true
-      };
+      return { text: `Current: ${userSubscription.planName}`, action: null, className: 'kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60', isActive: false, isDisabled: true };
     }
-
-    // Not logged in at all → must create an account first, same as before
     if (!user) {
-      return {
-        text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`,
-        action: () => navigate('/register'),
-        className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center',
-        isActive: false,
-        isDisabled: false
-      };
+      return { text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`, action: () => navigate('/register'), className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center', isActive: false, isDisabled: false };
     }
-
-    // FIX: logged in, no active plan yet → this used to ALSO send the
-    // user to /register, a dead end for someone already registered, and
-    // it never reached the real checkout (Stripe/KHQR choice) that lives
-    // in Pricing.jsx. Now it sends them to the actual pricing page, which
-    // is the only place that flow exists.
-    return {
-      text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`,
-      action: () => navigate('/pricing'),
-      className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center',
-      isActive: false,
-      isDisabled: false
-    };
+    return { text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`, action: () => navigate('/pricing'), className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center', isActive: false, isDisabled: false };
   };
 
   // ===== RENDER AI CHAT WIDGET =====
   const renderAiChatWidget = () => (
     <div className="fixed bottom-24 right-4 z-50 w-80 sm:w-96">
       {showAiChat ? (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-slideUp">
-          {/* Chat Header */}
-          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex items-center justify-between">
+        <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden animate-slideUp">
+          <div className="bg-gradient-to-r from-cyan-600 to-indigo-600 p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
                 <Bot className="w-4 h-4 text-white" />
               </div>
               <div>
-                <h4 className="text-white font-medium text-sm">AI Assistant</h4>
+                <h4 className="text-white font-medium text-sm">TechFlow AI Assistant</h4>
                 <p className="text-white/70 text-xs flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block animate-pulse" />
-                  Online • Powered by AI
+                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full inline-block animate-pulse" />
+                  Online • Hardware & POS Expert
                 </p>
               </div>
             </div>
             <div className="flex gap-1">
-              <button
-                onClick={() => {
-                  setAiMessages([
-                    { 
-                      id: 1, 
-                      type: 'assistant', 
-                      message: '👋 Hello! I\'m your AI Assistant. How can I help you today?',
-                      timestamp: new Date().toISOString()
-                    }
-                  ]);
-                  toast.success('✅ Chat reset');
-                }}
-                className="text-white/70 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg"
-              >
+              <button onClick={() => { setAiMessages([{ id: 1, type: 'assistant', message: '👋 Hello! I\'m your TechFlow AI Assistant. How can I help you today?', timestamp: new Date().toISOString() }]); toast.success('✅ Chat reset'); }} className="text-white/70 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg">
                 <RefreshCw className="w-4 h-4" />
               </button>
-              <button
-                onClick={() => setShowAiChat(false)}
-                className="text-white/70 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg"
-              >
+              <button onClick={() => setShowAiChat(false)} className="text-white/70 hover:text-white transition-colors p-1 hover:bg-white/10 rounded-lg">
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* Chat Messages */}
-          <div className="h-72 overflow-y-auto p-4 space-y-3 bg-gray-50 dark:bg-gray-900/20">
+          <div className="h-72 overflow-y-auto p-4 space-y-3 bg-slate-950/60">
             {aiMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[85%] p-3 rounded-xl ${
-                    msg.type === 'user'
-                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-                      : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-600'
-                  }`}
-                >
-                  <p className="text-sm whitespace-pre-wrap">{msg.message}</p>
-                  <p className={`text-[10px] mt-1 ${msg.type === 'user' ? 'text-white/70' : 'text-gray-400'}`}>
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                  </p>
+              <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] p-3 rounded-xl text-xs sm:text-sm ${msg.type === 'user' ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white' : 'bg-slate-900 text-slate-100 border border-slate-700'}`}>
+                  <p className="whitespace-pre-wrap">{msg.message}</p>
+                  <p className={`text-[10px] mt-1 ${msg.type === 'user' ? 'text-white/70' : 'text-slate-500'}`}>{new Date(msg.timestamp).toLocaleTimeString()}</p>
                 </div>
               </div>
             ))}
             {isAiTyping && (
               <div className="flex justify-start">
-                <div className="bg-white dark:bg-gray-700 p-3 rounded-xl border border-gray-200 dark:border-gray-600">
+                <div className="bg-slate-900 p-3 rounded-xl border border-slate-700">
                   <div className="flex gap-1">
-                    <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                    <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    <span className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+                    <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                    <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                    <span className="w-2 h-2 bg-cyan-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
                   </div>
                 </div>
               </div>
@@ -777,76 +579,48 @@ useEffect(() => {
             <div ref={chatEndRef} />
           </div>
 
-          {/* Quick Suggestions */}
-          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-            <div className="flex flex-wrap gap-2">
+          <div className="px-4 py-2 border-t border-slate-800 bg-slate-900">
+            <div className="flex flex-wrap gap-1.5">
               {aiSuggestions.map((suggestion, index) => (
-                <button
-                  key={index}
-                  onClick={() => handleAiSuggestionClick(suggestion)}
-                  className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                >
+                <button key={index} onClick={() => handleAiSuggestionClick(suggestion)} className="px-2.5 py-1 text-[11px] bg-slate-800 text-slate-300 rounded-full hover:bg-cyan-950 hover:text-cyan-300 transition-colors">
                   {suggestion}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Chat Input */}
-          <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="p-3 border-t border-slate-800 bg-slate-900">
             <div className="flex gap-2">
-              <input
-                type="text"
-                value={aiInput}
-                onChange={(e) => setAiInput(e.target.value)}
-                onKeyPress={handleAiKeyPress}
-                placeholder="Ask me anything..."
-                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <button
-                onClick={handleAiSend}
-                disabled={!aiInput.trim() || isAiTyping}
-                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              >
+              <input type="text" value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyPress={handleAiKeyPress} placeholder="Ask about storefront or hardware..." className="flex-1 px-3 py-2 bg-slate-950 border border-slate-700 text-slate-100 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              <button onClick={handleAiSend} disabled={!aiInput.trim() || isAiTyping} className="px-3.5 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-bold rounded-xl hover:opacity-90 transition disabled:opacity-50">
                 <Send className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1 text-center">
-              AI Assistant • Powered by SPMS AI
-            </p>
+            <p className="text-[10px] text-slate-500 mt-1 text-center">TechFlow AI • Powered by SPMS</p>
           </div>
         </div>
       ) : (
-        <button
-          onClick={() => setShowAiChat(true)}
-          className="w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-lg shadow-indigo-500/30 flex items-center justify-center hover:scale-110 transition-all duration-300 animate-bounce relative group"
-        >
-          <Bot className="w-6 h-6 text-white" />
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-white" />
-          <span className="absolute -bottom-1 -left-1 text-[8px] bg-white text-indigo-600 rounded-full px-1.5 py-0.5 font-bold shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            AI
-          </span>
+        <button onClick={() => setShowAiChat(true)} className="w-14 h-14 bg-gradient-to-r from-cyan-500 to-indigo-600 rounded-full shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center justify-center hover:scale-110 transition-all duration-300 animate-bounce relative group">
+          <Bot className="w-6 h-6 text-slate-950" />
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full border-2 border-slate-950" />
         </button>
       )}
     </div>
   );
 
-  // ─── LOADING STATE ───
   if (authLoading || (user && isCheckingSubscription)) {
     return (
-      <div className="kf-root min-h-screen flex items-center justify-center">
+      <div className="kf-root min-h-screen flex items-center justify-center bg-slate-950 text-cyan-400">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">
-            {authLoading ? 'Loading...' : 'Checking subscription...'}
-          </p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400 mx-auto"></div>
+          <p className="mt-4 text-slate-400 text-sm font-mono tracking-widest uppercase animate-pulse">Initializing TechFlow...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="kf-root min-h-screen overflow-x-hidden">
+    <div className="kf-root min-h-screen overflow-x-hidden bg-slate-950 text-slate-100">
 
       {/* ================= GLOBAL COSMIC BACKGROUND ================= */}
       <div className="kf-cosmic-bg" aria-hidden="true">
@@ -856,20 +630,6 @@ useEffect(() => {
           <div className="kf-star-layer kf-star-layer-3" />
           <span className="kf-shooting-star" />
           <span className="kf-shooting-star kf-shooting-star-2" />
-        </div>
-        <div className="kf-earth-wrap">
-          <div className="kf-earth">
-            <div className="kf-earth-ocean" />
-            <div className="kf-earth-map" />
-            <div className="kf-earth-clouds" />
-            <div className="kf-earth-shade" />
-            <div className="kf-earth-highlight" />
-            <div className="kf-earth-grid" />
-          </div>
-          <div className="kf-earth-atmosphere" />
-          <div className="kf-earth-orbit">
-            <span className="kf-earth-sat" />
-          </div>
         </div>
       </div>
 
@@ -891,15 +651,22 @@ useEffect(() => {
         <div className="container mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-[58px] sm:h-[68px]">
             <button className="kf-nav-brand" onClick={() => scrollToSection('home')}>
-              <span className="kf-nav-brand-mark" aria-hidden="true">SPMS</span>
-              <span className="kf-display kf-nav-brand-text">KhmerFlow</span>
+              <span className="kf-nav-brand-mark" aria-hidden="true">TF</span>
+              <span className="kf-display kf-nav-brand-text">TechFlow</span>
             </button>
 
-            <div className="kf-nav-links hidden lg:flex">
+            <div className="kf-nav-links hidden lg:flex items-center gap-1">
               {NAV_LINKS.map((n) => (
-                <button key={n.id} onClick={() => scrollToSection(n.id)} aria-current={activeSection === n.id ? 'true' : undefined} className={`kf-nav-link ${activeSection === n.id ? 'kf-nav-link-active' : ''}`}>
-                  {n.label}
-                </button>
+                n.path ? (
+                  <Link key={n.id} to={n.path} className="kf-nav-link text-cyan-400 font-bold flex items-center gap-1.5 hover:text-cyan-300 transition">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{n.label}</span>
+                  </Link>
+                ) : (
+                  <button key={n.id} onClick={() => scrollToSection(n.id)} aria-current={activeSection === n.id ? 'true' : undefined} className={`kf-nav-link ${activeSection === n.id ? 'kf-nav-link-active' : ''}`}>
+                    {n.label}
+                  </button>
+                )
               ))}
             </div>
 
@@ -991,9 +758,16 @@ useEffect(() => {
         <div id="kf-mobile-menu" className={`kf-nav-mobile lg:hidden ${menuOpen ? 'kf-nav-mobile-open' : ''}`} style={{ maxHeight: menuOpen ? `${typeof window !== 'undefined' ? Math.min(mobileMenuHeight, window.innerHeight * 0.8) : mobileMenuHeight}px` : '0px' }}>
           <div ref={mobileMenuInnerRef} className="flex flex-col px-4 sm:px-6 py-3 gap-1">
             {NAV_LINKS.map((n) => (
-              <button key={n.id} onClick={() => scrollToSection(n.id)} aria-current={activeSection === n.id ? 'true' : undefined} className={`kf-nav-mobile-link ${activeSection === n.id ? 'kf-nav-link-active' : ''}`}>
-                {n.label}
-              </button>
+              n.path ? (
+                <Link key={n.id} to={n.path} className="kf-nav-mobile-link text-cyan-400 font-bold flex items-center gap-2" onClick={() => setMenuOpen(false)}>
+                  <Sparkles className="w-4 h-4" />
+                  <span>{n.label}</span>
+                </Link>
+              ) : (
+                <button key={n.id} onClick={() => scrollToSection(n.id)} aria-current={activeSection === n.id ? 'true' : undefined} className={`kf-nav-mobile-link ${activeSection === n.id ? 'kf-nav-link-active' : ''}`}>
+                  {n.label}
+                </button>
+              )
             ))}
             <div className="flex flex-col gap-1 mt-2 pt-3 pb-2 kf-nav-mobile-divider">
               {user ? (
@@ -1042,37 +816,37 @@ useEffect(() => {
               <div className={`kf-fade ${heroIn ? 'kf-fade-in' : ''}`}>
                 <div className="kf-eyebrow">
                   <span className="kf-eyebrow-dot" aria-hidden="true" />
-                  <span>New — real-time dashboard</span>
-                  <span className="kf-eyebrow-stats"><span>Live</span></span>
+                  <span>Next-Gen Electronics POS & Showroom</span>
+                  <span className="kf-eyebrow-stats"><span>Live 3D</span></span>
                 </div>
               </div>
 
               <div className={`kf-fade kf-fade-delay ${heroIn ? 'kf-fade-in' : ''}`}>
                 <h1 className="kf-display kf-h1">
-                  The dashboard your
+                  Build Your Dream Setup
                   <br />
-                  <span className="kf-h1-accent">shop actually needs</span>
+                  <span className="kf-h1-accent text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">&amp; Power Your Tech Store</span>
                 </h1>
-                <p className="kf-body kf-lede mt-6">See what's moving, what's low, and what you're making — all in one place. Built for Cambodian shop owners who want to focus on customers, not spreadsheets.</p>
+                <p className="kf-body kf-lede mt-6">Enterprise-grade inventory, 3D interactive storefronts, and lightning-fast POS built for modern electronics retailers and gaming hubs.</p>
               </div>
 
               <div className={`kf-fade kf-fade-delay-2 ${heroIn ? 'kf-fade-in' : ''}`}>
                 <div className="flex flex-wrap gap-4">
+                  <Link to={`/shop/${storeSlug}`} className="kf-btn-primary bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)]">
+                    <Sparkles className="w-4 h-4" aria-hidden="true" />
+                    <span>Explore 3D Storefront</span>
+                  </Link>
                   {user ? (
-                    <button onClick={goToDashboard} className="kf-btn-primary">
-                      <span>Go to Dashboard</span>
+                    <button onClick={goToDashboard} className="kf-btn-ghost">
+                      <span>Dashboard</span>
                       <ArrowRight className="w-4 h-4" aria-hidden="true" />
                     </button>
                   ) : (
-                    <Link to="/register" className="kf-btn-primary">
+                    <Link to="/register" className="kf-btn-ghost">
                       <span>Start free today</span>
                       <ArrowRight className="w-4 h-4" aria-hidden="true" />
                     </Link>
                   )}
-                  <button className="kf-btn-ghost" onClick={() => scrollToSection('features')}>
-                    <span className="kf-play-dot"><Play className="w-3 h-3" aria-hidden="true" /></span>
-                    <span>See how it works</span>
-                  </button>
                 </div>
               </div>
 
@@ -1080,24 +854,24 @@ useEffect(() => {
                 <div className="kf-hero-stats">
                   <div className="kf-hero-stat">
                     <span className="kf-hero-stat-value">${formatNumber(Math.round(dashboardStats.totalRevenue))}</span>
-                    <span className="kf-hero-stat-label">Revenue</span>
+                    <span className="kf-hero-stat-label">Store Revenue</span>
                   </div>
                   <div className="kf-hero-stat-divider" />
                   <div className="kf-hero-stat">
                     <span className="kf-hero-stat-value">{formatNumber(dashboardStats.totalOrders)}</span>
-                    <span className="kf-hero-stat-label">Orders</span>
+                    <span className="kf-hero-stat-label">PC Rigs Sold</span>
                   </div>
                   <div className="kf-hero-stat-divider" />
                   <div className="kf-hero-stat">
                     <span className="kf-hero-stat-value">{formatNumber(dashboardStats.totalCustomers)}</span>
-                    <span className="kf-hero-stat-label">Customers</span>
+                    <span className="kf-hero-stat-label">Gamers & Clients</span>
                   </div>
                 </div>
               </div>
             </div>
 
             <div className={`kf-fade kf-fade-delay ${heroIn ? 'kf-fade-in' : ''}`}>
-              <div ref={sceneRef} className="kf-dash-scene" onMouseMove={handleSceneMove} onMouseLeave={handleSceneLeave} role="img" aria-label="KhmerFlow live dashboard preview">
+              <div ref={sceneRef} className="kf-dash-scene" onMouseMove={handleSceneMove} onMouseLeave={handleSceneLeave} role="img" aria-label="TechFlow live dashboard preview">
                 <div className="kf-dash-orbit kf-dash-orbit-1" aria-hidden="true" />
                 <div className="kf-dash-orbit kf-dash-orbit-2" aria-hidden="true" />
                 <div className="kf-dash-floor" aria-hidden="true" />
@@ -1105,14 +879,14 @@ useEffect(() => {
                 <div className="kf-dash-orb kf-dash-orb-gold" aria-hidden="true" />
 
                 <div className="kf-dash-card kf-dash-card-settlement" aria-hidden="true">
-                  <div className="kf-dash-card-label">REVENUE GROWTH</div>
-                  <div className="kf-dash-card-value">+{dashboardStats.totalRevenueGrowth}%</div>
+                  <div className="kf-dash-card-label">RTX STOCK</div>
+                  <div className="kf-dash-card-value">98.4% Ready</div>
                 </div>
 
                 <div className="kf-dash-card kf-dash-card-incoming">
                   <span className="kf-dash-dot kf-dash-dot-green" aria-hidden="true" />
                   <div className="kf-dash-card-label">TODAY'S SALES</div>
-                  <div className="kf-dash-card-value">${dashboardStats.todaySales.toFixed(2)} <span className="kf-dash-card-sub">· {dashboardStats.todayOrders} orders</span></div>
+                  <div className="kf-dash-card-value">${dashboardStats.todaySales.toFixed(2)} <span className="kf-dash-card-sub">· {dashboardStats.todayOrders} rigs</span></div>
                 </div>
 
                 <div className="kf-dash-main">
@@ -1124,7 +898,7 @@ useEffect(() => {
                     <div className="kf-dash-main-divider" aria-hidden="true" />
                     <div className="kf-dash-main-stat">
                       <div className="kf-dash-main-value">{formatNumber(dashboardStats.totalCustomers)}</div>
-                      <div className="kf-dash-main-label">TOTAL CUSTOMERS</div>
+                      <div className="kf-dash-main-label">CLIENTS</div>
                     </div>
                   </div>
 
@@ -1153,7 +927,7 @@ useEffect(() => {
                 <div className="kf-dash-card kf-dash-card-api">
                   <span className="kf-dash-dot kf-dash-dot-green" aria-hidden="true" />
                   <div className="kf-dash-card-label">ACTIVE NOW</div>
-                  <div className="kf-dash-card-value">{formatNumber(dashboardStats.activeUsers)} staff</div>
+                  <div className="kf-dash-card-value">{formatNumber(dashboardStats.activeUsers)} techs</div>
                 </div>
 
                 <div className="kf-dash-time">
@@ -1166,205 +940,76 @@ useEffect(() => {
         </div>
       </section>
 
-      {/* ================= OUR MENU SECTION ================= */}
-      <section id="menu" className="kf-section kf-anchor bg-white dark:bg-gray-900 py-16 sm:py-20 lg:py-24">
-        <div className="container mx-auto px-4 sm:px-6 max-w-7xl">
-          <div className="text-center max-w-3xl mx-auto mb-12">
-            <span className="px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-xs font-bold rounded-full uppercase tracking-wider">Our Menu</span>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900 dark:text-white mt-3">Featured Products & Menu</h2>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">Explore live stock availability, pricing in USD and KHR, and order instantly.</p>
+      {/* ================= 3D STOREFRONT SHOWCASE / HARDWARE CTA ================= */}
+      <section id="storefront-showcase" className="kf-section kf-anchor bg-slate-950 py-20 relative overflow-hidden border-t border-b border-slate-800/80">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-950/20 via-slate-950 to-slate-950 pointer-events-none" />
+
+        <div className="container mx-auto px-4 sm:px-6 max-w-7xl relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <div className="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold uppercase tracking-widest mb-4 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>3D Interactive Showroom</span>
+            </div>
+            <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+              Next-Gen <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">Hardware & Peripherals</span>
+            </h2>
+            <p className="text-slate-400 mt-4 text-base sm:text-lg">
+              Experience our live 3D storefront with tilt-effect cards, glassmorphism, and instant cart checkout.
+            </p>
           </div>
 
-          {/* Controls: Search, Lang, Cart Drawer Toggle */}
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-8 bg-gray-50 dark:bg-gray-800/60 p-4 rounded-2xl border border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-2 flex-1 min-w-[240px]">
-              <Search className="w-5 h-5 text-gray-400 ml-2" />
-              <input
-                type="text"
-                placeholder="Search menu products..."
-                value={menuSearch}
-                onChange={e => setMenuSearch(e.target.value)}
-                className="w-full px-2 py-2 bg-transparent text-gray-900 dark:text-white text-sm focus:outline-none"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setMenuLang(l => l === 'en' ? 'kh' : 'en')}
-                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
-              >
-                🌐 {menuLang === 'en' ? 'ខ្មែរ (KH)' : 'English (EN)'}
-              </button>
-              <button
-                onClick={() => setIsLandingCartOpen(true)}
-                className="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow transition"
-              >
-                <ShoppingCart className="w-4 h-4" /> Cart ({landingCart.reduce((s, i) => s + i.qty, 0)})
-              </button>
-              <Link
-                to={`/shop/${storeSlug}`}
-                className="px-4 py-2 bg-white dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 rounded-xl text-xs font-bold flex items-center gap-1 border border-gray-200 dark:border-gray-600 transition"
-              >
-                View Full Menu <ExternalLink className="w-3.5 h-3.5" />
-              </Link>
-            </div>
-          </div>
-
-          {/* Category Tabs */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 scrollbar-none">
-            <button
-              onClick={() => setSelectedCategory('')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition shadow-sm ${
-                selectedCategory === '' ? 'bg-indigo-600 text-white shadow-indigo-500/25' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
-              }`}
-            >
-              All Categories
-            </button>
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition shadow-sm ${
-                  selectedCategory === cat.id ? 'bg-indigo-600 text-white shadow-indigo-500/25' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
-                }`}
-              >
-                {menuLang === 'kh' ? (cat.name_kh || cat.name) : cat.name} ({cat.product_count || 0})
-              </button>
-            ))}
-          </div>
-
-          {/* States: Loading, Error, Empty, Products Grid */}
-          {(menuLoading || catLoading) ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
-                <div key={n} className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow animate-pulse h-72">
-                  <div className="h-40 bg-gray-200 dark:bg-gray-700 rounded-xl mb-4" />
-                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
-                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
-                </div>
-              ))}
-            </div>
-          ) : (menuError || catError) ? (
-            <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
-              <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
-              <p className="text-gray-800 dark:text-white font-semibold">Failed to load menu items</p>
-              <p className="text-xs text-gray-500 mt-1">Please check your connection and try again.</p>
-            </div>
-          ) : menuProducts.length === 0 ? (
-            <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700">
-              <Package className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-              <p className="text-gray-800 dark:text-white font-semibold">No products found</p>
-              <p className="text-xs text-gray-500 mt-1">Try adjusting your search or category filter.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {menuProducts.map(prod => {
-                const productName = menuLang === 'kh' ? (prod.name_kh || prod.name) : (prod.name_en || prod.name);
-                const priceUsd = Number(prod.price || 0);
-                const exchangeRate = storeData?.exchange_rate ? Number(storeData.exchange_rate) : 4000;
-                const priceKhr = Math.round(priceUsd * exchangeRate);
-                const stockStatus = prod.stock_status || 'in';
-
-                return (
-                  <div key={prod.id} className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden flex flex-col group hover:shadow-md transition">
-                    <div className="h-48 bg-gray-100 dark:bg-gray-700 relative flex items-center justify-center overflow-hidden">
-                      {prod.image_url ? (
-                        <img src={prod.image_url} alt={productName} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-                      ) : (
-                        <Package className="w-12 h-12 text-gray-400" />
-                      )}
-                      <span className={`absolute top-3 right-3 px-2.5 py-1 rounded-full text-[10px] font-bold shadow-sm ${
-                        stockStatus === 'in' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
-                        stockStatus === 'low' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
-                      }`}>
-                        {stockStatus === 'in' ? 'In Stock' : stockStatus === 'low' ? 'Low Stock' : 'Out of Stock'}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+            {[
+              { title: 'Custom Gaming PCs', desc: 'Liquid-cooled RTX 4090 rigs built for extreme frame rates.', icon: Cpu, badge: 'RTX Inside' },
+              { title: 'Pro Laptops', desc: 'Ultra-slim OLED workstations for creators and gamers.', icon: Laptop, badge: '240Hz OLED' },
+              { title: 'Curved Monitors', desc: '4K HDR ultra-wide displays with 0.1ms response time.', icon: Monitor, badge: '4K 144Hz' },
+              { title: 'Elite Peripherals', desc: 'Mechanical keyboards, wireless mice, and spatial audio.', icon: Headphones, badge: 'Custom Switches' }
+            ].map((item, idx) => {
+              const Icon = item.icon;
+              return (
+                <div key={idx} className="group relative bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 hover:border-cyan-500/50 shadow-xl transition-all duration-300 hover:shadow-[0_10px_30px_rgba(6,182,212,0.15)] flex flex-col justify-between">
+                  <div className="absolute -inset-px bg-gradient-to-r from-cyan-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-30 blur-md transition-opacity -z-10" />
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform">
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-300 text-[10px] font-bold border border-cyan-500/20">
+                        {item.badge}
                       </span>
                     </div>
-                    <div className="p-4 flex-1 flex flex-col">
-                      <h3 className="font-bold text-gray-900 dark:text-white text-base mb-1 line-clamp-1">{productName}</h3>
-                      <div className="mt-auto pt-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-lg font-extrabold text-indigo-600 dark:text-indigo-400">${priceUsd.toFixed(2)}</p>
-                          <p className="text-xs text-gray-400">៛{priceKhr.toLocaleString()}</p>
-                        </div>
-                        <button
-                          onClick={() => addToLandingCart(prod)}
-                          disabled={stockStatus === 'out'}
-                          className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition shadow-sm"
-                        >
-                          {stockStatus === 'out' ? 'Out' : 'Add'}
-                        </button>
-                      </div>
-                    </div>
+                    <h3 className="text-lg font-bold text-white mb-2">{item.title}</h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">{item.desc}</p>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Cart Drawer Modal */}
-        {isLandingCartOpen && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex justify-end">
-            <div className="w-full max-w-md bg-white dark:bg-gray-800 h-full shadow-2xl flex flex-col animate-slideLeft">
-              <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
-                  <ShoppingCart className="w-5 h-5 text-indigo-600" /> Your Cart ({landingCart.reduce((s, i) => s + i.qty, 0)})
-                </h3>
-                <button onClick={() => setIsLandingCartOpen(false)} className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {landingCart.length === 0 ? (
-                  <div className="text-center py-20 text-gray-400">
-                    <ShoppingCart className="w-16 h-16 mx-auto mb-3 opacity-30" />
-                    <p className="font-semibold">Your cart is empty</p>
+                  <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-bold text-cyan-400 group-hover:text-cyan-300">
+                    <span>Explore Category</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </div>
-                ) : (
-                  landingCart.map(item => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{menuLang === 'kh' ? (item.name_kh || item.name) : (item.name_en || item.name)}</p>
-                        <p className="text-xs text-indigo-600 dark:text-indigo-400">${Number(item.price || 0).toFixed(2)}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => updateLandingCartQty(item.id, item.qty - 1)} className="w-7 h-7 bg-white dark:bg-gray-800 border rounded-lg font-bold flex items-center justify-center">-</button>
-                        <span className="text-sm font-bold w-6 text-center">{item.qty}</span>
-                        <button onClick={() => updateLandingCartQty(item.id, item.qty + 1)} className="w-7 h-7 bg-white dark:bg-gray-800 border rounded-lg font-bold flex items-center justify-center">+</button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                <div className="flex justify-between items-center mb-4">
-                  <span className="font-bold text-gray-600 dark:text-gray-300">Total:</span>
-                  <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">
-                    ${landingCart.reduce((sum, item) => sum + Number(item.price || 0) * item.qty, 0).toFixed(2)}
-                  </span>
                 </div>
-                <Link
-                  to={`/shop/${storeSlug}`}
-                  onClick={() => setIsLandingCartOpen(false)}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-center block shadow transition"
-                >
-                  Proceed to Checkout / Full Menu →
-                </Link>
-              </div>
-            </div>
+              );
+            })}
           </div>
-        )}
+
+          <div className="text-center">
+            <Link
+              to={`/shop/${storeSlug}`}
+              className="inline-flex items-center space-x-3 px-8 py-4 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-black rounded-2xl shadow-[0_0_30px_rgba(6,182,212,0.4)] transition-all transform hover:scale-105 uppercase tracking-wider text-sm"
+            >
+              <Zap className="w-5 h-5 fill-current" />
+              <span>Explore the 3D Storefront</span>
+              <ArrowRight className="w-5 h-5 ml-1" />
+            </Link>
+          </div>
+        </div>
       </section>
 
       {/* ================= FEATURES ================= */}
-      <section id="features" className="kf-section kf-anchor">
+      <section id="features" className="kf-section kf-anchor bg-slate-950">
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24">
           <div className="max-w-2xl mb-16">
             <span className="kf-eyebrow kf-eyebrow-light">Everything on the till</span>
-            <h2 className="kf-display kf-h2 mt-4">Made for how shops actually run</h2>
-            <p className="kf-body kf-lede-sm mt-4">Every feature answers a real question an owner asks at closing time — not a checkbox on a features page.</p>
+            <h2 className="kf-display kf-h2 mt-4">Made for how tech retailers actually run</h2>
+            <p className="kf-body kf-lede-sm mt-4">Every feature answers a real question an electronics store owner asks at closing time.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1387,7 +1032,7 @@ useEffect(() => {
       </section>
 
       {/* ================= HOW IT WORKS ================= */}
-      <section id="how-it-works" className="kf-section-alt kf-anchor">
+      <section id="how-it-works" className="kf-section-alt kf-anchor bg-slate-900/40">
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24">
           <div className="max-w-2xl mb-16">
             <span className="kf-eyebrow kf-eyebrow-light">From setup to closing</span>
@@ -1407,11 +1052,11 @@ useEffect(() => {
       </section>
 
       {/* ================= TESTIMONIALS ================= */}
-      <section id="testimonials" className="kf-section kf-anchor">
+      <section id="testimonials" className="kf-section kf-anchor bg-slate-950">
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24">
           <div className="max-w-2xl mb-16 mx-auto text-center">
             <span className="kf-eyebrow kf-eyebrow-light">From owners, not actors</span>
-            <h2 className="kf-display kf-h2 mt-4">What running the shop feels like now</h2>
+            <h2 className="kf-display kf-h2 mt-4">What running the tech shop feels like now</h2>
           </div>
 
           <div className="max-w-3xl mx-auto" onMouseEnter={() => setTestimonialPaused(true)} onMouseLeave={() => setTestimonialPaused(false)} onFocus={() => setTestimonialPaused(true)} onBlur={() => setTestimonialPaused(false)}>
@@ -1441,8 +1086,8 @@ useEffect(() => {
         </div>
       </section>
 
-      {/* ================= PRICING - FIXED ================= */}
-      <section id="pricing" className="kf-section-alt kf-anchor">
+      {/* ================= PRICING ================= */}
+      <section id="pricing" className="kf-section-alt kf-anchor bg-slate-900/40">
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24">
           <div className="max-w-2xl mb-16 mx-auto text-center">
             <span className="kf-eyebrow kf-eyebrow-light">Simple pricing, in dollars</span>
@@ -1459,12 +1104,12 @@ useEffect(() => {
             {PLANS.map((plan, i) => {
               const isActive = hasActivePlan(plan.id);
               const buttonInfo = getPlanButton(plan);
-              
+
               return (
                 <div key={i} id={`plan-${i}`} className={`kf-plan kf-reveal ${plan.highlight ? 'kf-plan-highlight' : ''} ${isActive ? 'kf-plan-active' : ''} ${isVisible[`plan-${i}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 100}ms` }} onMouseMove={handleCardMove}>
                   {plan.highlight && !isActive && <span className="kf-plan-badge">Most popular</span>}
                   {isActive && <span className="kf-plan-badge kf-plan-badge-active">✓ Active</span>}
-                  
+
                   <h3 className="kf-display kf-plan-name">{plan.name}</h3>
                   <p className="kf-caption mb-6">{plan.description}</p>
                   <div className="flex items-baseline gap-1 mb-6">
@@ -1479,14 +1124,9 @@ useEffect(() => {
                       </li>
                     ))}
                   </ul>
-                  
-                  {/* FIXED: Button logic based on subscription */}
+
                   {buttonInfo.isDisabled ? (
-                    <button 
-                      disabled 
-                      className="kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60"
-                      title={`You are currently on the ${userSubscription?.planName} plan`}
-                    >
+                    <button disabled className="kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60">
                       {buttonInfo.text}
                     </button>
                   ) : buttonInfo.isActive ? (
@@ -1504,20 +1144,11 @@ useEffect(() => {
               );
             })}
           </div>
-
-          {/* Show upgrade message if user has a plan but wants to upgrade */}
-          {user && userSubscription && userSubscription.status === 'active' && (
-            <div className="mt-8 text-center">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Want to switch plans? Contact our support team to upgrade or downgrade your subscription.
-              </p>
-            </div>
-          )}
         </div>
       </section>
 
       {/* ================= FAQ SECTION ================= */}
-      <section id="faq" className="kf-section kf-anchor">
+      <section id="faq" className="kf-section kf-anchor bg-slate-950">
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24">
           <div className="max-w-3xl mx-auto">
             <div className="text-center mb-12">
@@ -1529,11 +1160,7 @@ useEffect(() => {
                 const isOpen = openFaqs[index] || false;
                 return (
                   <div key={index} className="kf-faq-item">
-                    <button
-                      className="kf-faq-question"
-                      onClick={() => toggleFaq(index)}
-                      aria-expanded={isOpen}
-                    >
+                    <button className="kf-faq-question" onClick={() => toggleFaq(index)} aria-expanded={isOpen}>
                       <span className="kf-faq-q">{faq.q}</span>
                       <ChevronDown className={`kf-faq-icon ${isOpen ? 'kf-faq-icon-open' : ''}`} />
                     </button>
@@ -1549,32 +1176,35 @@ useEffect(() => {
       </section>
 
       {/* ================= FINAL CTA ================= */}
-      <section className="kf-cta">
+      <section className="kf-cta bg-slate-950 border-t border-slate-800">
         <div className="kf-motif kf-motif-cta" aria-hidden="true" />
         <div className="container mx-auto px-4 sm:px-6 py-16 sm:py-20 lg:py-24 relative z-10 text-center">
-          <Landmark className="w-8 h-8 mx-auto mb-6" style={{ color: 'var(--kf-gold)' }} aria-hidden="true" />
-          <h2 className="kf-display kf-h2" style={{ color: 'var(--kf-cream)' }}>Your shop deserves a ledger this clear.</h2>
+          <Cpu className="w-10 h-10 mx-auto mb-6 text-cyan-400" aria-hidden="true" />
+          <h2 className="kf-display kf-h2" style={{ color: 'var(--kf-cream)' }}>Your tech store deserves a ledger this clear.</h2>
           <p className="kf-body kf-lede-sm mt-4 max-w-xl mx-auto" style={{ color: 'rgba(241,238,255,0.72)' }}>Set up in one evening. Free for your first counter, forever.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center mt-10">
+            <Link to={`/shop/demo-store/${storeSlug}`} className="kf-btn-primary bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)]">
+              <span>Explore 3D Storefront</span>
+              <ArrowRight className="w-4 h-4" aria-hidden="true" />
+            </Link>
             {user ? (
-              <button onClick={goToDashboard} className="kf-btn-primary">
-                <span>Go to Dashboard</span>
+              <button onClick={goToDashboard} className="kf-btn-ghost">
+                <span>Dashboard</span>
                 <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </button>
             ) : (
-              <Link to="/register" className="kf-btn-primary">
+              <Link to="/register" className="kf-btn-ghost">
                 <span>Start free today</span>
                 <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </Link>
             )}
-            <button className="kf-btn-ghost-inverse" onClick={() => scrollToSection('pricing')}>See full pricing</button>
           </div>
-          
+
           <div className="max-w-md mx-auto mt-12">
-            <p className="text-sm text-white/60 mb-3">Subscribe to our newsletter for tips and updates</p>
+            <p className="text-sm text-white/60 mb-3">Subscribe to our newsletter for hardware tips and updates</p>
             <form onSubmit={handleNewsletterSubmit} className="flex gap-2">
-              <input type="email" value={newsletterEmail} onChange={(e) => setNewsletterEmail(e.target.value)} placeholder="Enter your email" className="flex-1 px-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-indigo-400" required />
-              <button type="submit" disabled={isNewsletterLoading} className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50">
+              <input type="email" value={newsletterEmail} onChange={(e) => setNewsletterEmail(e.target.value)} placeholder="Enter your email" className="flex-1 px-4 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-cyan-400" required />
+              <button type="submit" disabled={isNewsletterLoading} className="px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-bold rounded-xl hover:opacity-90 transition-colors disabled:opacity-50">
                 {isNewsletterLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : newsletterSubmitted ? <CheckCircle className="w-4 h-4" /> : <Send className="w-4 h-4" />}
               </button>
             </form>
@@ -1583,12 +1213,12 @@ useEffect(() => {
       </section>
 
       {/* ================= FOOTER ================= */}
-      <footer className="kf-footer">
+      <footer className="kf-footer bg-slate-950 border-t border-slate-800/80">
         <div className="container mx-auto px-4 sm:px-6 py-12 sm:py-16">
           <div className="kf-footer-grid grid grid-cols-2 md:grid-cols-4 gap-8 sm:gap-10">
             <div>
-              <div className="kf-display kf-footer-brand">KhmerFlow</div>
-              <p className="kf-caption mt-3 max-w-[20ch]">Point of sale &amp; inventory for Cambodian small business.</p>
+              <div className="kf-display kf-footer-brand text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">TechFlow</div>
+              <p className="kf-caption mt-3 max-w-[22ch]">Point of sale &amp; hardware inventory for modern electronics retailers.</p>
               <div className="flex gap-3 mt-4">
                 <a href="#" className="kf-social-link" aria-label="Twitter"><TwitterIcon className="w-4 h-4" /></a>
                 <a href="https://www.linkedin.com/in/chheang-samnang-b95825406?utm_source=share_via&utm_content=profile&utm_medium=member_ios" className="kf-social-link" aria-label="LinkedIn"><LinkedInIcon className="w-4 h-4" /></a>
@@ -1598,10 +1228,10 @@ useEffect(() => {
             <div>
               <h4 className="kf-footer-head">Product</h4>
               <ul className="space-y-2">
+                <li><Link to={`/shop/${storeSlug}`} className="kf-footer-link text-cyan-400 font-bold">3D Storefront</Link></li>
                 <li><button className="kf-footer-link" onClick={() => scrollToSection('features')}>Features</button></li>
                 <li><button className="kf-footer-link" onClick={() => scrollToSection('pricing')}>Pricing</button></li>
                 <li><button className="kf-footer-link" onClick={() => scrollToSection('faq')}>FAQ</button></li>
-                <li><a href="#" className="kf-footer-link">What's new</a></li>
               </ul>
             </div>
             <div>
@@ -1616,7 +1246,7 @@ useEffect(() => {
             <div>
               <h4 className="kf-footer-head">Support</h4>
               <ul className="space-y-2">
-               <li> <Link to="/help" className="kf-footer-link">  Help Center</Link> </li>
+                <li><Link to="/help" className="kf-footer-link">Help Center</Link></li>
                 <li><a href="https://t.me/+855979325903" className="kf-footer-link">Telegram</a></li>
                 <li><a href="#" className="kf-footer-link">Privacy policy</a></li>
                 <li><a href="#" className="kf-footer-link">Terms of service</a></li>
@@ -1624,7 +1254,7 @@ useEffect(() => {
             </div>
           </div>
           <div className="kf-footer-rule mt-12 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-            <span className="kf-caption">© 2026 KhmerFlow.SPMS. 🇰🇭</span>
+            <span className="kf-caption">© 2026 TechFlow.SPMS. ⚡</span>
             <div className="flex gap-6">
               <a href="#" className="kf-footer-link">Twitter</a>
               <a href="#" className="kf-footer-link">YouTube</a>

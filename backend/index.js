@@ -25,7 +25,7 @@ app.use(cors({
     'http://localhost:5173',
     'http://localhost:3000',
     'http://localhost:5000',
-    'https://spms-chh-sn-2.onrender.com'
+    
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -43,8 +43,8 @@ app.use((req, res, next) => {
 
 // ===== HEALTH CHECK (BEFORE ROUTES) =====
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Server is running',
     timestamp: new Date().toISOString()
   });
@@ -52,8 +52,8 @@ app.get('/health', (req, res) => {
 
 // ===== TEST ROUTE (BEFORE ROUTES) =====
 app.get('/api/test', (req, res) => {
-  res.json({ 
-    message: '✅ API is working!', 
+  res.json({
+    message: '✅ API is working!',
     timestamp: new Date().toISOString(),
     status: 'online',
     endpoints: [
@@ -80,7 +80,7 @@ app.use('/api/dashboard', dashboardRoutes);
 // ===== 404 HANDLING =====
 app.use((req, res) => {
   console.log(`❌ 404 - Route not found: ${req.method} ${req.url}`);
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Not Found',
     message: `Route ${req.method} ${req.url} not found`,
     path: req.url,
@@ -91,9 +91,9 @@ app.use((req, res) => {
 // ===== ERROR HANDLING =====
 app.use((err, req, res, next) => {
   console.error('❌ Server error:', err.stack);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal server error',
-    message: err.message 
+    message: err.message
   });
 });
 

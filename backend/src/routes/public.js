@@ -109,18 +109,24 @@ router.get('/store/:slug', async (req, res) => {
 router.get('/store/:slug/categories', async (req, res) => {
   try {
     const { slug } = req.params;
-    const store = await getStoreBySlug(db, slug);
-    if (!store) return res.status(404).json({ error: 'Store not found' });
+    
+    // 1. Resolve tenant_id from store_settings using slug
+    const storeRes = await db.query('SELECT tenant_id FROM store_settings WHERE slug = $1', [slug]);
+    if (storeRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+    const tenantId = storeRes.rows[0].tenant_id;
 
+    // 2. Fetch categories from tbl_categories for that tenant_id
     const query = `
       SELECT c.id, c.name, '' as description, COUNT(p.id) as product_count
       FROM tbl_categories c
-      LEFT JOIN tbl_products p ON p.category_id = c.id AND p.tenant_id = $1 AND p.is_published = true AND LOWER(p.status) = 'active'
+      LEFT JOIN tbl_products p ON p.category_id = c.id AND p.tenant_id = $1
       WHERE c.tenant_id = $1
       GROUP BY c.id, c.name
       ORDER BY c.name ASC
     `;
-    const result = await db.query(query, [store.tenant_id]);
+    const result = await db.query(query, [tenantId]);
     res.json({ success: true, categories: result.rows });
   } catch (err) {
     console.error('❌ Get public categories error:', err.message);
@@ -132,22 +138,26 @@ router.get('/store/:slug/categories', async (req, res) => {
 router.get('/store/:slug/menu', async (req, res) => {
   try {
     const { slug } = req.params;
-    const { category, q, sort, page = 1, limit = 20 } = req.query;
+    const { category, q, sort, page = 1, limit = 100 } = req.query;
 
-    const store = await getStoreBySlug(db, slug);
-    if (!store) return res.status(404).json({ error: 'Store not found' });
+    // 1. Resolve tenant_id from store_settings using slug
+    const storeRes = await db.query('SELECT tenant_id FROM store_settings WHERE slug = $1', [slug]);
+    if (storeRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+    const tenantId = storeRes.rows[0].tenant_id;
 
+    // 3. Fetch products from tbl_products for that tenant_id, and LEFT JOIN tbl_stock on tbl_stock.productid = tbl_products.id
     let query = `
       SELECT p.id, p.name, p.name_kh, p.price, p.image_url, p.description_en, p.description_kh,
              p.barcode, c.name as category_name,
-             COALESCE(s.qtyavailable, 0) as qtyavailable,
-             COALESCE(s.minstocklevel, 5) as minstocklevel
+             s.qtyavailable
       FROM tbl_products p
       LEFT JOIN tbl_categories c ON p.category_id = c.id
       LEFT JOIN tbl_stock s ON s.productid = p.id AND s.tenant_id = p.tenant_id
-      WHERE p.tenant_id = $1 AND p.is_published = true AND LOWER(p.status) = 'active'
+      WHERE p.tenant_id = $1
     `;
-    const params = [store.tenant_id];
+    const params = [tenantId];
     let paramIdx = 2;
 
     if (category) {
@@ -169,7 +179,7 @@ router.get('/store/:slug/menu', async (req, res) => {
     } else if (sort === 'name') {
       query += ` ORDER BY p.name ASC`;
     } else {
-      query += ` ORDER BY p.sort_order ASC, p.id DESC`;
+      query += ` ORDER BY p.id DESC`;
     }
 
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
@@ -178,28 +188,35 @@ router.get('/store/:slug/menu', async (req, res) => {
 
     const result = await db.query(query, params);
 
-    // Map stock status without exposing exact counts (only stock_status: in_stock / low / out)
+    // 4. Return products with stock_status ('in', 'low', 'out') based on tbl_stock.qtyavailable (default to 'out' if null)
     const products = result.rows.map(item => {
-      const qty = parseInt(item.qtyavailable, 10);
-      const minStock = parseInt(item.minstocklevel, 5);
-      let stock_status = 'in_stock';
-      if (qty <= 0) stock_status = 'out';
-      else if (qty <= minStock) stock_status = 'low';
+      const qty = item.qtyavailable !== null && item.qtyavailable !== undefined ? parseInt(item.qtyavailable, 10) : 0;
+      let stock_status = 'out';
+      if (qty > 5) {
+        stock_status = 'in';
+      } else if (qty > 0) {
+        stock_status = 'low';
+      } else {
+        stock_status = 'out';
+      }
 
       return {
         id: item.id,
+        name: item.name,
         name_en: item.name,
         name_kh: item.name_kh,
-        price: parseFloat(item.price),
+        price: parseFloat(item.price || 0),
         image_url: item.image_url,
         description_en: item.description_en,
         description_kh: item.description_kh,
         category_name: item.category_name,
         barcode: item.barcode,
-        stock_status
+        stock_status,
+        qtyavailable: qty
       };
     });
 
+    // 5. Ensure response format matches { products: [...] }
     res.json({ success: true, products });
   } catch (err) {
     console.error('❌ Get public menu error:', err.message);
@@ -214,14 +231,17 @@ router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
     const { slug } = req.params;
     const {
       customer_name,
-      customer_phone,
+      customer_phone: rawCustomerPhone,
+      phone: rawPhone,
       delivery_type, // 'pickup' | 'delivery'
       delivery_address,
       notes,
-      items, // [{ product_id, qty }]
+      items, // [{ productid, product_id, qty, quantity }]
       idempotency_key,
       payment_method
     } = req.body;
+
+    const customer_phone = rawCustomerPhone || rawPhone;
 
     if (!customer_name || !customer_phone || !items || !Array.isArray(items) || items.length === 0) {
       client.release();
@@ -316,7 +336,7 @@ router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
     // Aggregate cart lines by product_id
     const aggregatedMap = new Map();
     for (const item of items) {
-      const prodId = Number(item.product_id);
+      const prodId = Number(item.productid || item.product_id);
       const orderQty = Number(item.qty || item.quantity);
       if (!prodId || isNaN(prodId) || !Number.isInteger(orderQty) || orderQty <= 0 || orderQty > 100000) {
         throw new BusinessError(400, `Invalid product ID or quantity`);
@@ -356,8 +376,8 @@ router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
       if (currentStock < orderQty) {
         await client.query('ROLLBACK');
         client.release();
-        return res.status(409).json({
-          error: 'Insufficient stock',
+        return res.status(400).json({
+          error: `Insufficient stock for ${prod.name}`,
           product_id: prodId,
           product_name: prod.name,
           requested: orderQty,

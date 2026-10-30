@@ -160,9 +160,9 @@ const Settings = () => {
 
   // ===== AI ASSISTANT STATE =====
   const [aiMessages, setAiMessages] = useState([
-    { 
-      id: 1, 
-      type: 'assistant', 
+    {
+      id: 1,
+      type: 'assistant',
       message: '👋 Hello! I\'m your AI Assistant. How can I help you today?',
       timestamp: new Date().toISOString(),
       read: true
@@ -185,17 +185,17 @@ const Settings = () => {
   // ===== AI RESPONSES =====
   const aiResponses = {
     'password': "🔐 To change your password:\n1. Go to Security tab\n2. Enter your current password\n3. Enter your new password (min 6 characters)\n4. Confirm your new password\n5. Click 'Update Security'\n\n💡 Tip: Use a mix of letters, numbers, and special characters for a strong password.",
-    
+
     'inventory': "📦 Here's how to manage inventory effectively:\n1. Go to Products > Stock\n2. Use the 'Low Stock' filter to see items that need reordering\n3. Set up automatic reorder points\n4. Use the bulk update feature for quick changes\n5. Generate inventory reports weekly\n\n📊 Pro tip: Track your best-selling items to optimize stock levels.",
-    
+
     'sales report': "📊 To generate a sales report:\n1. Navigate to Reports > Sales\n2. Select your date range\n3. Choose report type (Daily/Weekly/Monthly)\n4. Click 'Generate'\n5. Export as PDF, Excel, or CSV\n\n📈 Pro tip: Compare month-over-month data to identify trends.",
-    
+
     '2fa': "🔐 Setting up Two-Factor Authentication:\n1. Go to Security tab\n2. Click on 'Two-Factor Authentication'\n3. Scan the QR code with your authenticator app\n4. Enter the 6-digit code\n5. Click 'Verify & Enable'\n\n✅ Your account is now 2FA protected!",
-    
+
     'profile update': "👤 To update your profile:\n1. Go to Profile tab\n2. Update your full name, email, or phone\n3. Click 'Save Changes'\n4. For avatar, click the camera icon on your profile picture\n\n📸 Tip: Use a clear photo for your profile picture.",
-    
+
     'backup': "💾 To backup your data:\n1. Go to Backup tab\n2. Click 'Create Backup'\n3. Wait for the backup to complete\n4. Download the backup file\n5. Store it in a safe location\n\n🔄 Schedule automatic backups for peace of mind.",
-    
+
     'default': "🤖 I understand you're asking about that. Here are some things I can help with:\n• Password management 🔐\n• Inventory optimization 📦\n• Sales reporting 📊\n• Security settings 🛡️\n• Profile updates 👤\n• Data backup 💾\n\nJust type your question and I'll do my best to help!"
   };
 
@@ -212,7 +212,7 @@ const Settings = () => {
 
   const getAiResponse = (message) => {
     const lowerMsg = message.toLowerCase();
-    
+
     // Check for keywords and return appropriate response
     if (lowerMsg.includes('password') || lowerMsg.includes('change password')) {
       return aiResponses.password;
@@ -278,9 +278,9 @@ const Settings = () => {
 
   const clearAiChat = () => {
     setAiMessages([
-      { 
-        id: 1, 
-        type: 'assistant', 
+      {
+        id: 1,
+        type: 'assistant',
         message: '👋 Hello! I\'m your AI Assistant. How can I help you today?',
         timestamp: new Date().toISOString(),
         read: true
@@ -332,7 +332,7 @@ const Settings = () => {
     storeEmail: 'store@example.com',
     storePhone: '+1 234 567 890',
     storeAddress: '123 Main Street, City',
-    storeTimezone: Intl.DateTimeFormat().resolveOptions().timeZone,
+    storeTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     currencySymbol: '$',
     taxRate: 10,
     enableGuestCheckout: true,
@@ -413,7 +413,7 @@ const Settings = () => {
   ];
 
   // ===== FILTER TABS BY ROLE =====
-  const accessibleTabs = tabs.filter(tab => 
+  const accessibleTabs = tabs.filter(tab =>
     tab.roles.includes(userRole) || tab.roles.includes('All')
   );
 
@@ -609,9 +609,9 @@ const Settings = () => {
                 <button
                   onClick={() => {
                     setAiMessages([
-                      { 
-                        id: 1, 
-                        type: 'assistant', 
+                      {
+                        id: 1,
+                        type: 'assistant',
                         message: '👋 Hello! I\'m your AI Assistant. How can I help you today?',
                         timestamp: new Date().toISOString(),
                         read: true
@@ -1656,9 +1656,9 @@ const Settings = () => {
                 <button className="p-1 text-blue-500 hover:text-blue-700 transition-colors" title="Download">
                   <Download className="w-4 h-4" />
                 </button>
-                <button 
+                <button
                   onClick={() => handleDeleteBackup(backup.id)}
-                  className="p-1 text-red-500 hover:text-red-700 transition-colors" 
+                  className="p-1 text-red-500 hover:text-red-700 transition-colors"
                   title="Delete"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -1679,10 +1679,10 @@ const Settings = () => {
       'Cashier': { color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400', icon: UserCheck },
       'Viewer': { color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400', icon: EyeIcon }
     };
-    
+
     const config = roleConfig[userRole] || roleConfig['Viewer'];
     const Icon = config.icon;
-    
+
     return (
       <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${config.color}`}>
         <Icon className="w-3 h-3" />
@@ -1728,7 +1728,7 @@ const Settings = () => {
               Settings
             </h2>
           </div>
-          
+
           {/* User Role Badge */}
           <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700/30 rounded-xl">
             <div className="flex items-center gap-2">
@@ -1744,13 +1744,13 @@ const Settings = () => {
               {isViewer && '🔵 View-only access'}
             </p>
           </div>
-          
+
           <nav className="space-y-1">
             {accessibleTabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               const isAdminOnly = tab.roles.includes('Admin') && tab.roles.length === 1;
-              
+
               return (
                 <button
                   key={tab.id}
