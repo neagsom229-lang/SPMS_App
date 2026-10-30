@@ -12,6 +12,8 @@ try {
   // Ignored if unsupported in certain node environments
 }
 
+
+
 const isProd = process.env.NODE_ENV === 'production';
 const connectionString = process.env.DATABASE_URL || (isProd ? null : 'postgresql://postgres:postgres@localhost:5432/spms');
 
@@ -31,6 +33,7 @@ try {
 const isSupabase = dbHost.includes('supabase.com') || dbHost.includes('supabase.co');
 const isNeon = dbHost.includes('neon.tech') || process.env.DB_SSL === 'true' || isProd;
 const isCloud = isSupabase || isNeon;
+
 
 const pool = new Pool({
   connectionString,

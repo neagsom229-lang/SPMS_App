@@ -15,43 +15,43 @@
   --warning: #f59e0b;
   --danger: #ef4444;
   --info: #3b82f6;
-  
+
   /* Light Effects */
   --light-glow-1: rgba(99, 102, 241, 0.12);
   --light-glow-2: rgba(139, 92, 246, 0.10);
   --light-glow-3: rgba(236, 72, 153, 0.08);
   --light-sparkle: rgba(255, 255, 255, 0.6);
-  
+
   /* Background Colors */
   --bg-primary: #f8fafc;
   --bg-secondary: #ffffff;
   --bg-card: #ffffff;
   --bg-dark: #0f172a;
-  
+
   /* Text Colors */
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-light: #94a3b8;
   --text-white: #ffffff;
-  
+
   /* Border Colors */
   --border-light: #e2e8f0;
   --border-dark: #334155;
-  
+
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.05);
   --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
   --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1);
   --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.1);
   --shadow-2xl: 0 25px 50px -12px rgba(0,0,0,0.25);
-  
+
   /* Border Radius */
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-xl: 1.5rem;
   --radius-full: 9999px;
-  
+
   /* Transitions */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 300ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -119,7 +119,7 @@
 .stock-bg-gradient {
   position: absolute;
   inset: 0;
-  background: 
+  background:
     radial-gradient(ellipse at 20% 50%, var(--light-glow-1) 0%, transparent 60%),
     radial-gradient(ellipse at 80% 50%, var(--light-glow-2) 0%, transparent 60%);
   pointer-events: none;
@@ -396,21 +396,22 @@
    HEADER
    ============================================ */
 .stock-header {
-  background: linear-gradient(135deg, 
-    rgba(99, 102, 241, 0.95),
-    rgba(139, 92, 246, 0.95),
-    rgba(236, 72, 153, 0.85)
-  );
+  /* TechFlow Dark Mode Gradient */
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+
+  /* Subtle neon cyan border */
+  border: 1px solid rgba(6, 182, 212, 0.3);
   border-radius: var(--radius-xl);
   padding: clamp(1.25rem, 3vw, 2rem);
   color: white;
-  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+  /* Soft dark shadow with a faint cyan glow */
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(6, 182, 212, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   margin-bottom: clamp(1rem, 2vw, 1.5rem);
   position: relative;
   overflow: hidden;
   animation: header-in 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-
 @keyframes header-in {
   0% {
     opacity: 0;
@@ -2165,49 +2166,49 @@
     grid-template-columns: repeat(2, 1fr);
     gap: 0.5rem;
   }
-  
+
   .stock-controls-left {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .stock-search {
     min-width: unset;
   }
-  
+
   .stock-filter {
     width: 100%;
     min-width: unset;
   }
-  
+
   .stock-controls-right {
     width: 100%;
     justify-content: flex-start;
   }
-  
+
   .stock-grid {
     grid-template-columns: 1fr;
     gap: 0.75rem;
   }
-  
+
   .stock-modal-content {
     max-width: 100%;
     margin: 0.5rem;
     border-radius: var(--radius-lg);
   }
-  
+
   .stock-modal-product-info {
     grid-template-columns: 1fr;
   }
-  
+
   .stock-modal-stock-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .stock-form-row {
     grid-template-columns: 1fr;
   }
-  
+
   .stock-list-table {
     min-width: 600px;
   }
@@ -2218,15 +2219,15 @@
   .stock-stats {
     grid-template-columns: repeat(2, 1fr);
   }
-  
+
   .stock-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  
+
   .stock-controls-left {
     flex-wrap: wrap;
   }
-  
+
   .stock-search {
     min-width: 150px;
   }
@@ -2237,7 +2238,7 @@
   .stock-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  
+
   .stock-stats {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -2262,7 +2263,7 @@
   .stock-grid {
     grid-template-columns: repeat(4, 1fr);
   }
-  
+
   .stock-container {
     padding: 2rem;
     max-width: 1440px;
@@ -2277,34 +2278,34 @@
     max-width: 1920px;
     margin: 0 auto;
   }
-  
+
   .stock-header-title {
     font-size: 2.75rem;
   }
-  
+
   .stock-stat-value {
     font-size: 2.25rem;
   }
-  
+
   .stock-grid {
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 2rem;
   }
-  
+
   .stock-stats {
     gap: 1.5rem;
   }
-  
+
   .stock-header {
     padding: 2.5rem;
     border-radius: 2rem;
   }
-  
+
   .stock-controls {
     border-radius: 1.5rem;
     padding: 1.5rem;
   }
-  
+
   .stock-modal-content {
     max-width: 640px;
   }
@@ -2322,15 +2323,15 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  
+
   .stock-grid-card:hover {
     transform: none !important;
   }
-  
+
   .stock-stat-card:hover {
     transform: none !important;
   }
-  
+
   .stock-header-btn:hover {
     transform: none !important;
   }
@@ -2344,7 +2345,7 @@
     padding: 0.5rem !important;
     background: white !important;
   }
-  
+
   .stock-bg,
   .stock-floating-icons,
   .stock-header::before,
@@ -2352,14 +2353,14 @@
   .stock-header-glow {
     display: none !important;
   }
-  
+
   .stock-header {
     background: white !important;
     color: black !important;
     box-shadow: none !important;
     border-bottom: 1px solid #ddd !important;
   }
-  
+
   .stock-header-btn,
   .stock-header-btn-primary,
   .stock-controls,
@@ -2369,24 +2370,24 @@
   .stock-toast {
     display: none !important;
   }
-  
+
   .stock-stats {
     display: flex !important;
     flex-wrap: wrap !important;
     gap: 0.5rem !important;
   }
-  
+
   .stock-stat-card {
     border: 1px solid #ddd !important;
     box-shadow: none !important;
   }
-  
+
   .stock-grid-card {
     border: 1px solid #ddd !important;
     box-shadow: none !important;
     break-inside: avoid;
   }
-  
+
   .dark .stock-grid-card,
   .dark .stock-list-view,
   .dark .stock-controls {
@@ -2394,16 +2395,16 @@
     color: black !important;
     border-color: #ddd !important;
   }
-  
+
   .dark .stock-list-product-name,
   .dark .stock-grid-card-name {
     color: black !important;
   }
-  
+
   .dark .stock-grid-card-price {
     color: #6366f1 !important;
   }
-  
+
   .stock-list-view {
     border: 1px solid #ddd !important;
     box-shadow: none !important;

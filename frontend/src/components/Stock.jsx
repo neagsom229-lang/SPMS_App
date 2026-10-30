@@ -220,6 +220,9 @@ const Stock = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+  queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
+  queryClient.invalidateQueries({ queryKey: ['orders'] });
       showMessage('✅ Stock updated successfully!', 'success');
       closeEditModal();
     },
@@ -227,7 +230,7 @@ const Stock = () => {
       console.error('❌ Update stock error:', error);
       const errorData = error.response?.data;
       const errorMsg = errorData?.error || error.message || 'Failed to update stock';
-      
+
       // Check for unique constraint error
       if (errorMsg.includes('Unique constraint missing') || errorMsg.includes('CONSTRAINT')) {
         showMessage(
@@ -536,49 +539,10 @@ const Stock = () => {
               <p className="stock-stat-value">{stat.value}</p>
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* ---- Data integrity warning ---- */}
-      {duplicateProductCount > 0 && showDuplicateWarning && (
-        <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 text-sm mt-4">
-          <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <div className="flex-1">
-            <p className="font-medium">
-              ⚠️ {duplicateProductCount} product{duplicateProductCount > 1 ? 's have' : ' has'} duplicate stock records
-            </p>
-            <p className="mt-1">
-              Showing the most recent record for each product. The extra rows should be cleaned up on the backend.
-            </p>
-            <div className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg overflow-auto">
-              <p className="text-xs font-mono text-amber-700 dark:text-amber-300">
-                -- Fix: Add unique constraint
-                <br />
-                {sqlFix}
-              </p>
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                -- Then remove duplicate rows (keep the latest)
-                <br />
-                DELETE FROM tbl_stock a
-                <br />
-                USING tbl_stock b
-                <br />
-                WHERE a.productid = b.productid
-                <br />
-                AND a.stockid &lt; b.stockid;
-              </p>
-            </div>
-            <button
-              onClick={() => setShowDuplicateWarning(false)}
-              className="mt-2 text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300 transition-colors"
-            >
-              Dismiss
-            </button>
           </div>
-        </div>
-      )}
+          </div>
 
-      {/* ---- Controls ---- */}
+          {/* ---- Controls ---- */}
       <div className="stock-controls">
         <div className="stock-controls-content">
           <div className="stock-controls-left">
