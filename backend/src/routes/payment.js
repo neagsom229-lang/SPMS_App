@@ -1,91 +1,156 @@
+// backend/src/routes/payment.js
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
 const pool = require('../config/db');
+const { BakongKHQR, khqrData, IndividualInfo } = require('bakong-khqr');
 
-// GENERATE KHQR
-const handleKhqrGeneration = async (req, res) => {
-  const KHQR_TOKEN = process.env.KHQR_RBK_TOKEN;
-  const amount = req.body?.amount || req.query?.amount;
-  const planId = req.body?.planId || req.query?.plan || 'shophouse';
-  const userId = req.body?.userId || req.query?.userId;
-  const orderId = req.body?.orderId || req.query?.orderId || `sub-${userId}-${planId}-${Date.now()}`;
+// Ensure table exists helper function
+async function ensureKhqrTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS khqr_sessions (
+        id SERIAL PRIMARY KEY,
+        order_id VARCHAR(255) UNIQUE NOT NULL,
+        user_id INTEGER REFERENCES tbl_users(userid) ON DELETE CASCADE,
+        plan VARCHAR(100),
+        amount NUMERIC(10, 2) NOT NULL,
+        md5 VARCHAR(255) UNIQUE NOT NULL,
+        qr_string TEXT NOT NULL,
+        status VARCHAR(50) DEFAULT 'UNPAID',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        paid_at TIMESTAMP
+      )
+    `);
+  } catch (err) {
+    console.error('❌ Failed to ensure khqr_sessions table:', err.message);
+  }
+}
 
-  if (!KHQR_TOKEN) {
-    return res.status(500).json({ error: 'Missing KHQR_RBK_TOKEN in .env' });
-  }
-  if (!amount) {
-    return res.status(400).json({ error: 'Missing amount' });
-  }
+// 1. CREATE DYNAMIC QR ROUTE (POST /api/payment/bakong/create-qr)
+router.post('/bakong/create-qr', async (req, res) => {
+  const { amount, planId, userId } = req.body;
 
   try {
-    console.log(`Generating QR for $${amount}...`);
+    if (!amount || !userId) {
+      return res.status(400).json({ error: 'Missing required parameters: amount and userId' });
+    }
 
-    // KHQR.dev Correct Endpoint & Payload
-    const response = await axios.post(
-      'https://api.khqr.dev/v1/qr',
-      { amount: Number(amount) },
-      {
-        headers: {
-          'Authorization': `Bearer ${KHQR_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
+    const rawOrderId = `sub-${userId}-${planId || 'default'}-${Date.now()}`;
+    const orderId = rawOrderId.slice(0, 25);
+
+    const accountId = process.env.BAKONG_ACCOUNT_ID || 'abaakhppxxx@abaa';
+    const merchantName = process.env.BAKONG_MERCHANT_NAME || 'SAMNANG CHHEANG';
+    const merchantCity = process.env.BAKONG_MERCHANT_CITY || 'Phnom Penh';
+
+    const optionalData = {
+      amount: Number(amount),
+      currency: khqrData.currency.usd,
+      billNumber: orderId,
+      expirationTimestamp: Date.now() + 15 * 60 * 1000 // 15 minutes
+    };
+
+    const individualInfo = new IndividualInfo(
+      accountId,
+      merchantName,
+      merchantCity,
+      optionalData
     );
 
-    const { qr, md5 } = response.data;
+    const khqr = new BakongKHQR();
+    const response = khqr.generateIndividual(individualInfo);
 
-    // Save to DB
+    if (!response || !response.data) {
+      console.error('KHQR Library Error Response:', response);
+      throw new Error('Failed to generate KHQR string from library');
+    }
+
+    const qrString = response.data.qr;
+    const md5 = response.data.md5;
+
+    await ensureKhqrTable();
+
+    // Save to database with status 'UNPAID'
     await pool.query(
       `INSERT INTO khqr_sessions (order_id, user_id, plan, amount, md5, qr_string, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'UNPAID')
        ON CONFLICT (order_id) DO UPDATE SET md5 = EXCLUDED.md5, qr_string = EXCLUDED.qr_string, amount = EXCLUDED.amount`,
-      [orderId, userId ? parseInt(userId, 10) : null, planId, Number(amount), md5, qr]
+      [orderId, parseInt(userId, 10), planId || 'default', Number(amount), md5, qrString]
     );
 
-    res.json({ qr, md5, orderId, amount: Number(amount) });
+    res.json({ success: true, qr: qrString, md5, orderId });
   } catch (error) {
-    console.error('❌ KHQR API Error:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Failed to generate KHQR', details: error.message });
+    console.error('❌ BAKONG CREATE QR FATAL ERROR:', error.message);
+    res.status(500).json({ error: error.message || 'Failed to generate dynamic QR' });
   }
-};
+});
 
-router.post('/khqr', handleKhqrGeneration);
-router.get('/khqr', handleKhqrGeneration);
-
-// CHECK STATUS
-router.get('/khqr/status/:md5', async (req, res) => {
-  const KHQR_TOKEN = process.env.KHQR_RBK_TOKEN;
+// 2. STATUS CHECK ROUTE (GET /api/payment/bakong/check/:md5)
+router.get('/bakong/check/:md5', async (req, res) => {
   const { md5 } = req.params;
 
   try {
-    const response = await axios.get(
-      `https://api.khqr.dev/v1/qr/check/${md5}`,
-      { headers: { 'Authorization': `Bearer ${KHQR_TOKEN}` } }
+    const result = await pool.query(
+      `SELECT status, user_id, plan FROM khqr_sessions WHERE md5 = $1`,
+      [md5]
     );
 
-    const status = String(response.data.status || '').toUpperCase();
-
-    if (status === 'PAID') {
-      const sessionResult = await pool.query(
-        `UPDATE khqr_sessions SET status = 'PAID' WHERE md5 = $1 AND status != 'PAID' RETURNING user_id, plan`,
-        [md5]
-      );
-
-      if (sessionResult.rows.length > 0) {
-        const { user_id, plan } = sessionResult.rows[0];
-        if (user_id) {
-          await pool.query(
-            `UPDATE tbl_users SET subscription_plan = $1, subscription_expires = NOW() + INTERVAL '30 days' WHERE userid = $2`,
-            [plan, user_id]
-          );
-        }
-      }
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Transaction session not found' });
     }
-    res.json({ status });
+
+    const session = result.rows[0];
+    const status = session.status;
+
+    // If PAID, update user subscription in tbl_users
+    if (status === 'PAID') {
+      try {
+        await pool.query(
+          `UPDATE tbl_users
+           SET subscription_plan = $1, subscription_expires = NOW() + INTERVAL '30 days'
+           WHERE userid = $2`,
+          [session.plan || 'Standard', session.user_id]
+        );
+      } catch (subErr) {
+        console.error('❌ Failed to update user subscription:', subErr.message);
+      }
+      return res.json({ status: 'PAID' });
+    }
+
+    res.json({ status: status || 'UNPAID' });
   } catch (error) {
-    console.error('❌ KHQR Status Error:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Failed to check status' });
+    console.error('❌ Status Check Error:', error.message);
+    res.status(500).json({ error: 'Database error checking payment status' });
+  }
+});
+
+// 3. SIMULATE PAYMENT SUCCESS (For Testing / Dev)
+router.post('/bakong/simulate-payment/:md5', async (req, res) => {
+  const { md5 } = req.params;
+  try {
+    const sessionRes = await pool.query(
+      `SELECT user_id, plan FROM khqr_sessions WHERE md5 = $1`,
+      [md5]
+    );
+
+    await pool.query(
+      `UPDATE khqr_sessions SET status = 'PAID', paid_at = NOW() WHERE md5 = $1`,
+      [md5]
+    );
+
+    if (sessionRes.rows.length > 0) {
+      const { user_id, plan } = sessionRes.rows[0];
+      await pool.query(
+        `UPDATE tbl_users
+         SET subscription_plan = $1, subscription_expires = NOW() + INTERVAL '30 days'
+         WHERE userid = $2`,
+        [plan || 'Standard', user_id]
+      );
+    }
+
+    res.json({ success: true, message: "Payment simulated as PAID and subscription updated" });
+  } catch (error) {
+    console.error('Simulation error:', error.message);
+    res.status(500).json({ error: 'Failed to simulate payment' });
   }
 });
 
