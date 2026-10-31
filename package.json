@@ -15,6 +15,7 @@
     "concurrently": "^8.0.1"
   },
   "dependencies": {
-    "@emailjs/browser": "^4.4.1"
+    "@emailjs/browser": "^4.4.1",
+    "bakong-khqr": "^1.0.20"
   }
 }

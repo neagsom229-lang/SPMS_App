@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 const Pricing = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth(); // Grab authLoading to prevent premature calls
   const navigate = useNavigate();
 
   const [currentPlan, setCurrentPlan] = useState(null);
@@ -26,26 +26,38 @@ const Pricing = () => {
   const [userSubscription, setUserSubscription] = useState(null);
   const [isCheckingSubscription, setIsCheckingSubscription] = useState(true);
 
-  // 1. Fetch Subscription Status
+  // Robust User ID extraction
+  const safeUserId = user?.userid || user?.user_id || user?.id;
+
+  // 1. Fetch Subscription Status safely
   useEffect(() => {
     let isMounted = true;
+
     const checkSubscription = async () => {
-      if (user) {
+      // Wait for auth to finish loading
+      if (authLoading) return;
+
+      if (user && safeUserId) {
         try {
-          const { data } = await apiClient.get(`/users/${user.userid || user.user_id}/subscription`);
+          const { data } = await apiClient.get(`/users/${safeUserId}/subscription`);
           if (isMounted) setUserSubscription(data);
         } catch (error) {
-          console.error('Error fetching subscription:', error);
+          // If it's a 401, the user's token is likely expired
+          if (error.response?.status === 401) {
+            console.warn('Token expired or invalid. Please log in again.');
+            localStorage.removeItem('token');
+          }
         }
       }
+
       if (isMounted) setIsCheckingSubscription(false);
     };
 
     checkSubscription();
     return () => { isMounted = false; };
-  }, [user]);
+  }, [user, safeUserId, authLoading]);
 
-  // Memoize plans to prevent unnecessary re-renders
+  // Memoize plans
   const plans = useMemo(() => [
     {
       id: 'market-stall',
@@ -101,7 +113,6 @@ const Pricing = () => {
     },
   ], []);
 
-  // 2. Handle Plan Selection (No API calls here)
   const handleSubscribe = useCallback((plan) => {
     if (user && userSubscription && userSubscription.status === 'active') {
       toast(`You're already on the ${userSubscription.planName || 'active'} plan!`);
@@ -120,16 +131,15 @@ const Pricing = () => {
       return;
     }
 
-    if (!user) {
+    if (!user || !safeUserId) {
       toast.error('Please login or create an account first');
       setTimeout(() => navigate('/login'), 1000);
       return;
     }
 
-    // Open the modal with the selected plan
     setCurrentPlan(plan);
     setShowQRModal(true);
-  }, [user, userSubscription, navigate]);
+  }, [user, safeUserId, userSubscription, navigate]);
 
   const hasActiveSubscription = useCallback((planId) => {
     return userSubscription && userSubscription.status === 'active' && userSubscription.plan === planId;
@@ -165,7 +175,7 @@ const Pricing = () => {
     );
   };
 
-  if (isCheckingSubscription) {
+  if (authLoading || isCheckingSubscription) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -176,7 +186,6 @@ const Pricing = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/30 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 py-16 px-4">
       <div className="container mx-auto max-w-6xl">
-
         {/* Header */}
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-full text-sm text-blue-600 dark:text-blue-400 mb-4">
@@ -190,9 +199,6 @@ const Pricing = () => {
               ready for ten
             </span>
           </h1>
-          <p className="text-gray-600 dark:text-gray-300 text-lg max-w-2xl mx-auto">
-            Choose the plan that fits your business. Start free, upgrade as you grow.
-          </p>
         </div>
 
         {/* Pricing Cards */}
@@ -271,7 +277,7 @@ const Pricing = () => {
         </div>
       </div>
 
-      {/* ===== PAYWAY CHECKOUT MODAL ===== */}
+      {/* ===== CHECKOUT MODAL ===== */}
       {showQRModal && currentPlan && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fadeIn"
@@ -285,11 +291,10 @@ const Pricing = () => {
               <X className="w-4 h-4" />
             </button>
 
-            {/* Using the new component that bypasses the broken backend */}
             <BakongPayment
               amount={currentPlan.price}
               planId={currentPlan.id}
-              userId={user?.userid || user?.user_id}
+              userId={safeUserId} // Safe ID passed here
               onSuccess={() => {
                 setShowQRModal(false);
                 navigate('/dashboard');
