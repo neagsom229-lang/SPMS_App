@@ -1,4 +1,4 @@
--- Migration 023: Massive Electronics Seeding (40+ Products & 6 Categories for demo-store)
+-- Seed 023: Massive Electronics Seeding (40+ Products & 6 Categories for demo-store)
 -- Automatically resolves tenant_id from store_settings where slug = 'demo-store'
 
 DO $$

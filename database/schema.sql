@@ -9,6 +9,10 @@ CREATE TABLE IF NOT EXISTS tenants (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+INSERT INTO tenants (id, name, subdomain, status) 
+VALUES (1, 'Default Tenant', 'default', 'ACTIVE')
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS tbl_users (
     userid SERIAL PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
@@ -40,6 +44,7 @@ CREATE TABLE IF NOT EXISTS tbl_products (
     stock INTEGER DEFAULT 0,
     barcode VARCHAR(100),
     image_url TEXT,
+    status VARCHAR(50) DEFAULT 'Active',
     tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -67,6 +72,7 @@ CREATE TABLE IF NOT EXISTS tbl_suppliers (
 );
 
 CREATE TABLE IF NOT EXISTS tbl_orders (
+    id SERIAL UNIQUE,
     or_id SERIAL PRIMARY KEY,
     order_no VARCHAR(100) NOT NULL,
     customer_id INTEGER REFERENCES tbl_customers(id),

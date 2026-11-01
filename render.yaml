@@ -11,3 +11,15 @@ services:
         value: production
       - key: PORT
         value: 5000
+      - key: BAKONG_PROVIDER
+        value: manual
+      - key: BAKONG_API_BASE
+        value: https://api-bakong.nbc.gov.kh
+      - key: BAKONG_TOKEN
+        sync: false
+      - key: BAKONG_TOKEN_EXPIRES_AT
+        sync: false
+      - key: BAKONG_ACCOUNT_ID
+        sync: false
+      - key: ENABLE_PAYMENT_SIMULATOR
+        value: "false"

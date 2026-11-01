@@ -28,7 +28,7 @@ const userRoutes = require('./routes/users');
 const stockRoutes = require('./routes/stock');
 const tenantRoutes = require('./routes/tenants');
 const categoryRoutes = require('./routes/categories');
-const paymentRoutes = require('./routes/payment');
+const paymentRoutes = require('./routes/paymentRoutes');
 const warrantyRoutes = require('./routes/warranties');
 const serviceRoutes = require('./routes/services');
 const analyticsRoutes = require('./routes/analytics');
@@ -52,6 +52,7 @@ process.on("uncaughtException", (err) => {
 const db = require("./config/postgres");
 const logger = require("./utils/logger");
 const { checkEnv } = require("./config/env");
+const { startReconciler } = require("./services/bakongReconciler");
 
 // ============================================
 // MIDDLEWARE
@@ -313,6 +314,7 @@ async function startServer() {
     const server = app.listen(PORT, () => {
       console.log(`🚀 SPMS Backend running on http://localhost:${PORT}`);
       console.log(`💚 Health: http://localhost:${PORT}/health`);
+      startReconciler();
     });
 
     server.on('error', (error) => {
