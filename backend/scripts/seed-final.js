@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/seed-final.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';

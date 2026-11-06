@@ -39,7 +39,7 @@ const Pricing = () => {
 
       if (user && safeUserId) {
         try {
-          const { data } = await apiClient.get(`/users/${safeUserId}/subscription`);
+          const { data } = await apiClient.get('/payment/subscription');
           if (isMounted) setUserSubscription(data);
         } catch (error) {
           // If it's a 401, the user's token is likely expired

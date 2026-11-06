@@ -10,6 +10,12 @@ A multi-tenant POS and Inventory SaaS application built with Node.js, Express, P
 
 ---
 
+## Tenant Isolation & Security
+
+Tenant isolation in SPMS is **application-layer only** (enforced via request scope filtering and `tenant_id` query scoping across all backend controllers and models), and is rigorously verified by the automated integration and contract test suite.
+
+---
+
 ## Environment Variables
 
 Create a `.env` file in root or backend based on `.env.example`:
@@ -27,47 +33,3 @@ Create a `.env` file in root or backend based on `.env.example`:
 - `BAKONG_TOKEN_EXPIRES_AT`: Token expiration timestamp
 - `BAKONG_ACCOUNT_ID`: Receiving merchant Bakong account ID
 - `ENABLE_PAYMENT_SIMULATOR`: Enable test simulator (false in production)
-
----
-
-## Manual Mode Operation
-
-When `BAKONG_PROVIDER=manual`, automated upstream checking returns `NOT_FOUND`. Verification and activation are performed manually by super admins via the admin confirmation screen (`POST /api/payment/admin/sessions/:id/mark-paid`), which updates session status to `PAID`, sets `verified_by = manual:<userId>`, extends the tenant's subscription plan, and writes an audit log.
-
----
-
-## Local Development
-
-### Prerequisites
-- Node.js >= 20
-- PostgreSQL database
-
-### 1. Backend Setup
-```bash
-cd backend
-npm install
-npm run seed
-npm run dev
-```
-
-### 2. Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-## Testing & Build
-
-- **Backend Tests:**
-  ```bash
-  cd backend
-  npm test
-  ```
-- **Frontend Build:**
-  ```bash
-  cd frontend
-  npm run build
-  ```

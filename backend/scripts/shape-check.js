@@ -1,3 +1,4 @@
+require('./_guard.js');
 require("dotenv").config();
 const base = "http://localhost:5000";
 (async () => {

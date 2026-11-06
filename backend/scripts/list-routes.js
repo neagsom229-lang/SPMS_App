@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/list-routes.js
 const fs = require('fs');
 const path = require('path');

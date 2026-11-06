@@ -1,12 +1,21 @@
 // backend/src/config/plans.js
-// TODO: Replace placeholder prices with official rates upon confirmation.
 module.exports = {
-  PRO: {
-    1: { USD: 10.00, KHR: 41000.00 },
-    12: { USD: 100.00, KHR: 410000.00 }
+  'market-stall': {
+    1: { USD: 0.00 }
   },
-  BASIC: {
-    1: { USD: 5.00, KHR: 20500.00 },
-    12: { USD: 50.00, KHR: 205000.00 }
+  'MARKET-STALL': {
+    1: { USD: 0.00 }
+  },
+  'shophouse': {
+    1: { USD: 19.00 }
+  },
+  'SHOPHOUSE': {
+    1: { USD: 19.00 }
+  },
+  'chain': {
+    1: { USD: 49.00 }
+  },
+  'CHAIN': {
+    1: { USD: 49.00 }
   }
 };

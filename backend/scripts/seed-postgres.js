@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/seed-postgres.js
 const pool = require('../src/config/postgres');
 const bcrypt = require('bcryptjs');

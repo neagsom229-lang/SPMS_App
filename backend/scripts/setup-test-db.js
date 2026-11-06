@@ -1,7 +1,12 @@
+process.env.NODE_ENV = 'test';
+const path = require('path');
+try { require('dotenv').config({ path: path.join(__dirname, '../.env.test'), override: true }); } catch (e) {}
+process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5433/spms_test';
+process.env.DIRECT_URL = process.env.DATABASE_URL;
+require('./_guard');
 const { Pool } = require('pg');
 const { execSync } = require('child_process');
 const fs = require('fs');
-const path = require('path');
 
 async function setup() {
   const adminPool = new Pool({ connectionString: 'postgresql://postgres:postgres@localhost:5433/postgres' });
@@ -17,14 +22,17 @@ async function setup() {
     await adminPool.end();
   }
 
-  // Connect to spms_test and execute schema.sql
+  // Connect to spms_test and execute baseline.sql
   const testPool = new Pool({ connectionString: 'postgresql://postgres:postgres@localhost:5433/spms_test' });
   try {
-    const schemaSql = fs.readFileSync(path.join(__dirname, '../../database/schema.sql'), 'utf8');
+    await testPool.query("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF; END $$;");
+    await testPool.query("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF; END $$;");
+    await testPool.query("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF; END $$;");
+    const schemaSql = fs.readFileSync(path.join(__dirname, '../../database/baseline.sql'), 'utf8');
     await testPool.query(schemaSql);
-    console.log('✅ Executed database/schema.sql on spms_test');
+    console.log('✅ Executed database/baseline.sql on spms_test');
   } catch (err) {
-    console.error('❌ Schema execution failed:', err.message);
+    console.error('❌ Baseline execution failed:', err.message);
   } finally {
     await testPool.end();
   }
@@ -40,3 +48,4 @@ async function setup() {
 }
 
 setup();
+

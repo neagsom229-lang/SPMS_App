@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/seed-pos.js
 const pool = require('../src/config/postgres');
 require('dotenv').config();

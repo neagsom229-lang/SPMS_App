@@ -2,6 +2,7 @@
 const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
+const rolePolicy = require('../middleware/rolePolicy');
 
 const router = express.Router();
 
@@ -133,7 +134,6 @@ router.post('/receive', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Check product belongs to tenant
     const prodCheck = await client.query(
       'SELECT id FROM tbl_products WHERE id = $1 AND tenant_id = $2',
       [product_id, tenantId]
@@ -144,7 +144,6 @@ router.post('/receive', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // SELECT ... FOR UPDATE (create row if missing)
     let stockRes = await client.query(
       'SELECT * FROM tbl_stock WHERE productid = $1 AND tenant_id = $2 FOR UPDATE',
       [product_id, tenantId]
@@ -216,7 +215,6 @@ router.post('/adjust', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Check product belongs to tenant
     const prodCheck = await client.query(
       'SELECT id FROM tbl_products WHERE id = $1 AND tenant_id = $2',
       [product_id, tenantId]
@@ -227,7 +225,6 @@ router.post('/adjust', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    // SELECT ... FOR UPDATE (create row if missing)
     let stockRes = await client.query(
       'SELECT * FROM tbl_stock WHERE productid = $1 AND tenant_id = $2 FOR UPDATE',
       [product_id, tenantId]

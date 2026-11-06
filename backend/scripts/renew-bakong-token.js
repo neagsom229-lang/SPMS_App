@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/renew-bakong-token.js
 const readline = require('readline');
 const axios = require('axios');

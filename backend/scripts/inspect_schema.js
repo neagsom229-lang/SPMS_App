@@ -1,3 +1,4 @@
+require('./_guard.js');
 require('dotenv').config();
 const db = require('../src/config/postgres');
 async function run() {

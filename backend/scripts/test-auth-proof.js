@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/test-auth-proof.js
 const http = require('http');
 

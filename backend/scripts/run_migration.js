@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+try { require('dotenv').config({ path: path.join(__dirname, '../.env.test'), override: true }); } catch (e) {}
+require('./_guard');
 const { URL } = require('url');
 const db = require('../src/config/postgres');
 require('dotenv').config();
@@ -87,3 +89,4 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+

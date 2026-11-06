@@ -1,3 +1,4 @@
+require('./_guard.js');
 require('dotenv').config();
 const crypto = require('crypto');
 const BASE = 'http://localhost:5000/api';

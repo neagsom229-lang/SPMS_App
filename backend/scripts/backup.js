@@ -1,3 +1,4 @@
+require('./_guard');
 // backend/scripts/backup.js
 const { exec } = require('child_process');
 const fs = require('fs');

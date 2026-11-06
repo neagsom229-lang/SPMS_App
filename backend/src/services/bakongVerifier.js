@@ -111,9 +111,9 @@ async function verifyTransaction(session, providedMd5) {
           }
 
           const amount = Number(tx.amount);
-          const currency = (tx.currency || session.currency || 'USD').toUpperCase();
-          const toAccountId = tx.toAccountId || tx.receiverAccount || expectedAccount;
-          const createdDateMs = tx.createdDate ? new Date(tx.createdDate).getTime() : Date.now();
+          const currency = (tx.currency || '').toUpperCase();
+          const toAccountId = tx.toAccountId || tx.receiverAccount || '';
+          const createdDateMs = tx.createdDate ? new Date(tx.createdDate).getTime() : 0;
 
           const sessionAmount = Number(session.amount || session.expected_amount);
           const sessionCurrency = (session.currency || 'USD').toUpperCase();

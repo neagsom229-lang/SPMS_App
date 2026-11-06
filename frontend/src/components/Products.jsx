@@ -97,37 +97,6 @@ const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
 });
 
 // ============================================
-// STOCK SYNC HELPERS (using numeric IDs)
-// ============================================
-const createStockForProduct = async (numericId, qtyInStock, qtyAlert) => {
-  if (!numericId) return;
-  try {
-    await apiClient.post('/stock', {
-      productid: numericId,
-      qtyinstock: qtyInStock || 0,
-      qtyavailable: qtyInStock || 0,
-      qtyreserved: 0,
-      qty_alert: qtyAlert || 10,
-    });
-    console.log(`✅ Stock created for product ${numericId}`);
-  } catch (err) {
-    // If the backend already created stock (via trigger or POST /products), this will fail;
-    // we ignore the error because it's harmless.
-    console.warn('⚠️ Stock creation skipped (may already exist):', err.message);
-  }
-};
-
-const deleteStockForProduct = async (numericId) => {
-  if (!numericId) return;
-  try {
-    await apiClient.delete(`/stock/${numericId}`);
-    console.log(`✅ Stock deleted for product ${numericId}`);
-  } catch (err) {
-    console.warn('⚠️ Could not delete stock:', err.message);
-  }
-};
-
-// ============================================
 // MAIN PRODUCTS COMPONENT
 // ============================================
 const Products = () => {
