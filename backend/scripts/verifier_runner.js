@@ -3,9 +3,10 @@ const axios = require('axios');
 const bcrypt = require('bcryptjs');
 const { Client } = require('pg');
 const { execSync } = require('child_process');
+const { testDatabaseUrl } = require('./_guard');
 
 (async () => {
-  const dbClient = new Client({ connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/spms_test' });
+  const dbClient = new Client({ connectionString: process.env.DATABASE_URL || testDatabaseUrl() });
   await dbClient.connect();
 
   try {

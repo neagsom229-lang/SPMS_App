@@ -12,7 +12,7 @@ describe('Security and Rate Limiting Tests', () => {
   let staffUserId;
 
   beforeAll(async () => {
-    pool = new Pool({ connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/spms_test' });
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
   });
 
   afterAll(async () => {
@@ -53,13 +53,13 @@ describe('Security and Rate Limiting Tests', () => {
       .post('/api/users')
       .set('Authorization', `Bearer ${staffToken}`)
       .send({ username: 'newadmin_' + rnd(), password: 'Password1!', role: 'Admin', email: 'newadmin_' + rnd() + '@sectest.com' });
-    expect([401, 403]).toContain(createAdminRes.status);
+    expect(createAdminRes.status).toBe(401);
 
     const promoteRes = await request(app)
       .put(`/api/users/${staffUserId}`)
       .set('Authorization', `Bearer ${staffToken}`)
       .send({ role: 'Admin' });
-    expect([401, 403]).toContain(promoteRes.status);
+    expect(promoteRes.status).toBe(401);
   });
 
   test('tenant B cannot change tenant A roles or data', async () => {
@@ -85,6 +85,6 @@ describe('Security and Rate Limiting Tests', () => {
       .put(`/api/users/${userAId}`)
       .set('Authorization', `Bearer ${tenantBToken}`)
       .send({ role: 'Staff' });
-    expect([401, 403, 404]).toContain(changeRoleRes.status);
+    expect(changeRoleRes.status).toBe(401);
   });
 });

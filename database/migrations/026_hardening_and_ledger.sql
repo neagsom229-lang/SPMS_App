@@ -16,3 +16,5 @@ CREATE TABLE IF NOT EXISTS khqr_webhook_events (
     event_id VARCHAR(255) PRIMARY KEY,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE khqr_webhook_events ENABLE ROW LEVEL SECURITY;

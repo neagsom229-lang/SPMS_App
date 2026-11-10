@@ -1,5 +1,4 @@
 // backend/tests/publicStore.test.js
-process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5433/spms_test';
 process.env.NODE_ENV = 'test';
 
 const request = require('supertest');
@@ -105,7 +104,7 @@ describe('Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry
         items: [{ product_id: productId, qty: 1 }],
         idempotency_key: 'pending-3-' + Date.now()
       });
-    expect([200, 201, 400, 429]).toContain(res.status);
+    expect(res.status).toBe(400);
   });
 
   it('Public store pending order expiry restores stock correctly', async () => {

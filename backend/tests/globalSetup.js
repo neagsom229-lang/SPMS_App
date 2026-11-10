@@ -1,16 +1,25 @@
 // backend/tests/globalSetup.js
 const { Client } = require('pg');
-const { testDatabaseUrl, assertTestDatabaseUrl } = require('../scripts/_guard');
+const { TEST_DB_NAME, testDatabaseUrl, assertTestDatabaseUrl } = require('../scripts/_guard');
+const { buildTestDatabase, productionReplayCheck } = require('../scripts/test-db');
 
 module.exports = async () => {
   process.env.NODE_ENV = 'test';
   if (!process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = testDatabaseUrl();
+    process.env.DATABASE_URL = testDatabaseUrl(TEST_DB_NAME);
   }
-
   const identity = assertTestDatabaseUrl();
-  const host = identity.host;
-  const port = identity.port;
+
+  // baseline.sql = state after 014. Ledger is marked 001-014 only, then the
+  // real runner performs the 015-026 upgrade.
+  const build = await buildTestDatabase(TEST_DB_NAME);
+  console.log(`baseline loaded; ledger marked 001-014 (${build.marked} rows); runner applied 015-026 (ledger=${build.ledger.total})`);
+  console.log(build.out.trim().split(/\r?\n/).slice(-3).join('\n'));
+
+  // Replay the real upgrade path on a DB whose schema already has 015-026.
+  const replay = await productionReplayCheck();
+  console.log(`production replay: ledger before=${replay.before.ledger}, webhook table existed=${replay.before.webhook_table}, runner exit 0, ledger after=${replay.ledger.total}, schema_unchanged=${replay.schemaUnchanged}`);
+  console.log(replay.out.trim().split(/\r?\n/).slice(-2).join('\n'));
 
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   try {
@@ -23,8 +32,8 @@ module.exports = async () => {
     );
     const row = res.rows[0];
     console.table([{
-      host,
-      port,
+      host: identity.host,
+      port: identity.port,
       database: row.database,
       postgres_version: row.version,
       required_roles: Number(row.required_roles),

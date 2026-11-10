@@ -1,10 +1,11 @@
 require('./_guard.js');
 require('dotenv').config();
 const { Client } = require('pg');
+const { testDatabaseUrl } = require('./_guard');
 const base = 'http://localhost:5000';
 
 async function checkDb() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/spms_test' });
+  const client = new Client({ connectionString: process.env.DATABASE_URL || testDatabaseUrl() });
   await client.connect();
   const res = await client.query('SELECT current_database(), inet_server_addr(), inet_server_port();');
   console.table([res.rows[0]]);

@@ -55,6 +55,7 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
     }
 
     const expectedAmount = PLANS[normPlan][months][normCurr];
+    const storedPlan = normPlan.toLowerCase();
     const orderId = `SUB-${req.tenantId}-${Date.now()}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -82,8 +83,8 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
     await db.query(
       `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, expected_amount, currency, md5, qr_string, status, expires_at)
        VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, 'PENDING', $9)
-       ON CONFLICT (md5) DO NOTHING`,
-      [req.tenantId, req.user.userId, normPlan, months, expectedAmount, normCurr, md5, qrString, expiresAt]
+       ON CONFLICT DO NOTHING`,
+      [req.tenantId, req.user.userId, storedPlan, months, expectedAmount, normCurr, md5, qrString, expiresAt]
     );
 
     res.json({
@@ -228,35 +229,43 @@ router.post('/webhook/khqr', express.raw({ type: '*/*' }), async (req, res) => {
       return res.status(400).json({ error: 'Missing event identifier' });
     }
 
-    // Idempotency check
-    const eventRes = await db.query(`SELECT event_id FROM khqr_webhook_events WHERE event_id = $1`, [eventId]);
-    if (eventRes.rows.length > 0) {
-      return res.status(200).json({ success: true, message: 'Event already processed' });
-    }
-
-    await db.query(`INSERT INTO khqr_webhook_events (event_id) VALUES ($1) ON CONFLICT (event_id) DO NOTHING`, [eventId]);
-
+    // Idempotency insert and activation share one transaction: the event row
+    // only survives if the activation commits.
     const md5 = payload.md5;
-    if (!md5) {
-      return res.status(200).json({ success: true, message: 'No md5 in payload' });
-    }
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      const eventInsert = await client.query(
+        `INSERT INTO khqr_webhook_events (event_id) VALUES ($1)
+         ON CONFLICT (event_id) DO NOTHING
+         RETURNING event_id`,
+        [eventId]
+      );
+      if (eventInsert.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(200).json({ success: true, message: 'Event already processed' });
+      }
 
-    const sessionRes = await db.query(`SELECT * FROM khqr_sessions WHERE md5 = $1`, [md5]);
-    if (sessionRes.rows.length === 0) {
-      return res.status(200).json({ success: true, message: 'Session not found' });
-    }
+      if (!md5) {
+        await client.query('COMMIT');
+        return res.status(200).json({ success: true, message: 'No md5 in payload' });
+      }
 
-    const session = sessionRes.rows[0];
-    if (session.status === 'PAID') {
-      return res.status(200).json({ success: true, message: 'Already paid' });
-    }
+      const sessionRes = await client.query(`SELECT * FROM khqr_sessions WHERE md5 = $1`, [md5]);
+      if (sessionRes.rows.length === 0) {
+        await client.query('COMMIT');
+        return res.status(200).json({ success: true, message: 'Session not found' });
+      }
 
-    // Re-verify with provider check endpoint
-    const verifyResult = await verifyTransaction(session, md5);
-    if (verifyResult.state === 'PAID') {
-      const client = await db.connect();
-      try {
-        await client.query('BEGIN');
+      const session = sessionRes.rows[0];
+      if (session.status === 'PAID') {
+        await client.query('COMMIT');
+        return res.status(200).json({ success: true, message: 'Already paid' });
+      }
+
+      // Re-verify with provider check endpoint
+      const verifyResult = await verifyTransaction(session, md5);
+      if (verifyResult.state === 'PAID') {
         const updateRes = await client.query(
           `UPDATE khqr_sessions 
            SET status = 'PAID', bakong_hash = $2, paid_at = NOW(), verified_by = 'webhook', raw_response = $3 
@@ -280,17 +289,17 @@ router.post('/webhook/khqr', express.raw({ type: '*/*' }), async (req, res) => {
             [session.tenant_id, session.user_id, 'SUBSCRIPTION_WEBHOOK_PAID', JSON.stringify({ plan: session.plan, hash: verifyResult.hash })]
           );
         }
-
-        await client.query('COMMIT');
-      } catch (txErr) {
-        await client.query('ROLLBACK');
-        console.error('Webhook transaction error:', txErr);
-      } finally {
-        client.release();
       }
-    }
 
-    return res.status(200).json({ success: true });
+      await client.query('COMMIT');
+      return res.status(200).json({ success: true });
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      console.error('Webhook transaction error:', txErr);
+      return res.status(500).json({ error: 'Internal server error' });
+    } finally {
+      client.release();
+    }
   } catch (err) {
     console.error('Webhook processing error:', err);
     return res.status(500).json({ error: 'Internal server error' });

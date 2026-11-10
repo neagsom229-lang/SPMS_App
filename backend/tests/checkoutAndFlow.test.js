@@ -1,5 +1,4 @@
 // backend/tests/checkoutAndFlow.test.js
-process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5433/spms_test';
 process.env.NODE_ENV = 'test';
 
 const request = require('supertest');
@@ -103,7 +102,7 @@ describe('Checkout Concurrency, Idempotency, and Password Change Flow Tests', ()
         payment_method: 'Cash',
         idempotency_key: 'idemp-dup-' + Date.now()
       });
-    expect([400, 409]).toContain(res.status);
+    expect(res.status).toBe(409);
   });
 
   it('Reverse-order carts execute in parallel without deadlock', async () => {
@@ -126,8 +125,8 @@ describe('Checkout Concurrency, Idempotency, and Password Change Flow Tests', ()
         idempotency_key: key + '-2'
       })
     ]);
-    expect([200, 201, 409]).toContain(res1.status);
-    expect([200, 201, 409]).toContain(res2.status);
+    expect(res1.status).toBe(409);
+    expect(res2.status).toBe(409);
   });
 
   it('Idempotency key replay returns same order id and performs stock decrement only once', async () => {
@@ -145,8 +144,8 @@ describe('Checkout Concurrency, Idempotency, and Password Change Flow Tests', ()
     const first = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`).send(payload);
     const second = await request(app).post('/api/orders').set('Authorization', `Bearer ${token}`).send(payload);
 
-    expect([200, 201]).toContain(first.status);
-    expect([200, 201]).toContain(second.status);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(200);
     const id1 = first.body.id || first.body.order_id || first.body.or_id;
     const id2 = second.body.id || second.body.order_id || second.body.or_id;
     expect(id1).toBeDefined();
@@ -178,8 +177,8 @@ describe('Checkout Concurrency, Idempotency, and Password Change Flow Tests', ()
       payment_method: 'Cash',
       idempotency_key: key
     });
-    expect([200, 201, 400]).toContain(resA.status);
-    expect([200, 201]).toContain(resB.status);
+    expect(resA.status).toBe(400);
+    expect(resB.status).toBe(201);
     await db.query('DELETE FROM tenants WHERE id = $1', [tBId]);
   });
 

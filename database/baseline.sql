@@ -1,9 +1,15 @@
+--
+-- PostgreSQL database dump
+--
 
 
+-- Dumped from database version 17.11
+-- Dumped by pg_dump version 17.11
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -12,85 +18,12 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: sync_product_stock(); Type: FUNCTION; Schema: public; Owner: -
+--
 
-CREATE SCHEMA IF NOT EXISTS extensions;
-CREATE SCHEMA IF NOT EXISTS vault;
-
-
-
-COMMENT ON SCHEMA "public" IS 'standard public schema';
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA "extensions";
-
-
-
-
-
-
-DO $$
-BEGIN
-    CREATE EXTENSION IF NOT EXISTS "supabase_vault" WITH SCHEMA "vault";
-EXCEPTION WHEN others THEN
-    NULL;
-END $$;
-
-
-
-
-
-
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
-
-
-
-
-
-
-CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'pg_catalog'
-    AS $$
-DECLARE
-  cmd record;
-  tbl name;
-BEGIN
-  FOR cmd IN
-    SELECT *
-    FROM pg_event_trigger_ddl_commands()
-    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
-      AND object_type IN ('table','partitioned table')
-  LOOP
-     IF cmd.schema_name IS NOT NULL AND cmd.schema_name IN ('public') AND cmd.schema_name NOT IN ('pg_catalog','information_schema') AND cmd.schema_name NOT LIKE 'pg_toast%' AND cmd.schema_name NOT LIKE 'pg_temp%' THEN
-      BEGIN
-        SELECT c.relname INTO tbl FROM pg_catalog.pg_class c WHERE c.oid = cmd.objid;
-        EXECUTE format('alter table if exists %I.%I enable row level security', cmd.schema_name, tbl);
-        RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
-      EXCEPTION
-        WHEN OTHERS THEN
-          RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
-      END;
-     ELSE
-        RAISE LOG 'rls_auto_enable: skip % (either system schema or not in enforced list: %.)', cmd.object_identity, cmd.schema_name;
-     END IF;
-  END LOOP;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."rls_auto_enable"() OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."sync_product_stock"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
+CREATE FUNCTION public.sync_product_stock() RETURNS trigger
+    LANGUAGE plpgsql
     AS $$
 BEGIN
   UPDATE tbl_products SET stock = NEW.qtyavailable WHERE id = NEW.productid;
@@ -99,38 +32,50 @@ END;
 $$;
 
 
-ALTER FUNCTION "public"."sync_product_stock"() OWNER TO "postgres";
-
 SET default_tablespace = '';
 
-SET default_table_access_method = "heap";
+SET default_table_access_method = heap;
 
+--
+-- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
+--
 
-CREATE TABLE IF NOT EXISTS "public"."khqr_sessions" (
-    "id" integer NOT NULL,
-    "order_id" character varying(255) NOT NULL,
-    "tenant_id" integer,
-    "user_id" integer,
-    "plan" character varying(100),
-    "period_months" integer DEFAULT 1,
-    "amount" numeric(10,2) NOT NULL,
-    "currency" character varying(10) DEFAULT 'USD'::character varying,
-    "md5" character varying(255) NOT NULL,
-    "bakong_hash" character varying(255),
-    "qr_string" "text" NOT NULL,
-    "status" character varying(50) DEFAULT 'PENDING'::character varying,
-    "expires_at" timestamp without time zone,
-    "paid_at" timestamp without time zone,
-    "verified_by" character varying(100),
-    "raw_response" "jsonb",
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.schema_migrations (
+    filename character varying(255) NOT NULL,
+    executed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."khqr_sessions" OWNER TO "postgres";
+--
+-- Name: store_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.store_settings (
+    id integer NOT NULL,
+    tenant_id integer,
+    slug character varying(100) NOT NULL,
+    store_name character varying(255) NOT NULL,
+    logo_url text,
+    phone character varying(50),
+    address text,
+    currency character varying(10) DEFAULT 'USD'::character varying,
+    exchange_rate numeric(10,4) DEFAULT 4000.0000,
+    is_open boolean DEFAULT true,
+    accepts_online_orders boolean DEFAULT true,
+    delivery_enabled boolean DEFAULT true,
+    pickup_enabled boolean DEFAULT true,
+    opening_hours jsonb DEFAULT '{}'::jsonb,
+    tax_rate numeric(5,2) DEFAULT 0.00,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
 
 
-CREATE SEQUENCE IF NOT EXISTS "public"."khqr_sessions_id_seq"
+--
+-- Name: store_settings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.store_settings_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -139,47 +84,33 @@ CREATE SEQUENCE IF NOT EXISTS "public"."khqr_sessions_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."khqr_sessions_id_seq" OWNER TO "postgres";
+--
+-- Name: store_settings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.store_settings_id_seq OWNED BY public.store_settings.id;
 
 
-ALTER SEQUENCE "public"."khqr_sessions_id_seq" OWNED BY "public"."khqr_sessions"."id";
+--
+-- Name: tbl_activity_logs; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."schema_migrations" (
-    "filename" character varying(255) NOT NULL,
-    "executed_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_activity_logs (
+    id integer NOT NULL,
+    user_id integer,
+    action character varying(255) NOT NULL,
+    target_table character varying(100),
+    target_id integer,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."schema_migrations" OWNER TO "postgres";
+--
+-- Name: tbl_activity_logs_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE TABLE IF NOT EXISTS "public"."store_settings" (
-    "id" integer NOT NULL,
-    "tenant_id" integer,
-    "slug" character varying(100) NOT NULL,
-    "store_name" character varying(255) NOT NULL,
-    "logo_url" "text",
-    "phone" character varying(50),
-    "address" "text",
-    "currency" character varying(10) DEFAULT 'USD'::character varying,
-    "exchange_rate" numeric(10,4) DEFAULT 4000.0000,
-    "is_open" boolean DEFAULT true,
-    "accepts_online_orders" boolean DEFAULT true,
-    "delivery_enabled" boolean DEFAULT true,
-    "pickup_enabled" boolean DEFAULT true,
-    "tax_rate" numeric(5,2) DEFAULT 0.00,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "opening_hours" "jsonb" DEFAULT '{}'::"jsonb"
-);
-
-
-ALTER TABLE "public"."store_settings" OWNER TO "postgres";
-
-
-CREATE SEQUENCE IF NOT EXISTS "public"."store_settings_id_seq"
+CREATE SEQUENCE public.tbl_activity_logs_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -188,28 +119,30 @@ CREATE SEQUENCE IF NOT EXISTS "public"."store_settings_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."store_settings_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_activity_logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_activity_logs_id_seq OWNED BY public.tbl_activity_logs.id;
 
 
-ALTER SEQUENCE "public"."store_settings_id_seq" OWNED BY "public"."store_settings"."id";
+--
+-- Name: tbl_categories; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_activity_logs" (
-    "id" integer NOT NULL,
-    "user_id" integer,
-    "action" character varying(255) NOT NULL,
-    "target_table" character varying(100),
-    "target_id" integer,
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_categories (
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_activity_logs" OWNER TO "postgres";
+--
+-- Name: tbl_categories_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_activity_logs_id_seq"
+CREATE SEQUENCE public.tbl_categories_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -218,25 +151,35 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_activity_logs_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_activity_logs_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_categories_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_categories_id_seq OWNED BY public.tbl_categories.id;
 
 
-ALTER SEQUENCE "public"."tbl_activity_logs_id_seq" OWNED BY "public"."tbl_activity_logs"."id";
+--
+-- Name: tbl_customers; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_categories" (
-    "id" integer NOT NULL,
-    "name" character varying(255) NOT NULL,
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_customers (
+    id integer NOT NULL,
+    cus_id character varying(50) NOT NULL,
+    name character varying(255) NOT NULL,
+    email character varying(255),
+    phone character varying(50),
+    address text,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    status character varying(20) DEFAULT 'Active'::character varying
 );
 
 
-ALTER TABLE "public"."tbl_categories" OWNER TO "postgres";
+--
+-- Name: tbl_customers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_categories_id_seq"
+CREATE SEQUENCE public.tbl_customers_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -245,30 +188,32 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_categories_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_categories_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_customers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_customers_id_seq OWNED BY public.tbl_customers.id;
 
 
-ALTER SEQUENCE "public"."tbl_categories_id_seq" OWNED BY "public"."tbl_categories"."id";
+--
+-- Name: tbl_held_sales; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_customers" (
-    "id" integer NOT NULL,
-    "cus_id" character varying(50) NOT NULL,
-    "name" character varying(255) NOT NULL,
-    "email" character varying(255),
-    "phone" character varying(50),
-    "address" "text",
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "status" character varying(20) DEFAULT 'Active'::character varying
+CREATE TABLE public.tbl_held_sales (
+    id integer NOT NULL,
+    tenant_id integer,
+    user_id integer,
+    customer_id integer,
+    cart_json jsonb NOT NULL,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_customers" OWNER TO "postgres";
+--
+-- Name: tbl_held_sales_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_customers_id_seq"
+CREATE SEQUENCE public.tbl_held_sales_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -277,27 +222,36 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_customers_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_customers_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_held_sales_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_held_sales_id_seq OWNED BY public.tbl_held_sales.id;
 
 
-ALTER SEQUENCE "public"."tbl_customers_id_seq" OWNED BY "public"."tbl_customers"."id";
+--
+-- Name: tbl_order_items; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_held_sales" (
-    "id" integer NOT NULL,
-    "tenant_id" integer,
-    "user_id" integer,
-    "customer_id" integer,
-    "cart_json" "jsonb" NOT NULL,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_order_items (
+    id integer NOT NULL,
+    order_id integer,
+    product_id integer,
+    qty integer NOT NULL,
+    unit_price numeric(10,2) NOT NULL,
+    subtotal numeric(10,2) NOT NULL,
+    tenant_id integer,
+    buy_price numeric(12,2) DEFAULT 0,
+    refunded_qty integer DEFAULT 0,
+    refunded_amount numeric(10,2) DEFAULT 0
 );
 
 
-ALTER TABLE "public"."tbl_held_sales" OWNER TO "postgres";
+--
+-- Name: tbl_order_items_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_held_sales_id_seq"
+CREATE SEQUENCE public.tbl_order_items_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -306,31 +260,66 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_held_sales_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_held_sales_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_order_items_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_order_items_id_seq OWNED BY public.tbl_order_items.id;
 
 
-ALTER SEQUENCE "public"."tbl_held_sales_id_seq" OWNED BY "public"."tbl_held_sales"."id";
+--
+-- Name: tbl_orders; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_order_items" (
-    "id" integer NOT NULL,
-    "order_id" integer,
-    "product_id" integer,
-    "qty" integer NOT NULL,
-    "unit_price" numeric(10,2) NOT NULL,
-    "subtotal" numeric(10,2) NOT NULL,
-    "tenant_id" integer,
-    "buy_price" numeric(10,2) DEFAULT 0,
-    "refunded_qty" integer DEFAULT 0,
-    "refunded_amount" numeric(10,2) DEFAULT 0
+CREATE TABLE public.tbl_orders (
+    id integer NOT NULL,
+    or_id integer NOT NULL,
+    order_no character varying(100) NOT NULL,
+    customer_id integer,
+    user_id integer,
+    total numeric(10,2) NOT NULL,
+    discount numeric(10,2) DEFAULT 0,
+    payment_method character varying(50),
+    status character varying(50) DEFAULT 'Completed'::character varying,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    idempotency_key character varying(100),
+    order_date timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    source character varying(20) DEFAULT 'POS'::character varying,
+    customer_name character varying(255),
+    customer_phone character varying(50),
+    delivery_type character varying(20) DEFAULT 'pickup'::character varying,
+    delivery_address text,
+    notes text,
+    tracking_code character varying(100),
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_order_items" OWNER TO "postgres";
+--
+-- Name: tbl_orders_details; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tbl_orders_details (
+    id integer NOT NULL,
+    order_id integer,
+    product_id integer,
+    qty_order integer DEFAULT 1 NOT NULL,
+    price numeric(12,2) DEFAULT 0 NOT NULL,
+    buy_price numeric(12,2) DEFAULT 0,
+    discount numeric(12,2) DEFAULT 0,
+    subtotal numeric(12,2) DEFAULT 0 NOT NULL,
+    refunded_qty integer DEFAULT 0,
+    refunded_amount numeric(12,2) DEFAULT 0,
+    tenant_id integer
+);
 
 
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_order_items_id_seq"
+--
+-- Name: tbl_orders_details_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.tbl_orders_details_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -339,62 +328,18 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_order_items_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_order_items_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_orders_details_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_orders_details_id_seq OWNED BY public.tbl_orders_details.id;
 
 
-ALTER SEQUENCE "public"."tbl_order_items_id_seq" OWNED BY "public"."tbl_order_items"."id";
+--
+-- Name: tbl_orders_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_orders" (
-    "or_id" integer NOT NULL,
-    "order_no" character varying(100) NOT NULL,
-    "customer_id" integer,
-    "user_id" integer,
-    "total" numeric(10,2) NOT NULL,
-    "discount" numeric(10,2) DEFAULT 0,
-    "payment_method" character varying(50),
-    "status" character varying(50) DEFAULT 'Completed'::character varying,
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "source" character varying(20) DEFAULT 'POS'::character varying,
-    "tracking_code" character varying(100),
-    "idempotency_key" character varying(255),
-    "customer_name" character varying(255),
-    "customer_phone" character varying(50),
-    "delivery_type" character varying(20) DEFAULT 'pickup'::character varying,
-    "delivery_address" "text",
-    "notes" "text",
-    "order_date" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "voided_at" timestamp without time zone,
-    "voided_by" integer,
-    "void_reason" "text"
-);
-
-
-ALTER TABLE "public"."tbl_orders" OWNER TO "postgres";
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_orders_details" (
-    "id" integer NOT NULL,
-    "order_id" integer,
-    "product_id" integer,
-    "qty_order" integer DEFAULT 1 NOT NULL,
-    "price" numeric(12,2) DEFAULT 0 NOT NULL,
-    "buy_price" numeric(12,2) DEFAULT 0,
-    "discount" numeric(12,2) DEFAULT 0,
-    "subtotal" numeric(12,2) DEFAULT 0 NOT NULL,
-    "refunded_qty" integer DEFAULT 0,
-    "refunded_amount" numeric(12,2) DEFAULT 0,
-    "tenant_id" integer
-);
-
-
-ALTER TABLE "public"."tbl_orders_details" OWNER TO "postgres";
-
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_orders_details_id_seq"
+CREATE SEQUENCE public.tbl_orders_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -403,14 +348,18 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_orders_details_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_orders_details_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_orders_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_orders_id_seq OWNED BY public.tbl_orders.id;
 
 
-ALTER SEQUENCE "public"."tbl_orders_details_id_seq" OWNED BY "public"."tbl_orders_details"."id";
+--
+-- Name: tbl_orders_or_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_orders_or_id_seq"
+CREATE SEQUENCE public.tbl_orders_or_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -419,28 +368,33 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_orders_or_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_orders_or_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_orders_or_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_orders_or_id_seq OWNED BY public.tbl_orders.or_id;
 
 
-ALTER SEQUENCE "public"."tbl_orders_or_id_seq" OWNED BY "public"."tbl_orders"."or_id";
+--
+-- Name: tbl_payment; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_payment" (
-    "id" integer NOT NULL,
-    "order_id" integer,
-    "tenant_id" integer,
-    "amount" numeric(12,2) NOT NULL,
-    "payment_method" character varying(50) NOT NULL,
-    "status" character varying(50) DEFAULT 'COMPLETED'::character varying,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_payment (
+    id integer NOT NULL,
+    order_id integer,
+    tenant_id integer,
+    amount numeric(10,2) NOT NULL,
+    payment_method character varying(50) NOT NULL,
+    status character varying(50) DEFAULT 'COMPLETED'::character varying,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_payment" OWNER TO "postgres";
+--
+-- Name: tbl_payment_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_payment_id_seq"
+CREATE SEQUENCE public.tbl_payment_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -449,28 +403,33 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_payment_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_payment_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_payment_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_payment_id_seq OWNED BY public.tbl_payment.id;
 
 
-ALTER SEQUENCE "public"."tbl_payment_id_seq" OWNED BY "public"."tbl_payment"."id";
+--
+-- Name: tbl_payment_method; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_payment_method" (
-    "id" integer NOT NULL,
-    "tenant_id" integer,
-    "name" character varying(100) NOT NULL,
-    "name_kh" character varying(100),
-    "is_active" boolean DEFAULT true,
-    "sort_order" integer DEFAULT 0,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_payment_method (
+    id integer NOT NULL,
+    tenant_id integer,
+    name character varying(100) NOT NULL,
+    name_kh character varying(100),
+    is_active boolean DEFAULT true,
+    sort_order integer DEFAULT 0,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_payment_method" OWNER TO "postgres";
+--
+-- Name: tbl_payment_method_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_payment_method_id_seq"
+CREATE SEQUENCE public.tbl_payment_method_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -479,41 +438,46 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_payment_method_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_payment_method_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_payment_method_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_payment_method_id_seq OWNED BY public.tbl_payment_method.id;
 
 
-ALTER SEQUENCE "public"."tbl_payment_method_id_seq" OWNED BY "public"."tbl_payment_method"."id";
+--
+-- Name: tbl_products; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_products" (
-    "id" integer NOT NULL,
-    "name" character varying(255) NOT NULL,
-    "name_kh" character varying(255),
-    "category_id" integer,
-    "price" numeric(10,2) NOT NULL,
-    "cost" numeric(10,2),
-    "stock" integer DEFAULT 0,
-    "barcode" character varying(100),
-    "image_url" "text",
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "status" character varying(50) DEFAULT 'Active'::character varying,
-    "qty_alert" integer DEFAULT 5,
-    "is_published" boolean DEFAULT true,
-    "sort_order" integer DEFAULT 0,
-    "description_en" "text",
-    "description_kh" "text",
-    "supplier_id" integer,
-    "brand" character varying(100),
-    "model" character varying(100)
+CREATE TABLE public.tbl_products (
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
+    name_kh character varying(255),
+    category_id integer,
+    price numeric(10,2) NOT NULL,
+    cost numeric(10,2),
+    stock integer DEFAULT 0,
+    barcode character varying(100),
+    image_url text,
+    status character varying(50) DEFAULT 'Active'::character varying,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    is_published boolean DEFAULT true,
+    sort_order integer DEFAULT 0,
+    description_en text,
+    description_kh text,
+    qty_alert integer DEFAULT 5,
+    supplier_id integer,
+    brand character varying(100),
+    model character varying(100)
 );
 
 
-ALTER TABLE "public"."tbl_products" OWNER TO "postgres";
+--
+-- Name: tbl_products_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_products_id_seq"
+CREATE SEQUENCE public.tbl_products_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -522,33 +486,38 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_products_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_products_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_products_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_products_id_seq OWNED BY public.tbl_products.id;
 
 
-ALTER SEQUENCE "public"."tbl_products_id_seq" OWNED BY "public"."tbl_products"."id";
+--
+-- Name: tbl_service_requests; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_service_requests" (
-    "serviceid" integer NOT NULL,
-    "tenant_id" integer,
-    "customerid" integer,
-    "productid" integer,
-    "serialnumber" character varying(100),
-    "issuedescription" "text",
-    "servicetype" character varying(50) DEFAULT 'Repair'::character varying,
-    "status" character varying(50) DEFAULT 'Pending'::character varying,
-    "receiveddate" "date",
-    "notes" "text",
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_service_requests (
+    serviceid integer NOT NULL,
+    tenant_id integer,
+    customerid integer,
+    productid integer,
+    serialnumber character varying(100),
+    issuedescription text,
+    servicetype character varying(50) DEFAULT 'Repair'::character varying,
+    status character varying(50) DEFAULT 'Pending'::character varying,
+    receiveddate date,
+    notes text,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_service_requests" OWNER TO "postgres";
+--
+-- Name: tbl_service_requests_serviceid_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_service_requests_serviceid_seq"
+CREATE SEQUENCE public.tbl_service_requests_serviceid_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -557,29 +526,33 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_service_requests_serviceid_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_service_requests_serviceid_seq" OWNER TO "postgres";
+--
+-- Name: tbl_service_requests_serviceid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_service_requests_serviceid_seq OWNED BY public.tbl_service_requests.serviceid;
 
 
-ALTER SEQUENCE "public"."tbl_service_requests_serviceid_seq" OWNED BY "public"."tbl_service_requests"."serviceid";
+--
+-- Name: tbl_stock; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_stock" (
-    "id" integer NOT NULL,
-    "productid" integer,
-    "qtyinstock" integer DEFAULT 0,
-    "qtyavailable" integer DEFAULT 0,
-    "tenant_id" integer,
-    "qtyreserved" integer DEFAULT 0,
-    "minstocklevel" integer DEFAULT 5,
-    CONSTRAINT "chk_stock_non_negative" CHECK ((("qtyavailable" >= 0) AND ("qtyinstock" >= 0)))
+CREATE TABLE public.tbl_stock (
+    id integer NOT NULL,
+    productid integer,
+    qtyinstock integer DEFAULT 0,
+    qtyavailable integer DEFAULT 0,
+    tenant_id integer,
+    qtyreserved integer DEFAULT 0,
+    minstocklevel integer DEFAULT 5
 );
 
 
-ALTER TABLE "public"."tbl_stock" OWNER TO "postgres";
+--
+-- Name: tbl_stock_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_stock_id_seq"
+CREATE SEQUENCE public.tbl_stock_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -588,32 +561,35 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_stock_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_stock_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_stock_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_stock_id_seq OWNED BY public.tbl_stock.id;
 
 
-ALTER SEQUENCE "public"."tbl_stock_id_seq" OWNED BY "public"."tbl_stock"."id";
+--
+-- Name: tbl_stock_log; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_stock_log" (
-    "id" integer NOT NULL,
-    "tenant_id" integer,
-    "product_id" integer,
-    "change_qty" integer NOT NULL,
-    "type" character varying(50) NOT NULL,
-    "reference_id" integer,
-    "notes" "text",
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "transaction_type" character varying(50),
-    "reference_type" character varying(50) DEFAULT 'ORDER'::character varying,
-    "user_id" integer
+CREATE TABLE public.tbl_stock_log (
+    id integer NOT NULL,
+    product_id integer,
+    tenant_id integer,
+    change_qty integer NOT NULL,
+    transaction_type character varying(50) NOT NULL,
+    reference_type character varying(50) NOT NULL,
+    reference_id integer,
+    user_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_stock_log" OWNER TO "postgres";
+--
+-- Name: tbl_stock_log_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_stock_log_id_seq"
+CREATE SEQUENCE public.tbl_stock_log_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -622,30 +598,35 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_stock_log_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_stock_log_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_stock_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_stock_log_id_seq OWNED BY public.tbl_stock_log.id;
 
 
-ALTER SEQUENCE "public"."tbl_stock_log_id_seq" OWNED BY "public"."tbl_stock_log"."id";
+--
+-- Name: tbl_suppliers; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_suppliers" (
-    "id" integer NOT NULL,
-    "sup_name" character varying(255) NOT NULL,
-    "contact_person" character varying(255),
-    "phone" character varying(50),
-    "email" character varying(255),
-    "address" "text",
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "status" character varying(20) DEFAULT 'Active'::character varying
+CREATE TABLE public.tbl_suppliers (
+    id integer NOT NULL,
+    sup_name character varying(255) NOT NULL,
+    contact_person character varying(255),
+    phone character varying(50),
+    email character varying(255),
+    address text,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    status character varying(20) DEFAULT 'Active'::character varying
 );
 
 
-ALTER TABLE "public"."tbl_suppliers" OWNER TO "postgres";
+--
+-- Name: tbl_suppliers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_suppliers_id_seq"
+CREATE SEQUENCE public.tbl_suppliers_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -654,36 +635,37 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_suppliers_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_suppliers_id_seq" OWNER TO "postgres";
+--
+-- Name: tbl_suppliers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_suppliers_id_seq OWNED BY public.tbl_suppliers.id;
 
 
-ALTER SEQUENCE "public"."tbl_suppliers_id_seq" OWNED BY "public"."tbl_suppliers"."id";
+--
+-- Name: tbl_users; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_users" (
-    "userid" integer NOT NULL,
-    "username" character varying(100) NOT NULL,
-    "email" character varying(255) NOT NULL,
-    "password" character varying(255) NOT NULL,
-    "fullname" character varying(255),
-    "role" character varying(50) DEFAULT 'Admin'::character varying,
-    "role_name" character varying(50),
-    "status" character varying(50) DEFAULT 'ACTIVE'::character varying,
-    "is_super_admin" boolean DEFAULT false,
-    "tenant_id" integer,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "must_change_password" boolean DEFAULT false,
-    "token_version" integer DEFAULT 1,
-    "subscription_plan" character varying(100),
-    "subscription_expires" timestamp without time zone
+CREATE TABLE public.tbl_users (
+    userid integer NOT NULL,
+    username character varying(100) NOT NULL,
+    email character varying(255) NOT NULL,
+    password character varying(255) NOT NULL,
+    fullname character varying(255),
+    role character varying(50) DEFAULT 'Admin'::character varying,
+    role_name character varying(50),
+    status character varying(50) DEFAULT 'ACTIVE'::character varying,
+    is_super_admin boolean DEFAULT false,
+    tenant_id integer,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_users" OWNER TO "postgres";
+--
+-- Name: tbl_users_userid_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_users_userid_seq"
+CREATE SEQUENCE public.tbl_users_userid_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -692,33 +674,38 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_users_userid_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_users_userid_seq" OWNER TO "postgres";
+--
+-- Name: tbl_users_userid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_users_userid_seq OWNED BY public.tbl_users.userid;
 
 
-ALTER SEQUENCE "public"."tbl_users_userid_seq" OWNED BY "public"."tbl_users"."userid";
+--
+-- Name: tbl_warranty; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tbl_warranty" (
-    "warrantyid" integer NOT NULL,
-    "tenant_id" integer,
-    "customerid" integer,
-    "productid" integer,
-    "serialnumber" character varying(100),
-    "warrantyperiod" integer DEFAULT 12,
-    "warrantystartdate" "date",
-    "warrantyenddate" "date",
-    "status" character varying(50) DEFAULT 'Active'::character varying,
-    "notes" "text",
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE public.tbl_warranty (
+    warrantyid integer NOT NULL,
+    tenant_id integer,
+    customerid integer,
+    productid integer,
+    serialnumber character varying(100),
+    warrantyperiod integer DEFAULT 12,
+    warrantystartdate date,
+    warrantyenddate date,
+    status character varying(50) DEFAULT 'Active'::character varying,
+    notes text,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tbl_warranty" OWNER TO "postgres";
+--
+-- Name: tbl_warranty_warrantyid_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tbl_warranty_warrantyid_seq"
+CREATE SEQUENCE public.tbl_warranty_warrantyid_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -727,37 +714,31 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tbl_warranty_warrantyid_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tbl_warranty_warrantyid_seq" OWNER TO "postgres";
+--
+-- Name: tbl_warranty_warrantyid_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.tbl_warranty_warrantyid_seq OWNED BY public.tbl_warranty.warrantyid;
 
 
-ALTER SEQUENCE "public"."tbl_warranty_warrantyid_seq" OWNED BY "public"."tbl_warranty"."warrantyid";
+--
+-- Name: tenants; Type: TABLE; Schema: public; Owner: -
+--
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."tenant_order_counters" (
-    "tenant_id" integer NOT NULL,
-    "last_seq" integer DEFAULT 0
+CREATE TABLE public.tenants (
+    id integer NOT NULL,
+    name character varying(255) NOT NULL,
+    subdomain character varying(100) NOT NULL,
+    status character varying(50) DEFAULT 'ACTIVE'::character varying,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
-ALTER TABLE "public"."tenant_order_counters" OWNER TO "postgres";
+--
+-- Name: tenants_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
 
-
-CREATE TABLE IF NOT EXISTS "public"."tenants" (
-    "id" integer NOT NULL,
-    "name" character varying(255) NOT NULL,
-    "subdomain" character varying(100) NOT NULL,
-    "status" character varying(50) DEFAULT 'ACTIVE'::character varying,
-    "created_at" timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-    "plan" character varying(50) DEFAULT 'FREE'::character varying,
-    "plan_expires_at" timestamp without time zone
-);
-
-
-ALTER TABLE "public"."tenants" OWNER TO "postgres";
-
-
-CREATE SEQUENCE IF NOT EXISTS "public"."tenants_id_seq"
+CREATE SEQUENCE public.tenants_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -766,1012 +747,813 @@ CREATE SEQUENCE IF NOT EXISTS "public"."tenants_id_seq"
     CACHE 1;
 
 
-ALTER SEQUENCE "public"."tenants_id_seq" OWNER TO "postgres";
+--
+-- Name: tenants_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
 
+ALTER SEQUENCE public.tenants_id_seq OWNED BY public.tenants.id;
 
-ALTER SEQUENCE "public"."tenants_id_seq" OWNED BY "public"."tenants"."id";
 
+--
+-- Name: store_settings id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.store_settings ALTER COLUMN id SET DEFAULT nextval('public.store_settings_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."khqr_sessions" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."khqr_sessions_id_seq"'::"regclass");
 
+--
+-- Name: tbl_activity_logs id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_activity_logs ALTER COLUMN id SET DEFAULT nextval('public.tbl_activity_logs_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."store_settings" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."store_settings_id_seq"'::"regclass");
 
+--
+-- Name: tbl_categories id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_categories ALTER COLUMN id SET DEFAULT nextval('public.tbl_categories_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_activity_logs" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_activity_logs_id_seq"'::"regclass");
 
+--
+-- Name: tbl_customers id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_customers ALTER COLUMN id SET DEFAULT nextval('public.tbl_customers_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_categories" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_categories_id_seq"'::"regclass");
 
+--
+-- Name: tbl_held_sales id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_held_sales ALTER COLUMN id SET DEFAULT nextval('public.tbl_held_sales_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_customers" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_customers_id_seq"'::"regclass");
 
+--
+-- Name: tbl_order_items id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_order_items ALTER COLUMN id SET DEFAULT nextval('public.tbl_order_items_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_held_sales" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_held_sales_id_seq"'::"regclass");
 
+--
+-- Name: tbl_orders id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders ALTER COLUMN id SET DEFAULT nextval('public.tbl_orders_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_order_items" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_order_items_id_seq"'::"regclass");
 
+--
+-- Name: tbl_orders or_id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders ALTER COLUMN or_id SET DEFAULT nextval('public.tbl_orders_or_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_orders" ALTER COLUMN "or_id" SET DEFAULT "nextval"('"public"."tbl_orders_or_id_seq"'::"regclass");
 
+--
+-- Name: tbl_orders_details id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders_details ALTER COLUMN id SET DEFAULT nextval('public.tbl_orders_details_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_orders_details" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_orders_details_id_seq"'::"regclass");
 
+--
+-- Name: tbl_payment id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment ALTER COLUMN id SET DEFAULT nextval('public.tbl_payment_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_payment" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_payment_id_seq"'::"regclass");
 
+--
+-- Name: tbl_payment_method id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment_method ALTER COLUMN id SET DEFAULT nextval('public.tbl_payment_method_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_payment_method" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_payment_method_id_seq"'::"regclass");
 
+--
+-- Name: tbl_products id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_products ALTER COLUMN id SET DEFAULT nextval('public.tbl_products_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_products" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_products_id_seq"'::"regclass");
 
+--
+-- Name: tbl_service_requests serviceid; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_service_requests ALTER COLUMN serviceid SET DEFAULT nextval('public.tbl_service_requests_serviceid_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_service_requests" ALTER COLUMN "serviceid" SET DEFAULT "nextval"('"public"."tbl_service_requests_serviceid_seq"'::"regclass");
 
+--
+-- Name: tbl_stock id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock ALTER COLUMN id SET DEFAULT nextval('public.tbl_stock_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_stock" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_stock_id_seq"'::"regclass");
 
+--
+-- Name: tbl_stock_log id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock_log ALTER COLUMN id SET DEFAULT nextval('public.tbl_stock_log_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_stock_log" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_stock_log_id_seq"'::"regclass");
 
+--
+-- Name: tbl_suppliers id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_suppliers ALTER COLUMN id SET DEFAULT nextval('public.tbl_suppliers_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_suppliers" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tbl_suppliers_id_seq"'::"regclass");
 
+--
+-- Name: tbl_users userid; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_users ALTER COLUMN userid SET DEFAULT nextval('public.tbl_users_userid_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_users" ALTER COLUMN "userid" SET DEFAULT "nextval"('"public"."tbl_users_userid_seq"'::"regclass");
 
+--
+-- Name: tbl_warranty warrantyid; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_warranty ALTER COLUMN warrantyid SET DEFAULT nextval('public.tbl_warranty_warrantyid_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tbl_warranty" ALTER COLUMN "warrantyid" SET DEFAULT "nextval"('"public"."tbl_warranty_warrantyid_seq"'::"regclass");
 
+--
+-- Name: tenants id; Type: DEFAULT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tenants ALTER COLUMN id SET DEFAULT nextval('public.tenants_id_seq'::regclass);
 
-ALTER TABLE ONLY "public"."tenants" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."tenants_id_seq"'::"regclass");
 
+--
+-- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.schema_migrations
+    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (filename);
 
-ALTER TABLE "public"."tbl_payment"
-    ADD CONSTRAINT "chk_payment_status" CHECK ((("status")::"text" = ANY ((ARRAY['COMPLETED'::character varying, 'REFUNDED'::character varying, 'CANCELLED'::character varying, 'VOIDED'::character varying, 'PENDING'::character varying, 'FAILED'::character varying])::"text"[]))) NOT VALID;
 
+--
+-- Name: store_settings store_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.store_settings
+    ADD CONSTRAINT store_settings_pkey PRIMARY KEY (id);
 
-ALTER TABLE "public"."tbl_users"
-    ADD CONSTRAINT "chk_user_tenant" CHECK ((("is_super_admin" = true) OR ("tenant_id" IS NOT NULL))) NOT VALID;
 
+--
+-- Name: store_settings store_settings_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.store_settings
+    ADD CONSTRAINT store_settings_slug_key UNIQUE (slug);
 
-ALTER TABLE ONLY "public"."khqr_sessions"
-    ADD CONSTRAINT "khqr_sessions_bakong_hash_key" UNIQUE ("bakong_hash");
 
+--
+-- Name: tbl_activity_logs tbl_activity_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_activity_logs
+    ADD CONSTRAINT tbl_activity_logs_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."khqr_sessions"
-    ADD CONSTRAINT "khqr_sessions_md5_key" UNIQUE ("md5");
 
+--
+-- Name: tbl_categories tbl_categories_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_categories
+    ADD CONSTRAINT tbl_categories_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."khqr_sessions"
-    ADD CONSTRAINT "khqr_sessions_order_id_key" UNIQUE ("order_id");
 
+--
+-- Name: tbl_customers tbl_customers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_customers
+    ADD CONSTRAINT tbl_customers_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."khqr_sessions"
-    ADD CONSTRAINT "khqr_sessions_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_held_sales tbl_held_sales_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_held_sales
+    ADD CONSTRAINT tbl_held_sales_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."schema_migrations"
-    ADD CONSTRAINT "schema_migrations_pkey" PRIMARY KEY ("filename");
 
+--
+-- Name: tbl_order_items tbl_order_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_order_items
+    ADD CONSTRAINT tbl_order_items_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."store_settings"
-    ADD CONSTRAINT "store_settings_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_orders_details tbl_orders_details_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders_details
+    ADD CONSTRAINT tbl_orders_details_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."store_settings"
-    ADD CONSTRAINT "store_settings_slug_key" UNIQUE ("slug");
 
+--
+-- Name: tbl_orders tbl_orders_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_id_key UNIQUE (id);
 
-ALTER TABLE ONLY "public"."tbl_activity_logs"
-    ADD CONSTRAINT "tbl_activity_logs_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_orders tbl_orders_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_idempotency_key_key UNIQUE (idempotency_key);
 
-ALTER TABLE ONLY "public"."tbl_categories"
-    ADD CONSTRAINT "tbl_categories_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_orders tbl_orders_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_pkey PRIMARY KEY (or_id);
 
-ALTER TABLE ONLY "public"."tbl_customers"
-    ADD CONSTRAINT "tbl_customers_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_orders tbl_orders_tracking_code_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_tracking_code_key UNIQUE (tracking_code);
 
-ALTER TABLE ONLY "public"."tbl_held_sales"
-    ADD CONSTRAINT "tbl_held_sales_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_payment_method tbl_payment_method_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment_method
+    ADD CONSTRAINT tbl_payment_method_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_order_items"
-    ADD CONSTRAINT "tbl_order_items_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_payment tbl_payment_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment
+    ADD CONSTRAINT tbl_payment_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_orders_details"
-    ADD CONSTRAINT "tbl_orders_details_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_products tbl_products_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_products
+    ADD CONSTRAINT tbl_products_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "tbl_orders_pkey" PRIMARY KEY ("or_id");
 
+--
+-- Name: tbl_service_requests tbl_service_requests_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_service_requests
+    ADD CONSTRAINT tbl_service_requests_pkey PRIMARY KEY (serviceid);
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "tbl_orders_tracking_code_key" UNIQUE ("tracking_code");
 
+--
+-- Name: tbl_stock_log tbl_stock_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock_log
+    ADD CONSTRAINT tbl_stock_log_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_payment_method"
-    ADD CONSTRAINT "tbl_payment_method_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_stock tbl_stock_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock
+    ADD CONSTRAINT tbl_stock_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_payment"
-    ADD CONSTRAINT "tbl_payment_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_suppliers tbl_suppliers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_suppliers
+    ADD CONSTRAINT tbl_suppliers_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_products"
-    ADD CONSTRAINT "tbl_products_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_users tbl_users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_users
+    ADD CONSTRAINT tbl_users_email_key UNIQUE (email);
 
-ALTER TABLE ONLY "public"."tbl_service_requests"
-    ADD CONSTRAINT "tbl_service_requests_pkey" PRIMARY KEY ("serviceid");
 
+--
+-- Name: tbl_users tbl_users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_users
+    ADD CONSTRAINT tbl_users_pkey PRIMARY KEY (userid);
 
-ALTER TABLE ONLY "public"."tbl_stock_log"
-    ADD CONSTRAINT "tbl_stock_log_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_users tbl_users_username_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_users
+    ADD CONSTRAINT tbl_users_username_key UNIQUE (username);
 
-ALTER TABLE ONLY "public"."tbl_stock"
-    ADD CONSTRAINT "tbl_stock_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tbl_warranty tbl_warranty_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_warranty
+    ADD CONSTRAINT tbl_warranty_pkey PRIMARY KEY (warrantyid);
 
-ALTER TABLE ONLY "public"."tbl_suppliers"
-    ADD CONSTRAINT "tbl_suppliers_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: tenants tenants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tenants
+    ADD CONSTRAINT tenants_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY "public"."tbl_users"
-    ADD CONSTRAINT "tbl_users_email_key" UNIQUE ("email");
 
+--
+-- Name: tenants tenants_subdomain_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tenants
+    ADD CONSTRAINT tenants_subdomain_key UNIQUE (subdomain);
 
-ALTER TABLE ONLY "public"."tbl_users"
-    ADD CONSTRAINT "tbl_users_pkey" PRIMARY KEY ("userid");
 
+--
+-- Name: idx_held_sales_tenant; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_held_sales_tenant ON public.tbl_held_sales USING btree (tenant_id, user_id);
 
-ALTER TABLE ONLY "public"."tbl_users"
-    ADD CONSTRAINT "tbl_users_username_key" UNIQUE ("username");
 
+--
+-- Name: idx_orders_idempotency; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_idempotency ON public.tbl_orders USING btree (idempotency_key);
 
-ALTER TABLE ONLY "public"."tbl_warranty"
-    ADD CONSTRAINT "tbl_warranty_pkey" PRIMARY KEY ("warrantyid");
 
+--
+-- Name: idx_orders_source; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_source ON public.tbl_orders USING btree (tenant_id, source);
 
-ALTER TABLE ONLY "public"."tenant_order_counters"
-    ADD CONSTRAINT "tenant_order_counters_pkey" PRIMARY KEY ("tenant_id");
 
+--
+-- Name: idx_orders_tenant_created; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_tenant_created ON public.tbl_orders USING btree (tenant_id, created_at);
 
-ALTER TABLE ONLY "public"."tenants"
-    ADD CONSTRAINT "tenants_pkey" PRIMARY KEY ("id");
 
+--
+-- Name: idx_orders_tenant_date; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_tenant_date ON public.tbl_orders USING btree (tenant_id, created_at);
 
-ALTER TABLE ONLY "public"."tenants"
-    ADD CONSTRAINT "tenants_subdomain_key" UNIQUE ("subdomain");
 
+--
+-- Name: idx_orders_tenant_order_date; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_tenant_order_date ON public.tbl_orders USING btree (tenant_id, order_date);
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "uq_tenant_idempotency" UNIQUE ("tenant_id", "idempotency_key");
 
+--
+-- Name: idx_orders_tenant_status; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_tenant_status ON public.tbl_orders USING btree (tenant_id, status);
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "uq_tenant_order_no" UNIQUE ("tenant_id", "order_no");
 
+--
+-- Name: idx_orders_tracking_code; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_orders_tracking_code ON public.tbl_orders USING btree (tracking_code);
 
-ALTER TABLE ONLY "public"."tbl_stock"
-    ADD CONSTRAINT "uq_tenant_product_stock" UNIQUE ("tenant_id", "productid");
 
+--
+-- Name: idx_payment_method_tenant; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_payment_method_tenant ON public.tbl_payment_method USING btree (tenant_id);
 
-CREATE INDEX "idx_held_sales_tenant" ON "public"."tbl_held_sales" USING "btree" ("tenant_id", "user_id");
 
+--
+-- Name: idx_products_tenant_published; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_products_tenant_published ON public.tbl_products USING btree (tenant_id, is_published, status);
 
-CREATE INDEX "idx_orders_idempotency" ON "public"."tbl_orders" USING "btree" ("idempotency_key");
 
+--
+-- Name: idx_products_tenant_status; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_products_tenant_status ON public.tbl_products USING btree (tenant_id, status);
 
-CREATE INDEX "idx_orders_source" ON "public"."tbl_orders" USING "btree" ("tenant_id", "source");
 
+--
+-- Name: idx_services_customer; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_services_customer ON public.tbl_service_requests USING btree (customerid);
 
-CREATE INDEX "idx_orders_tenant_created" ON "public"."tbl_orders" USING "btree" ("tenant_id", "created_at");
 
+--
+-- Name: idx_services_product; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_services_product ON public.tbl_service_requests USING btree (productid);
 
-CREATE INDEX "idx_orders_tenant_date" ON "public"."tbl_orders" USING "btree" ("tenant_id", "created_at");
 
+--
+-- Name: idx_services_tenant; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_services_tenant ON public.tbl_service_requests USING btree (tenant_id);
 
-CREATE INDEX "idx_orders_tenant_order_date" ON "public"."tbl_orders" USING "btree" ("tenant_id", "order_date");
 
+--
+-- Name: idx_stock_product; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_stock_product ON public.tbl_stock USING btree (productid);
 
-CREATE INDEX "idx_orders_tenant_status" ON "public"."tbl_orders" USING "btree" ("tenant_id", "status");
 
+--
+-- Name: idx_stock_product_id; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_stock_product_id ON public.tbl_stock USING btree (productid);
 
-CREATE INDEX "idx_orders_tracking_code" ON "public"."tbl_orders" USING "btree" ("tracking_code");
 
+--
+-- Name: idx_stock_productid; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_stock_productid ON public.tbl_stock USING btree (productid);
 
-CREATE INDEX "idx_payment_method_tenant" ON "public"."tbl_payment_method" USING "btree" ("tenant_id");
 
+--
+-- Name: idx_store_settings_slug; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_store_settings_slug ON public.store_settings USING btree (slug);
 
-CREATE INDEX "idx_products_tenant_published" ON "public"."tbl_products" USING "btree" ("tenant_id", "is_published", "status");
 
+--
+-- Name: idx_store_settings_tenant; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_store_settings_tenant ON public.store_settings USING btree (tenant_id);
 
-CREATE INDEX "idx_products_tenant_status" ON "public"."tbl_products" USING "btree" ("tenant_id", "status");
 
+--
+-- Name: idx_warranty_customer; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_warranty_customer ON public.tbl_warranty USING btree (customerid);
 
-CREATE INDEX "idx_services_customer" ON "public"."tbl_service_requests" USING "btree" ("customerid");
 
+--
+-- Name: idx_warranty_product; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_warranty_product ON public.tbl_warranty USING btree (productid);
 
-CREATE INDEX "idx_services_product" ON "public"."tbl_service_requests" USING "btree" ("productid");
 
+--
+-- Name: idx_warranty_tenant; Type: INDEX; Schema: public; Owner: -
+--
 
+CREATE INDEX idx_warranty_tenant ON public.tbl_warranty USING btree (tenant_id);
 
-CREATE INDEX "idx_services_tenant" ON "public"."tbl_service_requests" USING "btree" ("tenant_id");
 
+--
+-- Name: tbl_stock trg_sync_product_stock; Type: TRIGGER; Schema: public; Owner: -
+--
 
+CREATE TRIGGER trg_sync_product_stock AFTER INSERT OR UPDATE OF qtyavailable ON public.tbl_stock FOR EACH ROW EXECUTE FUNCTION public.sync_product_stock();
 
-CREATE INDEX "idx_stock_product" ON "public"."tbl_stock" USING "btree" ("productid");
 
+--
+-- Name: store_settings store_settings_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.store_settings
+    ADD CONSTRAINT store_settings_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-CREATE INDEX "idx_stock_product_id" ON "public"."tbl_stock" USING "btree" ("productid");
 
+--
+-- Name: tbl_activity_logs tbl_activity_logs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_activity_logs
+    ADD CONSTRAINT tbl_activity_logs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-CREATE INDEX "idx_stock_productid" ON "public"."tbl_stock" USING "btree" ("productid");
 
+--
+-- Name: tbl_activity_logs tbl_activity_logs_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_activity_logs
+    ADD CONSTRAINT tbl_activity_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.tbl_users(userid);
 
-CREATE INDEX "idx_store_settings_slug" ON "public"."store_settings" USING "btree" ("slug");
 
+--
+-- Name: tbl_categories tbl_categories_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_categories
+    ADD CONSTRAINT tbl_categories_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-CREATE INDEX "idx_store_settings_tenant" ON "public"."store_settings" USING "btree" ("tenant_id");
 
+--
+-- Name: tbl_customers tbl_customers_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_customers
+    ADD CONSTRAINT tbl_customers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-CREATE INDEX "idx_warranty_customer" ON "public"."tbl_warranty" USING "btree" ("customerid");
 
+--
+-- Name: tbl_held_sales tbl_held_sales_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_held_sales
+    ADD CONSTRAINT tbl_held_sales_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-CREATE INDEX "idx_warranty_product" ON "public"."tbl_warranty" USING "btree" ("productid");
 
+--
+-- Name: tbl_order_items tbl_order_items_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_order_items
+    ADD CONSTRAINT tbl_order_items_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.tbl_orders(or_id) ON DELETE CASCADE;
 
-CREATE INDEX "idx_warranty_tenant" ON "public"."tbl_warranty" USING "btree" ("tenant_id");
 
+--
+-- Name: tbl_order_items tbl_order_items_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_order_items
+    ADD CONSTRAINT tbl_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.tbl_products(id);
 
-CREATE OR REPLACE TRIGGER "trg_sync_product_stock" AFTER INSERT OR UPDATE OF "qtyavailable" ON "public"."tbl_stock" FOR EACH ROW EXECUTE FUNCTION "public"."sync_product_stock"();
 
+--
+-- Name: tbl_order_items tbl_order_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_order_items
+    ADD CONSTRAINT tbl_order_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."khqr_sessions"
-    ADD CONSTRAINT "khqr_sessions_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_orders tbl_orders_customer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.tbl_customers(id);
 
-ALTER TABLE ONLY "public"."khqr_sessions"
-    ADD CONSTRAINT "khqr_sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."tbl_users"("userid") ON DELETE CASCADE;
 
+--
+-- Name: tbl_orders_details tbl_orders_details_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders_details
+    ADD CONSTRAINT tbl_orders_details_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.tbl_orders(or_id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."store_settings"
-    ADD CONSTRAINT "store_settings_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_orders_details tbl_orders_details_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders_details
+    ADD CONSTRAINT tbl_orders_details_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.tbl_products(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_activity_logs"
-    ADD CONSTRAINT "tbl_activity_logs_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_orders_details tbl_orders_details_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders_details
+    ADD CONSTRAINT tbl_orders_details_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_activity_logs"
-    ADD CONSTRAINT "tbl_activity_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."tbl_users"("userid");
 
+--
+-- Name: tbl_orders tbl_orders_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_categories"
-    ADD CONSTRAINT "tbl_categories_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_orders tbl_orders_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_orders
+    ADD CONSTRAINT tbl_orders_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.tbl_users(userid);
 
-ALTER TABLE ONLY "public"."tbl_customers"
-    ADD CONSTRAINT "tbl_customers_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_payment_method tbl_payment_method_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment_method
+    ADD CONSTRAINT tbl_payment_method_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_held_sales"
-    ADD CONSTRAINT "tbl_held_sales_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_payment tbl_payment_order_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment
+    ADD CONSTRAINT tbl_payment_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.tbl_orders(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_order_items"
-    ADD CONSTRAINT "tbl_order_items_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "public"."tbl_orders"("or_id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_payment tbl_payment_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_payment
+    ADD CONSTRAINT tbl_payment_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_order_items"
-    ADD CONSTRAINT "tbl_order_items_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "public"."tbl_products"("id");
 
+--
+-- Name: tbl_products tbl_products_category_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_products
+    ADD CONSTRAINT tbl_products_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.tbl_categories(id);
 
-ALTER TABLE ONLY "public"."tbl_order_items"
-    ADD CONSTRAINT "tbl_order_items_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_products tbl_products_supplier_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_products
+    ADD CONSTRAINT tbl_products_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.tbl_suppliers(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "tbl_orders_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "public"."tbl_customers"("id");
 
+--
+-- Name: tbl_products tbl_products_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_products
+    ADD CONSTRAINT tbl_products_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_orders_details"
-    ADD CONSTRAINT "tbl_orders_details_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "public"."tbl_orders"("or_id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_service_requests tbl_service_requests_customerid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_service_requests
+    ADD CONSTRAINT tbl_service_requests_customerid_fkey FOREIGN KEY (customerid) REFERENCES public.tbl_customers(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY "public"."tbl_orders_details"
-    ADD CONSTRAINT "tbl_orders_details_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "public"."tbl_products"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_service_requests tbl_service_requests_productid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_service_requests
+    ADD CONSTRAINT tbl_service_requests_productid_fkey FOREIGN KEY (productid) REFERENCES public.tbl_products(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY "public"."tbl_orders_details"
-    ADD CONSTRAINT "tbl_orders_details_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_service_requests tbl_service_requests_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_service_requests
+    ADD CONSTRAINT tbl_service_requests_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "tbl_orders_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_stock_log tbl_stock_log_product_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock_log
+    ADD CONSTRAINT tbl_stock_log_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.tbl_products(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_orders"
-    ADD CONSTRAINT "tbl_orders_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."tbl_users"("userid");
 
+--
+-- Name: tbl_stock_log tbl_stock_log_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock_log
+    ADD CONSTRAINT tbl_stock_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_payment_method"
-    ADD CONSTRAINT "tbl_payment_method_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_stock_log tbl_stock_log_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock_log
+    ADD CONSTRAINT tbl_stock_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.tbl_users(userid);
 
-ALTER TABLE ONLY "public"."tbl_payment"
-    ADD CONSTRAINT "tbl_payment_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "public"."tbl_orders"("or_id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_stock tbl_stock_productid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock
+    ADD CONSTRAINT tbl_stock_productid_fkey FOREIGN KEY (productid) REFERENCES public.tbl_products(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_payment"
-    ADD CONSTRAINT "tbl_payment_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_stock tbl_stock_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_stock
+    ADD CONSTRAINT tbl_stock_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_products"
-    ADD CONSTRAINT "tbl_products_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "public"."tbl_categories"("id");
 
+--
+-- Name: tbl_suppliers tbl_suppliers_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_suppliers
+    ADD CONSTRAINT tbl_suppliers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_products"
-    ADD CONSTRAINT "tbl_products_supplier_id_fkey" FOREIGN KEY ("supplier_id") REFERENCES "public"."tbl_suppliers"("id") ON DELETE SET NULL;
 
+--
+-- Name: tbl_users tbl_users_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_users
+    ADD CONSTRAINT tbl_users_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_products"
-    ADD CONSTRAINT "tbl_products_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_warranty tbl_warranty_customerid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_warranty
+    ADD CONSTRAINT tbl_warranty_customerid_fkey FOREIGN KEY (customerid) REFERENCES public.tbl_customers(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY "public"."tbl_service_requests"
-    ADD CONSTRAINT "tbl_service_requests_customerid_fkey" FOREIGN KEY ("customerid") REFERENCES "public"."tbl_customers"("id") ON DELETE SET NULL;
 
+--
+-- Name: tbl_warranty tbl_warranty_productid_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_warranty
+    ADD CONSTRAINT tbl_warranty_productid_fkey FOREIGN KEY (productid) REFERENCES public.tbl_products(id) ON DELETE SET NULL;
 
-ALTER TABLE ONLY "public"."tbl_service_requests"
-    ADD CONSTRAINT "tbl_service_requests_productid_fkey" FOREIGN KEY ("productid") REFERENCES "public"."tbl_products"("id") ON DELETE SET NULL;
 
+--
+-- Name: tbl_warranty tbl_warranty_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
 
+ALTER TABLE ONLY public.tbl_warranty
+    ADD CONSTRAINT tbl_warranty_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
 
-ALTER TABLE ONLY "public"."tbl_service_requests"
-    ADD CONSTRAINT "tbl_service_requests_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
+--
+-- Name: tbl_held_sales; Type: ROW SECURITY; Schema: public; Owner: -
+--
 
+ALTER TABLE public.tbl_held_sales ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE ONLY "public"."tbl_stock_log"
-    ADD CONSTRAINT "tbl_stock_log_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "public"."tbl_products"("id") ON DELETE CASCADE;
+--
+-- Name: tbl_payment_method; Type: ROW SECURITY; Schema: public; Owner: -
+--
 
+ALTER TABLE public.tbl_payment_method ENABLE ROW LEVEL SECURITY;
 
+--
+-- Name: tbl_service_requests; Type: ROW SECURITY; Schema: public; Owner: -
+--
 
-ALTER TABLE ONLY "public"."tbl_stock_log"
-    ADD CONSTRAINT "tbl_stock_log_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
+ALTER TABLE public.tbl_service_requests ENABLE ROW LEVEL SECURITY;
 
+--
+-- Name: tbl_warranty; Type: ROW SECURITY; Schema: public; Owner: -
+--
 
+ALTER TABLE public.tbl_warranty ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE ONLY "public"."tbl_stock"
-    ADD CONSTRAINT "tbl_stock_productid_fkey" FOREIGN KEY ("productid") REFERENCES "public"."tbl_products"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY "public"."tbl_stock"
-    ADD CONSTRAINT "tbl_stock_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY "public"."tbl_suppliers"
-    ADD CONSTRAINT "tbl_suppliers_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY "public"."tbl_users"
-    ADD CONSTRAINT "tbl_users_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY "public"."tbl_warranty"
-    ADD CONSTRAINT "tbl_warranty_customerid_fkey" FOREIGN KEY ("customerid") REFERENCES "public"."tbl_customers"("id") ON DELETE SET NULL;
-
-
-
-ALTER TABLE ONLY "public"."tbl_warranty"
-    ADD CONSTRAINT "tbl_warranty_productid_fkey" FOREIGN KEY ("productid") REFERENCES "public"."tbl_products"("id") ON DELETE SET NULL;
-
-
-
-ALTER TABLE ONLY "public"."tbl_warranty"
-    ADD CONSTRAINT "tbl_warranty_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY "public"."tenant_order_counters"
-    ADD CONSTRAINT "tenant_order_counters_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
-
-
-
-ALTER TABLE "public"."khqr_sessions" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."schema_migrations" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."store_settings" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_activity_logs" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_categories" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_customers" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_held_sales" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_order_items" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_orders" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_orders_details" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_payment" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_payment_method" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_products" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_service_requests" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_stock" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_stock_log" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_suppliers" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_users" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tbl_warranty" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tenant_order_counters" ENABLE ROW LEVEL SECURITY;
-
-
-ALTER TABLE "public"."tenants" ENABLE ROW LEVEL SECURITY;
-
-
-
-
-DO $$
-BEGIN
-    CREATE PUBLICATION supabase_realtime;
-EXCEPTION WHEN duplicate_object THEN
-    NULL;
-END $$;
-ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
-
-
-GRANT USAGE ON SCHEMA "public" TO "postgres";
-GRANT USAGE ON SCHEMA "public" TO "anon";
-GRANT USAGE ON SCHEMA "public" TO "authenticated";
-GRANT USAGE ON SCHEMA "public" TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "anon";
-GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."sync_product_stock"() TO "anon";
-GRANT ALL ON FUNCTION "public"."sync_product_stock"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."sync_product_stock"() TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-GRANT ALL ON TABLE "public"."khqr_sessions" TO "anon";
-GRANT ALL ON TABLE "public"."khqr_sessions" TO "authenticated";
-GRANT ALL ON TABLE "public"."khqr_sessions" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."khqr_sessions_id_seq" TO "anon";
-GRANT ALL ON SEQUENCE "public"."khqr_sessions_id_seq" TO "authenticated";
-GRANT ALL ON SEQUENCE "public"."khqr_sessions_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."schema_migrations" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."store_settings" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."store_settings_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_activity_logs" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_activity_logs_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_categories" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_categories_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_customers" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_customers_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_held_sales" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_held_sales_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_order_items" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_order_items_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_orders" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_orders_details" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_orders_details_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_orders_or_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_payment" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_payment_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_payment_method" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_payment_method_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_products" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_products_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_service_requests" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_service_requests_serviceid_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_stock" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_stock_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_stock_log" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_stock_log_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_suppliers" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_suppliers_id_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_users" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_users_userid_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tbl_warranty" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tbl_warranty_warrantyid_seq" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tenant_order_counters" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."tenants" TO "service_role";
-
-
-
-GRANT ALL ON SEQUENCE "public"."tenants_id_seq" TO "service_role";
-
-
-
-
-
-
-
-
-
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON SEQUENCES TO "service_role";
-
-
-
-
-
-
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON FUNCTIONS TO "service_role";
-
-
-
-
-
-
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "postgres";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
-ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+--
+-- PostgreSQL database dump complete
+--
 
 

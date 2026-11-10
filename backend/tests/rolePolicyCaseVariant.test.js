@@ -1,5 +1,4 @@
 // backend/tests/rolePolicyCaseVariant.test.js
-process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5433/spms_test';
 process.env.NODE_ENV = 'test';
 
 const request = require('supertest');
@@ -125,6 +124,6 @@ describe('Role Policy Case-Variant and Route Walk Tests', () => {
     const res = await request(app)
       .get('/api/%75sers')
       .set('Authorization', `Bearer ${cashierToken}`);
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 });

@@ -109,7 +109,7 @@ describe('Case Variants & Null Tenant Test Suite', () => {
 
   test('Cashier case-variant GET /api/%75sers returns 403 or 404', async () => {
     const res = await request(app).get('/api/%75sers').set('Authorization', 'Bearer ' + cashierToken);
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 
   test('Null-tenant user GET /api/orders returns 403 and zero rows', async () => {

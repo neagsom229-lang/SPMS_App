@@ -1,5 +1,4 @@
 // backend/tests/nullTenantScope.test.js
-process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5433/spms_test';
 process.env.NODE_ENV = 'test';
 
 const request = require('supertest');
@@ -53,7 +52,8 @@ describe('Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests'
       const res = await request(app)
         .get(`/api/${ep}`)
         .set('Authorization', `Bearer ${nullToken}`);
-      expect([200, 403, 404]).toContain(res.status);
+      const expected = { orders: 200, products: 200, customers: 200, suppliers: 200, stock: 200, categories: 200, analytics: 404, warranties: 200, services: 200 };
+      expect(res.status).toBe(expected[ep]);
       if (res.status === 200) {
         const data = Array.isArray(res.body) ? res.body : (res.body.data || res.body.items || []);
         expect(data.length).toBe(0);
@@ -65,18 +65,18 @@ describe('Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests'
     const getRes = await request(app)
       .get(`/api/products/${productAId}`)
       .set('Authorization', `Bearer ${tenantBToken}`);
-    expect([403, 404]).toContain(getRes.status);
+    expect(getRes.status).toBe(404);
 
     const putRes = await request(app)
       .put(`/api/products/${productAId}`)
       .set('Authorization', `Bearer ${tenantBToken}`)
       .send({ name: 'Hacked' });
-    expect([403, 404]).toContain(putRes.status);
+    expect(putRes.status).toBe(404);
 
     const delRes = await request(app)
       .delete(`/api/products/${productAId}`)
       .set('Authorization', `Bearer ${tenantBToken}`);
-    expect([403, 404]).toContain(delRes.status);
+    expect(delRes.status).toBe(404);
   });
 
   it('Spoofed X-Tenant-Id header does not expose Tenant A data', async () => {
@@ -84,14 +84,14 @@ describe('Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests'
       .get(`/api/products/${productAId}`)
       .set('Authorization', `Bearer ${tenantBToken}`)
       .set('x-tenant-id', String(tenantAId));
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 
   it('Suspended tenant real login returns 403', async () => {
     const res = await request(app)
       .post('/api/auth/login')
       .send({ username: 'usersus', password: 'password' });
-    expect([401, 403]).toContain(res.status);
+    expect(res.status).toBe(401);
   });
 
   it('Suspended tenant existing token returns 403', async () => {

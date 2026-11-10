@@ -5,6 +5,7 @@ const { verifyTransaction } = require('../src/services/bakongVerifier');
 describe('Bakong Verifier Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    axios.post.mockReset();
   });
 
   test('20 concurrent polls', async () => {
@@ -129,5 +130,31 @@ describe('Bakong Verifier Tests', () => {
 
     const res = await verifyTransaction({ amount: 10, currency: 'USD' }, 'test_md5_valid');
     expect(res.state).toBe('PAID');
+  });
+
+  test.each([
+    [401, 'AUTH'],
+    [403, 'FORBIDDEN_OR_GEO'],
+    [429, 'RATE'],
+    [500, 'UPSTREAM'],
+    [503, 'UPSTREAM'],
+  ])('provider HTTP %i maps to ERROR/%s', async (status, errorKind) => {
+    axios.post.mockResolvedValue({ status, data: { responseCode: 9 } });
+
+    const res = await verifyTransaction({ amount: 19, currency: 'USD' }, `test_status_${status}`);
+
+    expect(res.state).toBe('ERROR');
+    expect(res.errorKind).toBe(errorKind);
+  });
+
+  test('provider timeout maps to ERROR/UPSTREAM', async () => {
+    const err = new Error('timeout');
+    err.code = 'ECONNABORTED';
+    axios.post.mockRejectedValue(err);
+
+    const res = await verifyTransaction({ amount: 19, currency: 'USD' }, 'test_timeout');
+
+    expect(res.state).toBe('ERROR');
+    expect(res.errorKind).toBe('UPSTREAM');
   });
 });

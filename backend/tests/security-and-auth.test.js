@@ -58,50 +58,50 @@ describe('Security & Auth Test Suite', () => {
 
   test('Admin B cannot read Tenant A product by id', async () => {
     const res = await request(app).get('/api/products/' + prodAId).set('Authorization', 'Bearer ' + tokenB);
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 
   test('Admin B cannot update Tenant A product', async () => {
     const res = await request(app).put('/api/products/' + prodAId).set('Authorization', 'Bearer ' + tokenB).send({ name: 'Hacked', price: 99 });
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 
   test('Admin B cannot delete Tenant A product', async () => {
     const res = await request(app).delete('/api/products/' + prodAId).set('Authorization', 'Bearer ' + tokenB);
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 
   test('Admin B cannot PUT or DELETE Tenant A customer', async () => {
     const putRes = await request(app).put('/api/customers/' + custAId).set('Authorization', 'Bearer ' + tokenB).send({ name: 'Hacked' });
-    expect([403, 404]).toContain(putRes.status);
+    expect(putRes.status).toBe(404);
     const delRes = await request(app).delete('/api/customers/' + custAId).set('Authorization', 'Bearer ' + tokenB);
-    expect([403, 404]).toContain(delRes.status);
+    expect(delRes.status).toBe(404);
   });
 
   test('Admin B cannot PUT or DELETE Tenant A supplier', async () => {
     const putRes = await request(app).put('/api/suppliers/' + suppAId).set('Authorization', 'Bearer ' + tokenB).send({ sup_name: 'Hacked' });
-    expect([403, 404]).toContain(putRes.status);
+    expect(putRes.status).toBe(404);
     const delRes = await request(app).delete('/api/suppliers/' + suppAId).set('Authorization', 'Bearer ' + tokenB);
-    expect([403, 404]).toContain(delRes.status);
+    expect(delRes.status).toBe(404);
   });
 
   test('Admin B cannot PUT or DELETE Tenant A user', async () => {
     const putRes = await request(app).put('/api/users/' + userAId).set('Authorization', 'Bearer ' + tokenB).send({ role: 'admin' });
-    expect([403, 404]).toContain(putRes.status);
+    expect(putRes.status).toBe(404);
     const delRes = await request(app).delete('/api/users/' + userAId).set('Authorization', 'Bearer ' + tokenB);
-    expect([403, 404]).toContain(delRes.status);
+    expect(delRes.status).toBe(404);
   });
 
   test('Admin B cannot PUT or DELETE Tenant A order', async () => {
     const putRes = await request(app).put('/api/orders/' + orderAId).set('Authorization', 'Bearer ' + tokenB).send({ status: 'Cancelled' });
-    expect([403, 404]).toContain(putRes.status);
+    expect(putRes.status).toBe(404);
     const delRes = await request(app).delete('/api/orders/' + orderAId).set('Authorization', 'Bearer ' + tokenB).send({ reason: 'Hacked' });
-    expect([403, 404]).toContain(delRes.status);
+    expect(delRes.status).toBe(404);
   });
 
   test('Spoofed X-Tenant-Id header cannot bypass tenant isolation for Admin B', async () => {
     const res = await request(app).get('/api/products/' + prodAId).set('Authorization', 'Bearer ' + tokenB).set('x-tenant-id', String(tenantAId));
-    expect([403, 404]).toContain(res.status);
+    expect(res.status).toBe(404);
   });
 
   test('Suspended tenant user real login returns 403', async () => {

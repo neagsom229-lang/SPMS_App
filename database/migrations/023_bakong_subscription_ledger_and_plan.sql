@@ -1,6 +1,28 @@
 -- Migration 023: Tenant Plan, Subscription Ledger, Webhook Events, and Strict Constraints
 -- Idempotent SQL
 
+-- 0. Reconcile the early khqr_sessions shape created by migration 018
+--    (session_id PK + order_id INTEGER) with the ledger shape the application
+--    uses (id PK + order_id VARCHAR). Safe on both fresh and already-upgraded DBs.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'khqr_sessions' AND column_name = 'session_id'
+    ) THEN
+        ALTER TABLE khqr_sessions DROP COLUMN session_id CASCADE;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'khqr_sessions'
+          AND column_name = 'order_id' AND data_type = 'integer'
+    ) THEN
+        ALTER TABLE khqr_sessions DROP CONSTRAINT IF EXISTS khqr_sessions_order_id_fkey;
+        ALTER TABLE khqr_sessions ALTER COLUMN order_id TYPE VARCHAR(255) USING order_id::text;
+    END IF;
+END $$;
+
 -- 1. Ensure tenants table has plan and plan_expires_at
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan VARCHAR(50) DEFAULT 'FREE';
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMP;
@@ -47,6 +69,19 @@ ALTER TABLE khqr_sessions ADD COLUMN IF NOT EXISTS verified_by VARCHAR(100);
 ALTER TABLE khqr_sessions ADD COLUMN IF NOT EXISTS raw_response JSONB;
 ALTER TABLE khqr_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 
+-- The application addresses sessions by id. Migration 018 used session_id as PK,
+-- so make sure the reconciled table has an id primary key.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE table_schema = 'public' AND table_name = 'khqr_sessions'
+          AND constraint_type = 'PRIMARY KEY'
+    ) THEN
+        ALTER TABLE khqr_sessions ADD CONSTRAINT khqr_sessions_pkey PRIMARY KEY (id);
+    END IF;
+END $$;
+
 -- Add unique indexes on md5 and bakong_hash
 CREATE UNIQUE INDEX IF NOT EXISTS idx_khqr_sessions_md5_unique ON khqr_sessions(md5) WHERE md5 IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_khqr_sessions_bakong_hash_unique ON khqr_sessions(bakong_hash) WHERE bakong_hash IS NOT NULL;
@@ -63,11 +98,15 @@ BEGIN
     END IF;
 END $$;
 
--- 3. Create payment_webhook_events table for idempotency
-CREATE TABLE IF NOT EXISTS payment_webhook_events (
+-- 3. Create khqr_webhook_events table for idempotency
+CREATE TABLE IF NOT EXISTS khqr_webhook_events (
     event_id VARCHAR(255) UNIQUE PRIMARY KEY,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 022 already ran when this table was created on the upgrade path, so enable
+-- RLS here to keep the replay path byte-for-byte identical.
+ALTER TABLE khqr_webhook_events ENABLE ROW LEVEL SECURITY;
 
 -- 4. Indexes
 CREATE INDEX IF NOT EXISTS idx_khqr_sessions_tenant_status ON khqr_sessions(tenant_id, status);

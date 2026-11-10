@@ -45,8 +45,7 @@ describe('Admin & Public Store Test Suite', () => {
     const prod = await request(app).post('/api/products').set('Authorization', 'Bearer ' + tokenA).send({ name: 'Prod Qty', barcode: 'QTY-' + runId, cost: 5, price: 20, stock: 10 });
     
     const res = await request(app).post('/api/orders').set('Authorization', 'Bearer ' + tokenA).send({ customer_id: cust.body.id, items: [{ product_id: prod.body.id, qty: 0 }], payment_method: 'Cash', idempotency_key: crypto.randomUUID() });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(400);
   });
 
   test('Overselling inventory returns 409 conflict and leaves stock unchanged', async () => {
