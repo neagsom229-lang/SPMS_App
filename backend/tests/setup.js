@@ -1,6 +1,7 @@
 // backend/tests/setup.js
 process.env.NODE_ENV = 'test';
 process.env.BAKONG_PROVIDER = process.env.BAKONG_PROVIDER || 'mock';
+process.env.BAKONG_ACCOUNT_ID = process.env.BAKONG_ACCOUNT_ID || 'abaakhppxxx@abaa';
 process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@127.0.0.1:5433/spms_test';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkeyforunitandintegrationtesting123456789';
 

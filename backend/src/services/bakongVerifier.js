@@ -1,6 +1,11 @@
 // backend/src/services/bakongVerifier.js
 const axios = require('axios');
 
+const expectedAccount = process.env.BAKONG_ACCOUNT_ID;
+if (!expectedAccount) {
+  throw new Error('BAKONG_ACCOUNT_ID environment variable is required');
+}
+
 const inFlightRequests = new Map(); // md5 -> { promise, timestamp }
 const THROTTLE_MS = 3000;
 
@@ -26,8 +31,7 @@ setInterval(checkTokenExpiry, 24 * 60 * 60 * 1000).unref();
 async function verifyTransaction(session, providedMd5) {
   const provider = (process.env.BAKONG_PROVIDER || 'nbc').toLowerCase();
   const apiBase = process.env.BAKONG_API_BASE || 'https://api-bakong.nbc.gov.kh';
-  const token = process.env.BAKONG_TOKEN || process.env.KHQR_RBK_TOKEN || 'test_token';
-  const expectedAccount = process.env.BAKONG_ACCOUNT_ID || 'abaakhppxxx@abaa';
+  const token = process.env.BAKONG_TOKEN || process.env.KHQR_RBK_TOKEN;
 
   if (provider === 'manual') {
     return { state: 'NOT_FOUND', errorKind: null };
@@ -111,12 +115,21 @@ async function verifyTransaction(session, providedMd5) {
           }
 
           const amount = Number(tx.amount);
-          const currency = (tx.currency || '').toUpperCase();
-          const toAccountId = tx.toAccountId || tx.receiverAccount || '';
+          const currency = tx.currency ? tx.currency.toUpperCase() : '';
+          const toAccountId = tx.toAccountId;
           const createdDateMs = tx.createdDate ? new Date(tx.createdDate).getTime() : 0;
 
           const sessionAmount = Number(session.amount || session.expected_amount);
-          const sessionCurrency = (session.currency || 'USD').toUpperCase();
+          const sessionCurrency = session.currency ? session.currency.toUpperCase() : '';
+
+          const isValidCurrency = currency && currency.length > 0;
+          const isValidAccount = toAccountId && typeof toAccountId === 'string' && toAccountId.length > 0;
+          const isValidTimestamp = createdDateMs && !isNaN(createdDateMs) && createdDateMs > 0;
+
+          if (!isValidCurrency || !isValidAccount || !isValidTimestamp) {
+            console.error(`🚨 BAKONG MISMATCH ALERT: md5=${providedMd5}, invalid currency/account/timestamp, currency=${currency}, toAccountId=${toAccountId}, createdDateMs=${createdDateMs}`);
+            return { state: 'FAILED_MISMATCH', hash, amount, currency, toAccountId, createdDateMs, raw: data };
+          }
 
           const amountsMatch = currency === 'KHR' 
             ? Math.round(amount) === Math.round(sessionAmount)
