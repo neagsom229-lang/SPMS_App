@@ -213,8 +213,15 @@ const Stock = () => {
   // ============================================================
   const updateStockMutation = useMutation({
     mutationFn: async ({ productId, payload }) => {
-      // Send to stock endpoint with product ID
-      const response = await apiClient.put(`/stock/${productId}`, payload);
+      const newQty = payload.QtyAvailable !== undefined ? payload.QtyAvailable : (payload.QtyInStock !== undefined ? payload.QtyInStock : 0);
+      const response = await apiClient.post('/stock/adjust', {
+        product_id: productId,
+        new_qty: newQty,
+        reason: 'Correction'
+      });
+      if (payload.qty_alert !== undefined) {
+        await apiClient.put(`/products/${productId}`, { qty_alert: payload.qty_alert });
+      }
       return response.data;
     },
     onSuccess: () => {

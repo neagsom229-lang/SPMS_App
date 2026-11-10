@@ -78,7 +78,8 @@ const Layout = ({ children }) => {
     queryFn: async () => { const res = await apiClient.get('/orders/online/count'); return res.data || {}; },
     enabled: !!user && !isSuperAdmin,
     staleTime: 30000,
-    refetchInterval: 60000,
+    retry: 1,
+    refetchInterval: (query) => query.state.status === 'error' ? false : 60000,
   });
   const pendingOnlineCount = Number(onlineCounts?.Pending || 0);
   

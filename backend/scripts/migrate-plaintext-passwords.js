@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/migrate-plaintext-passwords.js
 require('dotenv').config();
 const pool = require('../src/config/postgres');

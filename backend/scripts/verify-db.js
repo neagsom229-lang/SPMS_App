@@ -1,5 +1,5 @@
-// backend/scripts/verify-db.js
-const { Pool } = require('pg');
+require('./_guard');
+const db = require('../src/config/postgres');
 require('dotenv').config();
 
 const connectionString = process.env.DATABASE_URL || process.env.DIRECT_URL;
@@ -8,13 +8,8 @@ if (!connectionString) {
   process.exit(0);
 }
 
-const pool = new Pool({
-  connectionString,
-  ssl: connectionString.includes('supabase') || connectionString.includes('neon') ? { rejectUnauthorized: false } : false,
-});
-
 async function verify() {
-  const client = await pool.connect();
+  const client = await db.connect();
   try {
     const tables = ['tenants', 'tbl_users', 'store_settings', 'tbl_categories', 'tbl_products', 'tbl_stock', 'tbl_customers'];
     console.log('🔍 Verifying LIVE database schema columns...');
@@ -36,7 +31,7 @@ async function verify() {
     console.error('❌ Verify DB error:', err.message);
   } finally {
     client.release();
-    await pool.end();
+    await db.end();
   }
 }
 

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "SPMS - Sale & Product Management System",
   "scripts": {
+    "verify": "node backend/scripts/verify.js",
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
@@ -16,6 +17,8 @@
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
-    "bakong-khqr": "^1.0.20"
+    "bakong-khqr": "^1.0.20",
+    "express": "^5.3.0",
+    "qrcode": "^1.5.4"
   }
 }

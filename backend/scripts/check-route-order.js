@@ -1,3 +1,4 @@
+require('./_guard.js');
 // backend/scripts/check-route-order.js
 const fs = require('fs');
 const path = require('path');

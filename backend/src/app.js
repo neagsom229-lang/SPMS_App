@@ -4,6 +4,7 @@
 // ============================================
 
 require("dotenv").config();
+process.env.BAKONG_PROVIDER = process.env.BAKONG_PROVIDER || (process.env.NODE_ENV === 'test' ? 'mock' : 'nbc');
 require("express-async-errors");
 
 const dns = require("dns");
@@ -28,7 +29,7 @@ const userRoutes = require('./routes/users');
 const stockRoutes = require('./routes/stock');
 const tenantRoutes = require('./routes/tenants');
 const categoryRoutes = require('./routes/categories');
-const paymentRoutes = require('./routes/payment');
+const paymentRoutes = require('./routes/paymentRoutes');
 const warrantyRoutes = require('./routes/warranties');
 const serviceRoutes = require('./routes/services');
 const analyticsRoutes = require('./routes/analytics');
@@ -52,6 +53,7 @@ process.on("uncaughtException", (err) => {
 const db = require("./config/postgres");
 const logger = require("./utils/logger");
 const { checkEnv } = require("./config/env");
+const { startReconciler } = require("./services/bakongReconciler");
 
 // ============================================
 // MIDDLEWARE
@@ -230,42 +232,46 @@ app.delete("/api/activity-logs", authenticate, async (req, res) => {
 // ============================================
 const rolePolicy = require('./middleware/rolePolicy');
 app.use('/api', rolePolicy);
-app.use('/api/auth', authRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/suppliers', supplierRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/stock', stockRoutes);
-app.use('/api/tenants', tenantRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/payment', paymentRoutes);
-app.use('/api/warranties', warrantyRoutes);
-app.use('/api/services', serviceRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/public', publicRoutes);
-app.use('/api/reports', reportRoutes);
 
-const mountedRoutes = [
-  ['/api/auth', authRoutes],
-  ['/api/dashboard', dashboardRoutes],
-  ['/api/products', productRoutes],
-  ['/api/orders', orderRoutes],
-  ['/api/customers', customerRoutes],
-  ['/api/suppliers', supplierRoutes],
-  ['/api/users', userRoutes],
-  ['/api/stock', stockRoutes],
-  ['/api/tenants', tenantRoutes],
-  ['/api/categories', categoryRoutes],
-  ['/api/payment', paymentRoutes],
-  ['/api/warranties', warrantyRoutes],
-  ['/api/services', serviceRoutes],
-  ['/api/analytics', analyticsRoutes],
-  ['/api/public', publicRoutes],
-  ['/api/reports', reportRoutes]
-];
-app.mountedRoutes = mountedRoutes;
+const appMountedRoutes = [];
+const mountRoute = (prefix, router) => {
+  app.use(prefix, router);
+  if (router && router.stack) {
+    router.stack.forEach(layer => {
+      if (layer.route) {
+        Object.keys(layer.route.methods).forEach(method => {
+          if (layer.route.methods[method]) {
+            let fullPath = prefix + (layer.route.path === '/' ? '' : layer.route.path);
+            fullPath = fullPath.replace(/\/+/g, '/');
+            appMountedRoutes.push({ method: method.toUpperCase(), path: fullPath });
+          }
+        });
+      }
+    });
+  }
+};
+
+mountRoute('/api/auth', authRoutes);
+mountRoute('/api/dashboard', dashboardRoutes);
+mountRoute('/api/products', productRoutes);
+mountRoute('/api/orders', orderRoutes);
+mountRoute('/api/customers', customerRoutes);
+mountRoute('/api/suppliers', supplierRoutes);
+mountRoute('/api/users', userRoutes);
+mountRoute('/api/stock', stockRoutes);
+mountRoute('/api/tenants', tenantRoutes);
+mountRoute('/api/categories', categoryRoutes);
+mountRoute('/api/payment', paymentRoutes);
+mountRoute('/api/warranties', warrantyRoutes);
+mountRoute('/api/services', serviceRoutes);
+mountRoute('/api/analytics', analyticsRoutes);
+mountRoute('/api/public', publicRoutes);
+mountRoute('/api/reports', reportRoutes);
+
+app.mountedRoutes = appMountedRoutes;
+app.mountedRoutes.push({ method: 'GET', path: '/api/activity-logs' });
+app.mountedRoutes.push({ method: 'DELETE', path: '/api/activity-logs' });
+app.mountedRoutes.push({ method: 'GET', path: '/api/system/stats' });
 
 // System stats route
 app.get('/api/system/stats', authenticate, requireSuperAdmin, tenantRoutes.systemStatsHandler);
@@ -313,6 +319,7 @@ async function startServer() {
     const server = app.listen(PORT, () => {
       console.log(`🚀 SPMS Backend running on http://localhost:${PORT}`);
       console.log(`💚 Health: http://localhost:${PORT}/health`);
+      startReconciler();
     });
 
     server.on('error', (error) => {
@@ -326,7 +333,7 @@ async function startServer() {
   }
 }
 
-if (require.main === module && process.env.NODE_ENV !== 'test') {
+if (require.main === module && (process.env.NODE_ENV !== 'test' || process.env.START_SERVER === 'true')) {
   startServer();
 }
 

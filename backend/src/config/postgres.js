@@ -1,7 +1,15 @@
 // backend/src/config/postgres.js
 const { Pool, types } = require('pg');
 const dns = require('dns');
-require('dotenv').config();
+const path = require('path');
+
+if (process.env.NODE_ENV === 'test') {
+  try {
+    require('dotenv').config({ path: path.join(__dirname, '../../.env.test') });
+  } catch (e) {}
+} else {
+  // Never read backend/.env
+}
 
 types.setTypeParser(1114, v => new Date(v.replace(' ', 'T') + 'Z'));
 
@@ -12,28 +20,42 @@ try {
   // Ignored if unsupported in certain node environments
 }
 
-
-
-const isProd = process.env.NODE_ENV === 'production';
-const connectionString = process.env.DATABASE_URL || (isProd ? null : 'postgresql://postgres:postgres@localhost:5432/spms');
+const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-  console.error('❌ DATABASE_URL is required in production');
+  console.error('❌ DATABASE_URL is required (not set in environment or .env.test)');
   process.exit(1);
 }
 
-let dbHost = 'localhost';
+let dbHost = null;
+let isLocalHost = false;
 try {
   const parsedUrl = new URL(connectionString);
   dbHost = parsedUrl.hostname;
+  if (dbHost) {
+    const cleanHost = dbHost.replace(/^\[|\]$/g, '');
+    isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(cleanHost) || dbHost === '[::1]';
+  }
 } catch (e) {
-  // Fallback if not a standard URL
+  dbHost = null;
+  isLocalHost = false;
 }
 
-const isSupabase = dbHost.includes('supabase.com') || dbHost.includes('supabase.co');
-const isNeon = dbHost.includes('neon.tech') || process.env.DB_SSL === 'true' || isProd;
-const isCloud = isSupabase || isNeon;
+const isRender = process.env.RENDER === 'true';
+const allowRemote = process.env.ALLOW_REMOTE_DB === '1';
 
+if (!isLocalHost && !isRender && !allowRemote) {
+  const msg = `❌ REFUSING TO CONNECT: DATABASE_URL host must be localhost, 127.0.0.1, or ::1 (current host: ${dbHost}). Set ALLOW_REMOTE_DB=1 or RENDER=true to bypass.`;
+  console.error(msg);
+  if (process.env.NODE_ENV === 'test') {
+    throw new Error(msg);
+  }
+  process.exit(1);
+}
+
+const isSupabase = dbHost ? (dbHost.includes('supabase.com') || dbHost.includes('supabase.co')) : false;
+const isNeon = dbHost ? (dbHost.includes('neon.tech') || process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production') : false;
+const isCloud = isSupabase || isNeon;
 
 const pool = new Pool({
   connectionString,

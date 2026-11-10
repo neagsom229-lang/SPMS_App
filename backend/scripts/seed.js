@@ -1,3 +1,4 @@
+require('./_guard');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 require('dotenv').config();
@@ -199,3 +200,4 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
