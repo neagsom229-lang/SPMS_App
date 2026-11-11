@@ -1,3 +1,7 @@
+-- GENERATED FILE - do not edit by hand.
+-- Produced by backend/scripts/make-baseline.js from database/schema.sql and migrations 001-014.
+-- Regenerate with: node backend/scripts/make-baseline.js
+--
 --
 -- PostgreSQL database dump
 --

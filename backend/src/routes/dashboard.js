@@ -27,20 +27,10 @@ router.get('/system/stats', authenticate, async (req, res) => {
     let totalCustomers = 0;
 
     try {
-      const tenantCheck = await pool.query(`
-        SELECT EXISTS (
-          SELECT 1 FROM information_schema.tables 
-          WHERE table_name = 'tenants' OR table_name = 'tbl_tenants'
-        )
-      `);
-      if (tenantCheck.rows[0].exists) {
-        const tName = await pool.query(`SELECT table_name FROM information_schema.tables WHERE table_name IN ('tenants', 'tbl_tenants') LIMIT 1`);
-        const tableName = tName.rows[0].table_name;
-        const tenantResult = await pool.query(`SELECT COUNT(*) as count FROM ${tableName}`);
-        totalTenants = parseInt(tenantResult.rows[0]?.count || 0);
-      }
+      const tenantResult = await pool.query('SELECT COUNT(*) as count FROM tenants');
+      totalTenants = parseInt(tenantResult.rows[0]?.count || 0);
     } catch (e) {
-      console.warn('Tenants table query failed:', e.message);
+      console.warn('Tenants query failed:', e.message);
     }
 
     try {

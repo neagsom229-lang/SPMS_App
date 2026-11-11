@@ -14,23 +14,103 @@ import {
 import { toast } from "react-hot-toast";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Area,
-  ComposedChart,
-  PieChart as RePieChart,
-  Pie,
-  Cell,
-} from "recharts";
 
 const CHART_COLORS = ["#06b6d4", "#6366f1", "#8b5cf6", "#ec4899", "#10b981", "#3b82f6", "#f59e0b"];
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const REFRESH_STALE_TIME_MS = 60000;
+
+// Dependency-free charts. recharts stays in the lazy Analytics/Reports chunk;
+// pulling it into Dashboard would load the 434 kB charts chunk on login.
+const TrendChart = ({ data }) => {
+  const W = 640;
+  const H = 260;
+  const padBottom = 30;
+  const padTop = 12;
+  const plotH = H - padBottom - padTop;
+  const slot = W / Math.max(data.length, 1);
+  const maxOrders = Math.max(1, ...data.map((d) => Number(d.orders) || 0));
+  const maxRevenue = Math.max(1, ...data.map((d) => Number(d.revenue) || 0));
+  const barW = Math.min(28, slot * 0.4);
+  const pts = data.map((d, i) => ({
+    x: slot * i + slot / 2,
+    y: padTop + plotH - ((Number(d.revenue) || 0) / maxRevenue) * plotH,
+    d,
+  }));
+  const line = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const area =
+    `M ${pts[0].x.toFixed(1)} ${padTop + plotH} ` +
+    pts.map((p) => `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') +
+    ` L ${pts[pts.length - 1].x.toFixed(1)} ${padTop + plotH} Z`;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" role="img" aria-label="Revenue and orders, trailing 6 months">
+      <defs>
+        <linearGradient id="dashboard-rev" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#06b6d4" stopOpacity="0.4" />
+          <stop offset="95%" stopColor="#06b6d4" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0, 1, 2, 3, 4].map((i) => {
+        const y = padTop + (plotH / 4) * i;
+        return <line key={i} x1="0" y1={y} x2={W} y2={y} stroke="#334155" strokeOpacity="0.3" strokeDasharray="3 3" />;
+      })}
+      {pts.map((p, i) => {
+        const h = ((Number(p.d.orders) || 0) / maxOrders) * plotH;
+        return (
+          <rect key={i} x={p.x - barW / 2} y={padTop + plotH - h} width={barW} height={h} rx="4" fill="#6366f1">
+            <title>{`${p.d.name}: ${p.d.orders} orders`}</title>
+          </rect>
+        );
+      })}
+      <path d={area} fill="url(#dashboard-rev)" />
+      <polyline points={line} fill="none" stroke="#06b6d4" strokeWidth="3" strokeLinejoin="round" />
+      {pts.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r="3.5" fill="#06b6d4">
+            <title>{`${p.d.name}: ${formatCurrency(p.d.revenue)}`}</title>
+          </circle>
+          <text x={p.x} y={H - 8} textAnchor="middle" fill="#94a3b8" fontSize="11">
+            {p.d.name}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+};
+
+const DonutChart = ({ data }) => {
+  const total = data.reduce((sum, d) => sum + (Number(d.value) || 0), 0) || 1;
+  const R = 70;
+  const C = 2 * Math.PI * R;
+  let offset = 0;
+
+  return (
+    <svg viewBox="0 0 200 200" className="w-full h-full" role="img" aria-label="Sales mix by category">
+      <g transform="rotate(-90 100 100)">
+        {data.map((d, i) => {
+          const len = ((Number(d.value) || 0) / total) * C;
+          const segment = (
+            <circle
+              key={i}
+              cx="100"
+              cy="100"
+              r={R}
+              fill="none"
+              stroke={d.color || CHART_COLORS[i % CHART_COLORS.length]}
+              strokeWidth="26"
+              strokeDasharray={`${len} ${C - len}`}
+              strokeDashoffset={-offset}
+            >
+              <title>{`${d.name}: ${formatCurrency(d.value)}`}</title>
+            </circle>
+          );
+          offset += len;
+          return segment;
+        })}
+      </g>
+    </svg>
+  );
+};
 
 const formatCurrency = (value) => {
   const num = Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -381,33 +461,7 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#020617",
-                    border: "1px solid #334155",
-                    borderRadius: "12px",
-                    color: "white",
-                    padding: "12px 16px",
-                    fontSize: "12px",
-                    boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-                  }}
-                  formatter={(value, name) => [name === "revenue" ? formatCurrency(value) : value, name.toUpperCase()]}
-                />
-                <Area type="monotone" dataKey="revenue" stroke="#06b6d4" fill="url(#colorRev)" strokeWidth={3} />
-                <Bar dataKey="orders" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={20} />
-              </ComposedChart>
-            </ResponsiveContainer>
+            <TrendChart data={chartData} />
           </div>
         </div>
 
@@ -422,35 +476,7 @@ const Dashboard = () => {
           </div>
 
           <div className="h-64 w-full my-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <RePieChart>
-                <Pie
-                  data={salesDistribution}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {salesDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color || CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#020617",
-                    border: "1px solid #334155",
-                    borderRadius: "12px",
-                    color: "white",
-                    padding: "10px 14px",
-                    fontSize: "12px",
-                  }}
-                  formatter={(value) => formatCurrency(value)}
-                />
-              </RePieChart>
-            </ResponsiveContainer>
+            <DonutChart data={salesDistribution} />
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-4 border-t border-slate-800">

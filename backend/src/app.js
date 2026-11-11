@@ -4,7 +4,6 @@
 // ============================================
 
 require("dotenv").config();
-process.env.BAKONG_PROVIDER = process.env.BAKONG_PROVIDER || (process.env.NODE_ENV === 'test' ? 'mock' : 'nbc');
 require("express-async-errors");
 
 const dns = require("dns");
@@ -52,7 +51,6 @@ process.on("uncaughtException", (err) => {
 const db = require("./config/postgres");
 const logger = require("./utils/logger");
 const { checkEnv } = require("./config/env");
-const { startReconciler } = require("./services/bakongReconciler");
 
 // ============================================
 // MIDDLEWARE
@@ -316,7 +314,6 @@ async function startServer() {
     const server = app.listen(PORT, () => {
       console.log(`🚀 SPMS Backend running on http://localhost:${PORT}`);
       console.log(`💚 Health: http://localhost:${PORT}/health`);
-      startReconciler();
     });
 
     server.on('error', (error) => {

@@ -1,13 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
-const { testDatabaseUrl, assertTestDatabaseUrl } = require('./_guard');
+const { databaseUrl, assertDatabaseUrl } = require('./_guard');
+
+const DB_MODE = process.env.SPMS_DB_MODE || 'test';
 
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = testDatabaseUrl();
+  process.env.DATABASE_URL = databaseUrl(DB_MODE);
 }
 try {
-  assertTestDatabaseUrl();
+  assertDatabaseUrl(process.env.DATABASE_URL, DB_MODE);
 } catch (e) {
   console.error(`❌ ${e.message}`);
   process.exit(1);

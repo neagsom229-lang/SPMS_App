@@ -2,10 +2,10 @@
 //
 //   1. load database/baseline.sql   (schema after migration 014, no data)
 //   2. mark ONLY migrations 001-014 as applied
-//   3. run 015-026 through scripts/run_migration.js (the real runner)
+//   3. run 015-LATEST through scripts/run_migration.js (the real runner)
 //
 // productionReplayCheck() additionally proves the runner is a no-op when the
-// effects of 015-026 already exist but the ledger still stops at 014.
+// effects of 015-LATEST already exist but the ledger still stops at 014.
 const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -19,7 +19,7 @@ const BASELINE = path.join(ROOT, 'database', 'baseline.sql');
 const MIGRATIONS = path.join(ROOT, 'database', 'migrations');
 const REPLAY_DB = 'spms_replay_test';
 const BASELINE_MAX = 14;
-const LATEST = 26;
+const LATEST = 27;
 
 function migrationFilesFrom(min, max) {
   return fs.readdirSync(MIGRATIONS)
@@ -82,16 +82,44 @@ async function loadBaseline(name) {
   return marked;
 }
 
-function schemaFingerprint(name) {
-  const container = process.env.TEST_DB_CONTAINER || 'spms_test_db';
-  const dump = execFileSync('docker', [
-    'exec', container, 'pg_dump', '-U', 'postgres', '-d', name,
-    '--schema-only', '--no-owner',
-  ], { encoding: 'utf8', maxBuffer: 1024 * 1024 * 64 })
-    .split(/\r?\n/)
-    .filter(line => !/^\\(un)?restrict\b/.test(line))
-    .join('\n');
-  return crypto.createHash('sha256').update(dump).digest('hex');
+// Schema signature straight from the catalog, over the same pg connection as
+// everything else. Deliberately no `docker exec`/`pg_dump` shell-out: a CI job
+// serves the test database from a service container whose name is not
+// spms_test_db, so the fingerprint must not depend on the container name.
+async function schemaFingerprint(name) {
+  return withClient(name, async client => {
+    const { rows } = await client.query(`
+      WITH objects AS (
+        SELECT 'column' AS kind, c.relname AS object, a.attname AS name,
+               format_type(a.atttypid, a.atttypmod) AS definition,
+               a.attnotnull AS not_null,
+               COALESCE(pg_get_expr(d.adbin, d.adrelid), '') AS default_expr,
+               a.attnum AS position
+          FROM pg_attribute a
+          JOIN pg_class c ON c.oid = a.attrelid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+         WHERE n.nspname = 'public'
+           AND c.relkind IN ('r', 'p')
+           AND a.attnum > 0
+           AND NOT a.attisdropped
+        UNION ALL
+        SELECT 'index', tablename, indexname, indexdef, false, '', 0
+          FROM pg_indexes
+         WHERE schemaname = 'public'
+        UNION ALL
+        SELECT 'constraint', c.relname, k.conname, pg_get_constraintdef(k.oid), false, '', 0
+          FROM pg_constraint k
+          JOIN pg_class c ON c.oid = k.conrelid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public'
+      )
+      SELECT kind, object, name, definition, not_null, default_expr, position
+        FROM objects
+       ORDER BY kind, object, name, position
+    `);
+    return crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+  });
 }
 
 function runRealRunner(name) {
@@ -139,9 +167,9 @@ async function productionReplayCheck(name = REPLAY_DB) {
       throw new Error('replay database was not prepared with 015-026 effects and a 001-014 ledger');
     }
 
-    const schemaBefore = schemaFingerprint(name);
+    const schemaBefore = await schemaFingerprint(name);
     const out = runRealRunner(name);
-    const schemaAfter = schemaFingerprint(name);
+    const schemaAfter = await schemaFingerprint(name);
     if (schemaBefore !== schemaAfter) {
       throw new Error('production replay was not a no-op: schema changed when the runner replayed 015-026');
     }

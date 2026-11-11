@@ -139,9 +139,13 @@ router.post('/', authenticate, async (req, res) => {
   }
 
   const b = req.body || {};
+  // The client posts upper-case keys (NAME_EN, SALEOUT_PRICE, ...); accept both.
+  const body = Object.create(null);
+  for (const [key, value] of Object.entries(b)) body[key.toLowerCase()] = value;
   const pick = (...keys) => {
     for (const k of keys) {
-      if (b[k] !== undefined && b[k] !== null && b[k] !== '') return b[k];
+      const value = body[String(k).toLowerCase()];
+      if (value !== undefined && value !== null && value !== '') return value;
     }
     return undefined;
   };
@@ -162,7 +166,8 @@ router.post('/', authenticate, async (req, res) => {
   const categoryId = pick('category_id') !== undefined ? Number(pick('category_id')) : null;
   const supplierId = pick('supplier_id') !== undefined ? Number(pick('supplier_id')) : null;
   const status = String(pick('status') || 'Active').trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active';
-  const isPublished = b.is_published === undefined ? true : (b.is_published === true || b.is_published === 'true' || b.is_published === 1 || b.is_published === '1');
+  const isPublishedRaw = pick('is_published');
+  const isPublished = isPublishedRaw === undefined ? true : (isPublishedRaw === true || isPublishedRaw === 'true' || isPublishedRaw === 1 || isPublishedRaw === '1');
   const descEn = pick('description_en') ? String(pick('description_en')).slice(0, 2000) : null;
   const descKh = pick('description_kh') ? String(pick('description_kh')).slice(0, 2000) : null;
   const imageUrl = pick('image_url') ? String(pick('image_url')).slice(0, 2000) : null;
@@ -295,10 +300,13 @@ router.put('/:id', authenticate, async (req, res) => {
     const values = [];
     let paramIndex = 1;
 
+    const body = Object.create(null);
+    for (const [key, value] of Object.entries(req.body || {})) body[key.toLowerCase()] = value;
+
     for (const [key, column] of Object.entries(fieldMapping)) {
-      if (req.body[key] !== undefined && !updates.some(u => u.startsWith(`${column} =`))) {
+      if (body[key] !== undefined && !updates.some(u => u.startsWith(`${column} =`))) {
         updates.push(`${column} = $${paramIndex}`);
-        let val = req.body[key];
+        let val = body[key];
         if (key === 'name_kh' && val) val = val.trim();
         if (key === 'status') val = String(val).trim().toLowerCase() === 'inactive' ? 'Inactive' : 'Active';
         if (key === 'cost' || key === 'buyin_price') { val = Number(val); if (!Number.isFinite(val) || val < 0 || val > 10000000) return res.status(400).json({ error: 'Cost must be a number of 0 or more' }); }

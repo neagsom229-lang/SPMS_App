@@ -2,6 +2,8 @@
 const { Client } = require('pg');
 const { TEST_DB_NAME, testDatabaseUrl, assertTestDatabaseUrl } = require('../scripts/_guard');
 const { buildTestDatabase, productionReplayCheck } = require('../scripts/test-db');
+const { createWorkerDatabases, workerCountFromConfig } = require('./test-databases');
+const jestConfig = require('../jest.config');
 
 module.exports = async () => {
   process.env.NODE_ENV = 'test';
@@ -50,4 +52,8 @@ module.exports = async () => {
   } catch (err) {
     throw new Error(`❌ FATAL: database identity check failed in globalSetup: ${err.message}`);
   }
+
+  const workerCount = workerCountFromConfig(jestConfig);
+  await createWorkerDatabases(workerCount);
+  console.log(`worker databases ready: ${workerCount} cloned from ${TEST_DB_NAME}`);
 };

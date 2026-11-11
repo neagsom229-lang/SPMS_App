@@ -109,7 +109,15 @@ async function main() {
       throw new Error(`baseline contains objects from migrations after 014: ${forbidden.join(', ')}`);
     }
 
-    fs.writeFileSync(out, dump);
+    const header = [
+      '-- GENERATED FILE - do not edit by hand.',
+      '-- Produced by backend/scripts/make-baseline.js from database/schema.sql and migrations 001-014.',
+      '-- Regenerate with: node backend/scripts/make-baseline.js',
+      '--',
+      '',
+    ].join('\n');
+
+    fs.writeFileSync(out, header + dump);
     console.log(`wrote ${out} (${dump.split('\n').length} lines, 0 data statements)`);
   } finally {
     await withClient(testDatabaseUrl('postgres'), async cleanup => {

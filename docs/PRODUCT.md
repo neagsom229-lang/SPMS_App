@@ -1,6 +1,6 @@
 # PRODUCT.md — what this product actually does
 
-Status: **Phase 0 draft. No code changed. Awaiting owner decisions.**
+Status: **Phase 0 audit, corrected in Phase 5 and Phase 6.** The audit describes commit `1933f2b`; every path removed since then is listed in section 0.1 and marked in the tables below.
 Built: 2026-11-11 from the code on disk at commit `1933f2b` ("update"), working tree clean.
 Owner of every requirement below: **the owner** (single decision-maker). Column `Owner` is literal.
 
@@ -14,16 +14,15 @@ Nothing here is aspirational — if it is not in the code, it is not in this fil
 
 | Measure | Value | How measured |
 |---|---|---|
-| `backend/src` | 7,112 lines (44 files) | line count |
-| `backend/tests` | 1,985 lines (16 test files + 3 helpers) | line count |
-| `frontend/src` | 44,454 lines (js/jsx/css) | line count |
-| Migrations | 001–026, plus `seeds/023_seed_massive_electronics.sql` | `database/migrations/` |
-| Test cases | you report 154; I count **111** `test(`/`it(` call sites | `Select-String "^\s*(test\|it)\("` |
-| Frontend pages/components | 26 routed components | `frontend/src/App.jsx` |
+| `backend/src` | 6,116 lines (33 files) | line count (Phase 6) |
+| `backend/tests` | 2,459 lines (14 test files + helpers) | line count (Phase 6) |
+| `frontend/src` | 48,511 lines (55 files) | line count (Phase 6) |
+| Migrations | 001–027, plus `database/seeds/023_seed_massive_electronics.sql` | `database/migrations/` |
+| Test cases | counted by the suite, never by hand | `npm run verify` (jest --json) |
+| Frontend routes | 34 `<Route>` entries, 25 lazy chunks | `frontend/src/App.jsx` |
 
-I did **not** run the suite in Phase 0 (no code changes, and running it starts the DB container).
-The 111 vs 154 gap is almost certainly `test.each`/`describe.each` expansion — Phase 3
-(`tests/expected-names.txt`) will settle it with real names.
+I did **not** run the suite in Phase 0. Phase 3 settled the count: the suite and
+`backend/tests/expected-names.txt` are the only sources, and `npm run verify` prints both.
 
 ---
 
@@ -62,7 +61,7 @@ One row per mounted router (`backend/src/app.js` lines 254–269).
 | A11 | `/api/payment` | Bakong KHQR create/check, webhook, reconciler, simulator, legacy 410 stubs, `GET /subscription` | `routes/paymentRoutes.js` | 406 | J7 | you | **CUT** the auto-verification half; **KEEP** `GET /subscription` (read current plan) |
 | A12 | `/api/warranties` | warranty record CRUD | `routes/warranties.js` | 167 | none proven | you | **ASK** |
 | A13 | `/api/services` | repair/service-request CRUD (UI lives inside Warranty.jsx) | `routes/services.js` | 175 | none proven | you | **ASK** |
-| A14 | `/api/analytics` | monthly-revenue, stats, top-products | `routes/analytics.js` | 134 | J3 | you | **CUT** — zero callers in frontend or tests; the Analytics *page* computes client-side from `/customers`, `/products`, `/orders` |
+| A14 | `/api/analytics` | monthly-revenue, stats, top-products (`routes/analytics.js`, removed in `3a215c5`) | `routes/analytics.js` | 134 | J3 | you | **CUT** - zero callers in frontend or tests; the Analytics *page* computes client-side from `/customers`, `/products`, `/orders` |
 | A15 | `/api/reports` | `GET /export/:type` (CSV/Excel) | `routes/reports.js` | 66 | J3 | you | **KEEP** |
 | A16 | `/api/public` | storefront lookup, menu, public order intake, tracking code | `routes/public.js` | 488 | J5 | you | **ASK** (see F3) |
 | A17 | app-level | `/health`, `/api/activity-logs` GET+DELETE, `/api/db-test`, `/api/system/stats` | `app.js` 166–277 | 301 | J6,J7 | you | KEEP health + activity-logs; **CUT** `/api/db-test`; de-duplicate `system/stats` (mounted twice: `app.js:274` and `tenants.js` `/system/stats`) |
@@ -97,7 +96,7 @@ One row per `<Route>` in `frontend/src/App.jsx`.
 | F20 | `/profile` | `components/Profile.jsx` | account, password | 1,254 (+1,547 css) | J6 | you | **KEEP** |
 | F21 | `/settings` | `pages/Settings.jsx` | store settings, receipt, storefront config | 1,684 | J1,J5 | you | **KEEP** |
 | F22 | — | `components/Layout.jsx` | shell, nav, search | 413 | all | you | **KEEP** |
-| F23 | — | `components/KHQRPayment.jsx` | legacy KHQR component, **imported by nothing** | 285 | none | you | **CUT** |
+| F23 | - | `components/KHQRPayment.jsx` (removed in `payments-auto-v1` branch of work) | legacy KHQR component, **imported by nothing** | 285 | none | you | **CUT** |
 | F24 | — | `components/BakongPayment.jsx` | plan-purchase QR modal | 248 | J7 | you | **CUT** with A11 (manual plan set) |
 | F25 | — | `components/Pagination.jsx` | pagination, used only by Orders | 117 | J1 | you | **KEEP** |
 
@@ -141,24 +140,28 @@ defence-in-depth, not the access control. Not a Phase 0 change — noted for Pha
 
 | ID | Module | Purpose | LOC | Referenced by | Proposal |
 |---|---|---|---|---|---|
-| B1 | `services/bakongVerifier.js` | NBC/relay Bakong transaction verification | 159 | paymentRoutes, reconciler, 2 tests | **CUT** |
-| B2 | `services/bakongReconciler.js` | 30 s background loop marking sessions PAID | 82 | `app.js:322` `startReconciler()` | **CUT** |
-| B3 | `services/paywayService.js` | ABA PayWay REST wrapper | 178 | `paymentController` only | **CUT** |
-| B4 | `controllers/paymentController.js` | PayWay KHQR flow — requires `../db`, which **does not exist** | 129 | **nothing** | **CUT** |
-| B5 | `services/stripeService.js` | Stripe checkout + webhook | 98 | **nothing** | **CUT** |
+| B1 | `services/bakongVerifier.js` (removed, Phase 2) | NBC/relay Bakong transaction verification | 159 | paymentRoutes, reconciler, 2 tests | **CUT** |
+| B2 | `services/bakongReconciler.js` (removed, Phase 2) | 30 s background loop marking sessions PAID | 82 | `app.js:322` `startReconciler()` | **CUT** |
+| B3 | `services/paywayService.js` (removed in `3a215c5`) | ABA PayWay REST wrapper | 178 | `paymentController` only | **CUT** |
+| B4 | `controllers/paymentController.js` (removed in `3a215c5`) | PayWay KHQR flow — required `../db`, which **does not exist** | 129 | **nothing** | **CUT** |
+| B5 | `services/stripeService.js` (removed in `3a215c5`) | Stripe checkout + webhook | 98 | **nothing** | **CUT** |
 | B6 | `services/invoiceService.js` | invoice helpers | 91 | **nothing** | **CUT** |
 | B7 | `services/emailService.js` | nodemailer transport | 63 | **nothing** | **CUT** |
 | B8 | `services/exportService.js` | export helpers | 22 | **nothing** | **CUT** |
 | B9 | `config/plans.js` | USD prices for market-stall/shophouse/chain, 1-month only | 21 | paymentRoutes | **CUT** with A11 (prices become a page in docs, not code) |
-| B10 | `models/*` (7 files) | Mongoose-shaped models | 473 | **nothing** | **CUT** |
-| B11 | `lib/serializers.js` | response shaping | 113 | **nothing** | **CUT** |
-| B12 | `middleware/validate.js` | express-validator bundles | 160 | **nothing** | **CUT** |
+| B10 | `models/*` (7 files, removed in `3a215c5`) | Mongoose-shaped models | 473 | **nothing** | **CUT** |
+| B11 | `lib/serializers.js` (removed in `3a215c5`) | response shaping | 113 | **nothing** | **CUT** |
+| B12 | `middleware/validate.js` (removed in `3a215c5`) | express-validator bundles | 160 | **nothing** | **CUT** |
 | B13 | `middleware/cache.js` | in-memory cache | 27 | orders, products | KEEP |
 | B14 | `middleware/auth.js` | JWT, tenant scope, role | 165 | everywhere | KEEP |
 | B15 | `middleware/rolePolicy.js` | route→role policy | 29 | `app.js:234` | KEEP |
 | B16 | `middleware/rateLimit.js` | limiters | 58 | app, public | KEEP |
 | B17 | `middleware/activityLogger.js` | audit writes | 29 | app, several routes | KEEP |
-| B18 | `scripts/` 30 files | seeds, one-off checks, `_guard.js`, `verify.js`, `verifier_runner.js` | ~2,300 | run by hand | **CUT** one-offs after Phase 3 ships `verify`; archive, don't delete |
+| B18 | `scripts/` (19 files) | seeds, `_guard.js`, `verify.js`, `names-diff.js`, `flake.js`, test-DB helpers, `make-baseline.js`, mutation scripts, e2e + dev helpers | — | package.json / tests / docs | **KEEP** the referenced ones (see the table in `docs/RESTORE.md`); `perf-explain.js` was a temporary Phase 5b harness and is deleted |
+
+Phase 2/5 correction: B3, B4, B5, B10, B11 and B12 were removed in `3a215c5`; B1, B2
+and B9 were removed with the Phase 2 payment decision. B6–B8 still exist but have no
+caller. The rows are kept as the Phase 0 record; `docs/RESTORE.md` has the restore commands.
 
 Backend LOC accounted for: 4,976 (routes+app) + 822 (services) + 473 (models) + 468 (middleware)
 + 124 (lib) + 161 (config) + 69 (utils/constants) ≈ 7,093 of 7,112.
@@ -174,8 +177,8 @@ going to invent deletions for them.
 |---|---|---|---|
 | 6.1 | Yearly plans | **NOT IN CODE** | `config/plans.js` prices only `{1: {...}}`; `period_months` accepted up to 119 (`paymentRoutes.js:53`) but only 1 is priced. No annual anywhere in frontend. Nothing to delete; the dead `period_months` branch dies with A11. |
 | 6.2 | KHR pricing lists | **NOT IN CODE** | `plans.js` is USD-only; KHQR currency defaults `'USD'` (`paymentRoutes.js:48`). Nothing to delete. |
-| 6.3 | Automatic plan unlock | **CONFIRMED** | `paymentRoutes.js:150-166`, `:278-292`, `:343-352` UPDATE `tenants.plan` straight from a bank check; `bakongReconciler` does it on a 30 s timer. This is the single biggest unearned-complexity block: 241 lines + 2 tables + 21 tests, and it makes your revenue depend on an NBC API token you must renew (`scripts/renew-bakong-token.js`). |
-| 6.4 | Multiple payment gateways | **CONFIRMED — four** | Bakong direct (`bakongVerifier`), Bakong relay (`provider === 'relay'`), Stripe (`stripeService` + `@stripe/*` in the frontend), ABA PayWay (`paywayService`). Only one of them is wired to a live UI path. |
+| 6.3 | Automatic plan unlock | **CONFIRMED — removed in Phase 2** | `paymentRoutes.js:150-166`, `:278-292`, `:343-352` UPDATE `tenants.plan` straight from a bank check; `bakongReconciler` does it on a 30 s timer. This is the single biggest unearned-complexity block: 241 lines + 2 tables + 21 tests, and it makes your revenue depend on an NBC API token you must renew (`scripts/renew-bakong-token.js`, removed in Phase 2). |
+| 6.4 | Multiple payment gateways | **CONFIRMED — four, all removed** | Bakong direct (`bakongVerifier`), Bakong relay (`provider === 'relay'`), Stripe (`stripeService` + `@stripe/*` in the frontend), ABA PayWay (`paywayService`). Only one of them was wired to a live UI path. |
 | 6.5 | Warranty / service modules | **CONFIRMED** | 4,256 frontend lines (Warranty.jsx + css), 342 backend lines, 2 tables, 2 migrations, 0 pilot interviews. |
 | 6.6 | Unused tables | **CONFIRMED — 3, plus 2 that die with 6.3** | `tbl_orders_details`, `tbl_held_sales`, `tbl_payment_method` have **zero** code references. `khqr_sessions` / `khqr_webhook_events` are only used by the block in 6.3. |
 
@@ -252,11 +255,11 @@ Ask these before Phase 1 is final: Q4 alone kills or keeps ~1,500 lines, Q5 pric
     `prod_backup.sql`, `database/spms.accdb` (7 MB), `database/spms.db`, `fix-api-client.mjs`,
     `backend/names.txt`, `backend/names2.txt`. Approve deletion (git removes the tracked ones;
     `.accdb`/`.db` need a decision because they may be your only data copy).
+    **Phase 5:** `fix-api-client.mjs` is deleted; `.db` / `.accdb` / `prod_backup.sql` await your
+    offline copy (sizes and `git log` are in the Phase 5 report). The untracked logs are untouched.
 
-**One environment discrepancy, not acted on:** `AGENTS.md` says the test DB is on port **5434**;
-`docker-compose.test.yml` publishes `${TEST_DB_PORT:-55432}`. Both are docker-only and neither
-touches production, so I did not change anything — but Phase 3's `verify` needs one number.
-Tell me which is authoritative.
+**Port:** `AGENTS.md` now matches `docker-compose.test.yml`: the host port comes from
+`TEST_DB_PORT` in `backend/scripts/_guard.js` (default 55432). Nothing else to decide.
 
 ---
 

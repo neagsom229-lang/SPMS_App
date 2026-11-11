@@ -63,23 +63,32 @@ function namesFromJest(jsonPath) {
   return namesFromJestData(JSON.parse(fs.readFileSync(jsonPath, 'utf8')));
 }
 
-// Used by scripts/verify.js. Compares a parsed jest --json object against the
-// COMMITTED baseline. Before the owner commits the baseline there is nothing
-// to enforce, so a missing HEAD copy is a warning, not a failure.
-function checkAgainstCommitted(jestData) {
-  const committed = readCommitted();
-  if (!committed.ok) {
-    console.warn(`names-check: no committed baseline at ${REL}; skipping per-file floor check (commit it to enable).`);
-    return { ok: true, skipped: true };
+// Pure comparison against a baseline text. Missing/empty baseline fails: once
+// expected-names.txt is committed, verify must not silently skip the gate.
+function checkAgainstText(jestData, text) {
+  if (!text || !text.trim()) {
+    console.error(`FAIL: expected-names baseline is missing or empty (${REL})`);
+    return { ok: false, reason: 'missing-baseline' };
   }
-  const expected = parse(committed.text);
+  const expected = parse(text);
   const actual = namesFromJestData(jestData);
   const cmp = compare(actual, expected);
   const ok = printReport('jest run vs HEAD', {
     committedCount: expected.length,
     actualCount: actual.length,
   }, cmp);
-  return { ok, skipped: false, cmp };
+  return { ok, skipped: false, cmp, reason: ok ? null : 'names-mismatch' };
+}
+
+// Used by scripts/verify.js. Compares a parsed jest --json object against the
+// COMMITTED baseline. A missing HEAD copy is a hard failure.
+function checkAgainstCommitted(jestData) {
+  const committed = readCommitted();
+  if (!committed.ok) {
+    console.error(`FAIL: no committed baseline at HEAD:${REL}`);
+    return { ok: false, reason: 'missing-baseline' };
+  }
+  return checkAgainstText(jestData, committed.text);
 }
 
 function compare(actual, expected) {
@@ -159,6 +168,6 @@ function main() {
   process.exit(ok ? 0 : 1);
 }
 
-module.exports = { readCommitted, parse, countByFile, namesFromJest, namesFromJestData, compare, checkAgainstCommitted };
+module.exports = { readCommitted, parse, countByFile, namesFromJest, namesFromJestData, compare, checkAgainstText, checkAgainstCommitted };
 
 if (require.main === module) main();

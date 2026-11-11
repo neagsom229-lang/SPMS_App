@@ -261,22 +261,12 @@ const Products = () => {
       }
       return apiClient.post('/products', payload);
     },
-    onSuccess: async (response) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['stock'] });
 
-      // If this is a new product, create a stock row automatically (if not already done by backend)
-      if (!editingProduct) {
-        const newProduct = response.data?.product || response.data;
-        const numericId = getNumericId(newProduct);
-        if (numericId) {
-          const qtyInStock = parseInt(formData.QTY_INSTOCK) || 0;
-          const qtyAlert = parseInt(formData.QTY_ALERT) || 10;
-          // Call helper – it will silently ignore if stock already exists
-          await createStockForProduct(numericId, qtyInStock, qtyAlert);
-          queryClient.invalidateQueries({ queryKey: ['stock'] });
-        }
-      }
+      // The server creates the tbl_stock row from the product payload, so the
+      // client must not POST stock again (it used to double-create).
 
       showMessage(editingProduct ? '✅ Product updated successfully!' : '✅ Product created with stock!');
       toast.success(editingProduct ? 'Product updated!' : 'Product created!');
@@ -287,24 +277,13 @@ const Products = () => {
     },
   });
 
-  // Delete product + its stock (numeric ID)
+  // Delete product (soft delete: status Inactive)
   const deleteMutation = useMutation({
-    mutationFn: async (productIdString) => {
-      // First, get the numeric ID from the product object we have in the list
-      const product = products.find(p => getId(p) === productIdString);
-      if (product) {
-        const numericId = getNumericId(product);
-        if (numericId) {
-          await deleteStockForProduct(numericId);
-        }
-      }
-      // Then delete the product (soft delete – set status to Inactive)
-      return apiClient.delete(`/products/${productIdString}`);
-    },
+    mutationFn: async (productIdString) => apiClient.delete(`/products/${productIdString}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['stock'] });
-      showMessage('✅ Product and its stock deleted successfully!');
+      showMessage('✅ Product deleted successfully!');
       toast.success('Product deleted!');
     },
     onError: (error) => {
@@ -313,26 +292,17 @@ const Products = () => {
     },
   });
 
-  // Bulk delete: delete each product + its stock
+  // Bulk delete
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids) => {
       for (const id of ids) {
-        const product = products.find(p => getId(p) === id);
-        if (product) {
-          const numericId = getNumericId(product);
-          if (numericId) {
-            try {
-              await deleteStockForProduct(numericId);
-            } catch (e) { /* ignore */ }
-          }
-        }
         await apiClient.delete(`/products/${id}`);
       }
     },
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['stock'] });
-      showMessage(`✅ ${ids.length} products and their stock deleted!`);
+      showMessage(`✅ ${ids.length} products deleted!`);
       setSelectedProducts([]);
     },
     onError: () => showMessage('❌ Failed to delete some products', 'error'),

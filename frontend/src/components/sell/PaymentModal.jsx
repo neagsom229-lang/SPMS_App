@@ -1,7 +1,6 @@
 // frontend/src/components/sell/PaymentModal.jsx
 import React, { useState } from 'react';
 import { X, DollarSign, QrCode, CreditCard, Building2, CheckCircle, RefreshCw } from 'lucide-react';
-import KHQRPayment from '../KHQRPayment';
 
 const PaymentModal = ({ total, onCompleteSale, onClose, processing }) => {
   const [paymentMethod, setPaymentMethod] = useState('Cash');

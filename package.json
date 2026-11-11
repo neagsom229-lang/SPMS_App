@@ -2,24 +2,23 @@
   "name": "spms-app",
   "version": "1.0.0",
   "description": "SPMS - Sale & Product Management System",
+  "private": true,
   "scripts": {
+    "dev": "node backend/scripts/dev.js",
     "verify": "node backend/scripts/verify.js",
+    "verify:full": "node backend/scripts/verify-full.js",
+    "test:e2e": "playwright test",
+    "rehearse": "node backend/scripts/rehearse.js",
     "names:diff": "node backend/scripts/names-diff.js",
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "start": "cd backend && npm start",
     "build": "cd frontend && npm run build",
     "vercel-build": "cd frontend && npm install && npm run build"
   },
   "devDependencies": {
+    "@playwright/test": "^1.50.0",
     "concurrently": "^8.0.1"
-  },
-  "dependencies": {
-    "@emailjs/browser": "^4.4.1",
-    "bakong-khqr": "^1.0.20",
-    "express": "^5.3.0",
-    "qrcode": "^1.5.4"
   }
 }

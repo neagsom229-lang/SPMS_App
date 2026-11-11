@@ -6,10 +6,9 @@ const { authenticate, requireTenant, requireSuperAdmin } = require('../middlewar
 const { BakongKHQR, IndividualInfo, khqrData } = require('bakong-khqr');
 const QRCode = require('qrcode');
 const crypto = require('crypto');
-const { verifyTransaction } = require('../services/bakongVerifier');
 const PLANS = require('../config/plans');
 
-// 1. GET Subscription info
+// 1. GET Subscription info (read-only)
 router.get('/subscription', authenticate, requireTenant, async (req, res) => {
   try {
     const tenantRes = await db.query(
@@ -50,7 +49,14 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
     const normCurr = String(currency).toUpperCase();
     const months = Number(period_months);
 
-    if (months >= 120 || !PLANS[normPlan] || !PLANS[normPlan][months] || !PLANS[normPlan][months][normCurr]) {
+    if (
+      !Number.isInteger(months) ||
+      months <= 0 ||
+      months >= 120 ||
+      !PLANS[normPlan] ||
+      !PLANS[normPlan][months] ||
+      !PLANS[normPlan][months][normCurr]
+    ) {
       return res.status(400).json({ error: 'Invalid plan, period, or currency combination' });
     }
 
@@ -102,7 +108,7 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
   }
 });
 
-// 3. Check KHQR session status
+// 3. Check KHQR session status (DB read only: no provider call, no activation)
 router.get('/bakong/check/:md5', authenticate, requireTenant, async (req, res) => {
   try {
     const { md5 } = req.params;
@@ -120,7 +126,6 @@ router.get('/bakong/check/:md5', authenticate, requireTenant, async (req, res) =
     }
 
     const session = sessionRes.rows[0];
-    const now = new Date();
 
     if (session.status === 'PAID') {
       return res.json({ status: 'PAID', plan: session.plan, expires_at: session.expires_at });
@@ -130,185 +135,20 @@ router.get('/bakong/check/:md5', authenticate, requireTenant, async (req, res) =
       return res.json({ status: 'EXPIRED' });
     }
 
-    const verifyResult = await verifyTransaction(session, md5);
-
-    if (verifyResult.state === 'PAID') {
-      const client = await db.connect();
-      try {
-        await client.query('BEGIN');
-        const updateRes = await client.query(
-          `UPDATE khqr_sessions 
-           SET status = 'PAID', bakong_hash = $2, paid_at = NOW(), verified_by = 'bakong', raw_response = $3 
-           WHERE md5 = $1 AND status = 'PENDING' 
-           RETURNING *`,
-          [md5, verifyResult.hash, JSON.stringify(verifyResult.raw || {})]
-        );
-
-        let isWinner = updateRes.rowCount > 0;
-
-        if (isWinner) {
-          const months = session.period_months || 1;
-          await client.query(
-            `UPDATE tenants 
-             SET plan = $1, 
-                 plan_expires_at = COALESCE(GREATEST(plan_expires_at, NOW()), NOW()) + make_interval(months => $2) 
-             WHERE id = $3`,
-            [session.plan || 'PRO', months, req.tenantId]
-          );
-
-          await client.query(
-            `INSERT INTO tbl_activity_logs (tenant_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-            [req.tenantId, req.user.userId, 'SUBSCRIPTION_PAID', JSON.stringify({ plan: session.plan, hash: verifyResult.hash })]
-          );
-        }
-
-        await client.query('COMMIT');
-        return res.json({ status: 'PAID', plan: session.plan });
-      } catch (txErr) {
-        await client.query('ROLLBACK');
-        console.error('Error committing verified payment transaction:', txErr);
-        return res.json({ status: 'VERIFYING_ERROR' });
-      } finally {
-        client.release();
-      }
-    } else if (verifyResult.state === 'FAILED_MISMATCH') {
-      await db.query(`UPDATE khqr_sessions SET status = 'FAILED_MISMATCH' WHERE id = $1`, [session.id]);
-      return res.json({ status: 'VERIFYING_ERROR' });
-    } else if (verifyResult.state === 'ERROR') {
-      return res.json({ status: 'VERIFYING_ERROR' });
-    } else {
-      if (session.expires_at && new Date(session.expires_at) < now) {
-        await db.query(`UPDATE khqr_sessions SET status = 'EXPIRED' WHERE id = $1 AND status = 'PENDING'`, [session.id]);
-        return res.json({ status: 'EXPIRED' });
-      }
-      return res.json({ status: 'PENDING' });
+    if (session.expires_at && new Date(session.expires_at) < new Date()) {
+      return res.json({ status: 'EXPIRED' });
     }
 
+    return res.json({ status: 'PENDING', plan: session.plan, expires_at: session.expires_at });
   } catch (err) {
     console.error('Error checking KHQR status:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// 4. Webhook Endpoint (Relay)
-router.post('/webhook/khqr', express.raw({ type: '*/*' }), async (req, res) => {
-  try {
-    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(typeof req.body === 'object' ? JSON.stringify(req.body) : String(req.body || ''));
-    const signature = req.headers['x-khqr-signature'] || req.headers['x-signature'] || '';
-    const timestampHeader = req.headers['x-khqr-timestamp'] || req.headers['x-timestamp'] || '';
-    const webhookSecret = process.env.KHQR_WEBHOOK_SECRET || 'secret';
-
-    if (timestampHeader) {
-      const eventTime = Number(timestampHeader);
-      const now = Date.now();
-      if (isNaN(eventTime) || Math.abs(now - eventTime) > 300000) {
-        return res.status(401).json({ error: 'Invalid or expired timestamp' });
-      }
-    }
-
-    const hmac = crypto.createHmac('sha256', webhookSecret);
-    hmac.update(rawBody);
-    const computedSignature = hmac.digest('hex');
-
-    const sigBuffer = Buffer.from(signature, 'utf8');
-    const computedBuffer = Buffer.from(computedSignature, 'utf8');
-
-    if (sigBuffer.length !== computedBuffer.length || !crypto.timingSafeEqual(sigBuffer, computedBuffer)) {
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-
-    let payload;
-    try {
-      payload = JSON.parse(rawBody.toString('utf8'));
-    } catch (e) {
-      return res.status(400).json({ error: 'Invalid JSON' });
-    }
-
-    const eventId = payload.eventId || payload.id || payload.md5;
-    if (!eventId) {
-      return res.status(400).json({ error: 'Missing event identifier' });
-    }
-
-    // Idempotency insert and activation share one transaction: the event row
-    // only survives if the activation commits.
-    const md5 = payload.md5;
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
-      const eventInsert = await client.query(
-        `INSERT INTO khqr_webhook_events (event_id) VALUES ($1)
-         ON CONFLICT (event_id) DO NOTHING
-         RETURNING event_id`,
-        [eventId]
-      );
-      if (eventInsert.rowCount === 0) {
-        await client.query('ROLLBACK');
-        return res.status(200).json({ success: true, message: 'Event already processed' });
-      }
-
-      if (!md5) {
-        await client.query('COMMIT');
-        return res.status(200).json({ success: true, message: 'No md5 in payload' });
-      }
-
-      const sessionRes = await client.query(`SELECT * FROM khqr_sessions WHERE md5 = $1`, [md5]);
-      if (sessionRes.rows.length === 0) {
-        await client.query('COMMIT');
-        return res.status(200).json({ success: true, message: 'Session not found' });
-      }
-
-      const session = sessionRes.rows[0];
-      if (session.status === 'PAID') {
-        await client.query('COMMIT');
-        return res.status(200).json({ success: true, message: 'Already paid' });
-      }
-
-      // Re-verify with provider check endpoint
-      const verifyResult = await verifyTransaction(session, md5);
-      if (verifyResult.state === 'PAID') {
-        const updateRes = await client.query(
-          `UPDATE khqr_sessions 
-           SET status = 'PAID', bakong_hash = $2, paid_at = NOW(), verified_by = 'webhook', raw_response = $3 
-           WHERE md5 = $1 AND status = 'PENDING' 
-           RETURNING *`,
-          [md5, verifyResult.hash, JSON.stringify(verifyResult.raw || {})]
-        );
-
-        if (updateRes.rowCount > 0) {
-          const months = session.period_months || 1;
-          await client.query(
-            `UPDATE tenants 
-             SET plan = $1, 
-                 plan_expires_at = COALESCE(GREATEST(plan_expires_at, NOW()), NOW()) + make_interval(months => $2) 
-             WHERE id = $3`,
-            [session.plan || 'PRO', months, session.tenant_id]
-          );
-
-          await client.query(
-            `INSERT INTO tbl_activity_logs (tenant_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-            [session.tenant_id, session.user_id, 'SUBSCRIPTION_WEBHOOK_PAID', JSON.stringify({ plan: session.plan, hash: verifyResult.hash })]
-          );
-        }
-      }
-
-      await client.query('COMMIT');
-      return res.status(200).json({ success: true });
-    } catch (txErr) {
-      await client.query('ROLLBACK');
-      console.error('Webhook transaction error:', txErr);
-      return res.status(500).json({ error: 'Internal server error' });
-    } finally {
-      client.release();
-    }
-  } catch (err) {
-    console.error('Webhook processing error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Locked legacy aliases (cannot set PAID)
 router.get('/status/:id', authenticate, requireTenant, (req, res) => {
-  res.status(410).json({ error: 'Endpoint deprecated. Use /bakong/check/:md5' });
+  res.status(410).json({ error: 'Endpoint deprecated' });
 });
 router.get('/khqr', authenticate, requireTenant, (req, res) => {
   res.status(410).json({ error: 'Endpoint deprecated' });
@@ -317,56 +157,7 @@ router.post('/confirm', authenticate, requireTenant, (req, res) => {
   res.status(410).json({ error: 'Endpoint deprecated' });
 });
 
-// 5. Simulator Route (Disabled in production)
-router.post('/simulate-payment/:md5', authenticate, requireSuperAdmin, async (req, res) => {
-  if (process.env.NODE_ENV === 'production' || process.env.ENABLE_PAYMENT_SIMULATOR !== 'true') {
-    return res.status(404).json({ error: 'Not Found' });
-  }
-  try {
-    const { md5 } = req.params;
-    const sessionRes = await db.query(`SELECT * FROM khqr_sessions WHERE md5 = $1`, [md5]);
-    if (sessionRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    const session = sessionRes.rows[0];
-
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
-      const simulatedHash = 'SIM-' + crypto.randomBytes(8).toString('hex');
-      const updateRes = await client.query(
-        `UPDATE khqr_sessions SET status = 'PAID', bakong_hash = $2, paid_at = NOW(), verified_by = $3, raw_response = $4 WHERE md5 = $1 AND status = 'PENDING' RETURNING *`,
-        [md5, simulatedHash, `manual:${req.user.userId}`, JSON.stringify({ simulated: true })]
-      );
-
-      if (updateRes.rowCount > 0) {
-        const months = session.period_months || 1;
-        await client.query(
-          `UPDATE tenants 
-           SET plan = $1, 
-               plan_expires_at = COALESCE(GREATEST(plan_expires_at, NOW()), NOW()) + make_interval(months => $2) 
-           WHERE id = $3`,
-          [session.plan || 'PRO', months, session.tenant_id]
-        );
-        await client.query(`INSERT INTO tbl_activity_logs (tenant_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
-          [session.tenant_id, req.user.userId, 'SUBSCRIPTION_SIMULATED', JSON.stringify({ plan: session.plan, hash: simulatedHash })]);
-      }
-
-      await client.query('COMMIT');
-      res.json({ success: true, status: 'PAID' });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-  } catch (err) {
-    console.error('Error in simulation:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// 6. Super Admin Endpoints
+// 4. Super Admin Endpoints
 router.get('/admin/sessions', authenticate, requireSuperAdmin, async (req, res) => {
   try {
     const { status, q } = req.query;
@@ -393,27 +184,11 @@ router.get('/admin/sessions', authenticate, requireSuperAdmin, async (req, res) 
   }
 });
 
-router.post('/admin/sessions/:id/recheck', authenticate, requireSuperAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const sessionRes = await db.query(`SELECT * FROM khqr_sessions WHERE id = $1`, [id]);
-    if (sessionRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-    const session = sessionRes.rows[0];
-    const verifyResult = await verifyTransaction(session, session.md5);
-    res.json({ success: true, verifyResult });
-  } catch (err) {
-    console.error('Error rechecking admin session:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 router.post('/admin/sessions/:id/mark-paid', authenticate, requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    if (!reason) {
+    if (!reason || !String(reason).trim()) {
       return res.status(400).json({ error: 'Reason is required for manual mark-paid' });
     }
 
@@ -422,6 +197,9 @@ router.post('/admin/sessions/:id/mark-paid', authenticate, requireSuperAdmin, as
       return res.status(404).json({ error: 'Session not found' });
     }
     const session = sessionRes.rows[0];
+    const months = Number.isInteger(session.period_months) && session.period_months > 0
+      ? session.period_months
+      : 1;
 
     const client = await db.connect();
     try {
@@ -433,11 +211,10 @@ router.post('/admin/sessions/:id/mark-paid', authenticate, requireSuperAdmin, as
       );
 
       if (updateRes.rowCount > 0) {
-        const months = session.period_months || 1;
         await client.query(
-          `UPDATE tenants 
-           SET plan = $1, 
-               plan_expires_at = COALESCE(GREATEST(plan_expires_at, NOW()), NOW()) + make_interval(months => $2) 
+          `UPDATE tenants
+           SET plan = $1,
+               plan_expires_at = COALESCE(GREATEST(plan_expires_at, NOW()), NOW()) + make_interval(months => $2)
            WHERE id = $3`,
           [session.plan || 'PRO', months, session.tenant_id]
         );

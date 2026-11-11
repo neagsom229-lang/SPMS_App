@@ -1,0 +1,33 @@
+# .gitleaks.toml
+#
+# Working-tree secret scan (verify.js step 6 and the CI gitleaks step).
+# No secrets here: only allowlists for files whose *test* values are
+# deliberately fake or local.
+title = "SPMS secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local test credentials and placeholder values are not secrets."
+# Local-only files. Real secrets belong in the host environment; a working
+# `.env` is gitignored and must never be committed. `.env.example` stays
+# scanned, because that file IS tracked.
+paths = [
+  '''package-lock\.json$''',
+  '''frontend/package-lock\.json$''',
+  '''backend/package-lock\.json$''',
+  '''(^|/)\.env$''',
+  '''(^|/)\.env\.(local|test|dev|development|prod|production)$''',
+  '''frontend/tests/''',
+  '''backend/tests/''',
+  '''e2e/''',
+  '''docker-compose(\.test|\.dev)?\.yml$''',
+  '''docs/RESTORE\.md$''',
+]
+regexes = [
+  '''postgres(?:ql)?://postgres:postgres@127\.0\.0\.1:5543[23]/''',
+  '''postgres(?:ql)?://postgres:postgres@localhost:5543[23]/''',
+  '''test-secret''',
+  '''test_jwt_secret''',
+]

@@ -1,6 +1,15 @@
+# mutation.ps1
+# Dot-source this file, then dot-source mutants.ps1 (the owner's file).
+# Each Test-Mutation call returns { file, status, killedBy }:
+#   status = KILLED | SURVIVED | SKIPPED | ERROR
+# mutants.ps1 contract: call Test-Mutation -File <path> -Find <text> -Replace <text>
+# (or define $script:Mutants = @(@{File=...;Find=...;Replace=...}, ...)).
 $script:MutRepo   = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:MutReader = Join-Path $env:TEMP 'mut-read.js'
 $script:MutBase   = $null
+if (-not (Get-Variable -Name MutationResults -Scope Script -ErrorAction SilentlyContinue)) {
+  $script:MutationResults = @()
+}
 Set-Content -Path $script:MutReader -Encoding ASCII -Value @'
 const r = require(process.argv[2]);
 const a = r.testResults.flatMap(t => t.assertionResults);
@@ -20,29 +29,60 @@ function Invoke-MutJest {
   return $res
 }
 
+function New-MutResult([string]$File, [string]$Status, $KilledBy) {
+  return [pscustomobject]@{
+    file     = $File
+    status   = $Status
+    killedBy = @($KilledBy)
+  }
+}
+
 function Test-Mutation([string]$File, [string]$Find, [string]$Replace) {
+  $result = $null
   $p = (Resolve-Path (Join-Path $script:MutRepo $File)).Path
+
   if ($null -eq $script:MutBase) {
     Write-Host 'Baseline run (unmutated)...'
     $script:MutBase = Invoke-MutJest
     Write-Host ("Baseline: total={0} failed={1} broken={2}" -f $script:MutBase.total, $script:MutBase.failed, $script:MutBase.broken)
   }
   if ($script:MutBase.total -eq 0 -or $script:MutBase.failed -gt 0 -or $script:MutBase.broken -gt 0) {
-    Write-Host 'ABORT: baseline is not green, so no mutation result can be trusted.'; return
+    Write-Host 'ERROR: baseline is not green, so no mutation result can be trusted.'
+    $result = New-MutResult $File 'ERROR' @()
+    $script:MutationResults += $result
+    return $result
   }
+
   $bytes = [IO.File]::ReadAllBytes($p)
   $hash  = (Get-FileHash $p).Hash
   $old   = [Text.Encoding]::UTF8.GetString($bytes)
   $hits  = [regex]::Matches($old, [regex]::Escape($Find)).Count
-  if ($hits -lt 1) { Write-Host ("SKIPPED: pattern not found in {0}" -f $File); return }
+  if ($hits -lt 1) {
+    Write-Host ("SKIPPED: pattern not found in {0}" -f $File)
+    $result = New-MutResult $File 'SKIPPED' @()
+    $script:MutationResults += $result
+    return $result
+  }
+
   try {
     [IO.File]::WriteAllBytes($p, [Text.Encoding]::UTF8.GetBytes($old.Replace($Find, $Replace)))
     $m = Invoke-MutJest
-    if ($m.failed -gt 0) { Write-Host ("KILLED by {0} test(s), {1} occurrence(s) mutated:" -f $m.failed, $hits); $m.titles | % { Write-Host (' - ' + $_) } }
-    elseif ($m.broken -gt 0) { Write-Host 'ERROR: suites failed to run, not a kill (harness problem)' }
-    else { Write-Host ("SURVIVED ({0} occurrence(s)): no test noticed this change" -f $hits) }
+    if ($m.failed -gt 0) {
+      Write-Host ("KILLED by {0} test(s), {1} occurrence(s) mutated:" -f $m.failed, $hits)
+      $m.titles | ForEach-Object { Write-Host (' - ' + $_) }
+      $result = New-MutResult $File 'KILLED' $m.titles
+    } elseif ($m.broken -gt 0) {
+      Write-Host 'ERROR: suites failed to run, not a kill (harness problem)'
+      $result = New-MutResult $File 'ERROR' @()
+    } else {
+      Write-Host ("SURVIVED ({0} occurrence(s)): no test noticed this change" -f $hits)
+      $result = New-MutResult $File 'SURVIVED' @()
+    }
   } finally {
     [IO.File]::WriteAllBytes($p, $bytes)
     Write-Host ('restored: ' + ((Get-FileHash $p).Hash -eq $hash))
   }
+
+  $script:MutationResults += $result
+  return $result
 }
