@@ -1,5 +1,5 @@
 # SPMS_App rules (read first, every session)
-- Database: Postgres in Docker only (docker-compose.test.yml, the port in TEST_DB_PORT, defined once in backend/scripts/_guard.js (default 55432)). Never connect to or write to the live Supabase DB. Never run supabase commands with --linked, --db-url or --remote.
+- Database: Postgres in Docker only (docker-compose.test.yml). The port comes from TEST_DB_PORT in backend/scripts/_guard.js (default 55432). Never connect to or write to the live Supabase DB. Never run supabase commands with --linked, --db-url or --remote.
 - Never edit a migration that may be applied to production. Treat 015-026 as possibly applied until the owner confirms; changes go in a NEW additive, idempotent migration.
 - Never read, print or edit .env. Never regenerate or edit database/baseline.sql (the owner maintains it).
 - Never type test counts or PASS/FAIL by hand. Only `npm run verify` and jest --json output count.
@@ -7,3 +7,8 @@
 - Never write a handler that returns success without a real DB change.
 - The owner writes all Test-Mutation calls. Do not author mutants.
 - Commit a checkpoint before any deletion or large edit. Max 3 retries, then stop and show the raw error.
+- A test must FAIL when the behaviour in its title is removed. One behaviour per test. Never merge, generalise or rename tests to raise or keep a count.
+- You never commit, tag, push or switch branches. The owner does, between phases.
+- After the owner commits backend/tests/expected-names.txt you never edit it. You never write mutation calls (mutants.ps1 is the owner's). When code the owner mutates changes, print the new exact text of the affected line.
+- Tests may run in parallel only if each jest worker has its own database.
+- Reports are raw command output only. If a number differs from the owner's terminal, say so.
