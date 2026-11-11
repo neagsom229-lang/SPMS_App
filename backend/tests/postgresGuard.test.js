@@ -74,6 +74,7 @@ describe('Test DB guard allow/deny matrix', () => {
     isLocalHost,
     parseDbUrl,
     testDatabaseUrl,
+    DEFAULT_TEST_DB_PORT,
     TEST_DB_PORT,
   } = require('../scripts/_guard');
 
@@ -126,8 +127,8 @@ describe('Test DB guard allow/deny matrix', () => {
     }
   });
 
-  test('default port is 55432 unless TEST_DB_PORT overrides it', () => {
-    expect(TEST_DB_PORT).toBe(Number(process.env.TEST_DB_PORT || 55432));
+  test('default port comes from DEFAULT_TEST_DB_PORT unless TEST_DB_PORT overrides it', () => {
+    expect(TEST_DB_PORT).toBe(Number(process.env.TEST_DB_PORT || DEFAULT_TEST_DB_PORT));
   });
 
   describe('require-time guard fails closed', () => {

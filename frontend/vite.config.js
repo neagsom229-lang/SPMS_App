@@ -45,7 +45,6 @@ export default defineConfig(({ mode }) => {
             vendor: ['react', 'react-dom', 'react-router-dom'],
             ui: ['lucide-react', 'framer-motion'],
             charts: ['recharts'],
-            payment: ['@stripe/react-stripe-js', '@stripe/stripe-js'],
           },
         },
       },

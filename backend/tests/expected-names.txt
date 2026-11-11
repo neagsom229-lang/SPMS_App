@@ -1,0 +1,152 @@
+backend/tests/admin.test.js	Admin & Public Store Test Suite > Admin user login succeeds and returns valid auth token
+backend/tests/admin.test.js	Admin & Public Store Test Suite > Negative or zero quantity order submission is rejected with 4xx status
+backend/tests/admin.test.js	Admin & Public Store Test Suite > Overselling inventory returns 409 conflict and leaves stock unchanged
+backend/tests/admin.test.js	Admin & Public Store Test Suite > Public store menu endpoint loads without leaking cost or supplier data
+backend/tests/bakongPayment.test.js	Bakong payment routes > 20 concurrent polls activate exactly once, extend by one period and write one activity log
+backend/tests/bakongPayment.test.js	Bakong payment routes > a bakong_hash already used by another session does not activate the second session
+backend/tests/bakongPayment.test.js	Bakong payment routes > amount/currency/account mismatch ends FAILED_MISMATCH and never PAID
+backend/tests/bakongPayment.test.js	Bakong payment routes > another tenant cannot read a session md5 (404)
+backend/tests/bakongPayment.test.js	Bakong payment routes > invalid md5 is rejected with 400
+backend/tests/bakongPayment.test.js	Bakong payment routes > manual mark-paid records the real admin id in ledger user_id and verified_by
+backend/tests/bakongPayment.test.js	Bakong payment routes > pricing is server-side: client amount ignored, invalid plan/period/currency and period >= 120 rejected
+backend/tests/bakongPayment.test.js	Bakong payment routes > provider 401/403/429/500/timeout map to VERIFYING_ERROR with no activation
+backend/tests/bakongPayment.test.js	Bakong payment routes > replayed webhook does not activate twice
+backend/tests/bakongPayment.test.js	Bakong payment routes > simulator route returns 404 when NODE_ENV=production
+backend/tests/bakongPayment.test.js	Bakong payment routes > subscription returns the tenant plan and create-qr persists a pending session at the plan price
+backend/tests/bakongPayment.test.js	Bakong payment routes > valid signed webhook through the real app processes the payment
+backend/tests/bakongPayment.test.js	Bakong payment routes > valid webhook whose provider says unpaid performs no activation
+backend/tests/bakongPayment.test.js	Bakong payment routes > webhook with a bad signature returns 401
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > 20 concurrent polls
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > missing account => FAILED_MISMATCH
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > missing currency => FAILED_MISMATCH
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > missing time => FAILED_MISMATCH
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > provider HTTP 401 maps to ERROR/AUTH
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > provider HTTP 403 maps to ERROR/FORBIDDEN_OR_GEO
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > provider HTTP 429 maps to ERROR/RATE
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > provider HTTP 500 maps to ERROR/UPSTREAM
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > provider HTTP 503 maps to ERROR/UPSTREAM
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > provider timeout maps to ERROR/UPSTREAM
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > same bakong_hash
+backend/tests/bakongVerifier.test.js	Bakong Verifier Tests > valid signed request
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant DELETE /api/orders/:id returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant GET /api/%75sers returns 403 or 404
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant GET /api/REPORTS returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant GET /api/USERS returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant GET /api/Users/ returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant PATCH /api/Orders/:id/Status returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant POST /api/Orders/:id/Cancel returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Cashier case-variant POST /api/Orders/:id/Refund returns 403
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/categories returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/customers returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/orders returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/products returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/services returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/stock returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/suppliers returns 403 and zero rows
+backend/tests/case-variants-and-null-tenant.test.js	Case Variants & Null Tenant Test Suite > Null-tenant user GET /api/warranties returns 403 and zero rows
+backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > 20 parallel checkout requests for the last unit succeed for at most one and reject others
+backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Duplicate line items in cart returns 409 conflict
+backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Public store expired pending order expiry restores stock correctly
+backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Public store order quantity and line count caps enforced
+backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Public store pending unpaid orders capped at 2 per phone number
+backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Public store phone number normalization counts different formats as the same phone for rate limiting
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > 20 parallel checkouts for last unit correctly handle concurrency
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > 20 sequential orders generate 20 unique order numbers per tenant
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > Duplicate-line cart returns 409 conflict error
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > Idempotency key replay returns same order id and performs stock decrement only once
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > Reverse-order carts execute in parallel without deadlock
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > Same idempotency key used in Tenant B operates independently
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > User can successfully access protected endpoints after password change
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > User can successfully change password and obtain new token via POST /api/auth/change-password
+backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > User with must_change_password set receives 403 PASSWORD_CHANGE_REQUIRED on protected endpoints
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Admin B vs Tenant A on customer, supplier, user and order (GET/PUT/DELETE) and list endpoints return zero tenant A rows
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Admin void restores stock once
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Cashier cannot void/delete order (returns 403)
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Overselling returns 409 conflict
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Pending public order expiry restores stock correctly
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Public-menu leak test: Tenant B cannot access Tenant A store catalog or public store data improperly
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Refund after void returns 409 conflict
+backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Second void attempt returns 409 conflict
+backend/tests/contract.test.js	Frontend-Backend Contract Test > all frontend apiClient calls match a mounted backend route
+backend/tests/contract.test.js	Frontend-Backend Contract Test > pure matches function: backend /x/:id does NOT match frontend /x/low-stock
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Admin B cannot access Tenant A product by GET/PUT/DELETE
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/categories
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/customers
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/orders
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/products
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/services
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/stock
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/suppliers
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Null tenant user gets 403 and zero rows on GET /api/warranties
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Spoofed X-Tenant-Id header does not expose Tenant A data
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Suspended tenant existing token returns 403
+backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Suspended tenant real login returns 403
+backend/tests/orders.test.js	Orders & Stock Test Suite > 20 parallel checkouts for the last unit succeed for exactly one and reject others with 409
+backend/tests/orders.test.js	Orders & Stock Test Suite > Admin void order with reason returns 204, status Voided, and stock restored once
+backend/tests/orders.test.js	Orders & Stock Test Suite > Cashier delete order returns 403 status
+backend/tests/orders.test.js	Orders & Stock Test Suite > Duplicate line items in cart returns 409 conflict
+backend/tests/orders.test.js	Orders & Stock Test Suite > Refund after void returns 409 and stock remains unchanged
+backend/tests/orders.test.js	Orders & Stock Test Suite > Second void operation returns 409 conflict
+backend/tests/postgresGuard.test.js	Postgres Guard Tests > empty host is refused
+backend/tests/postgresGuard.test.js	Postgres Guard Tests > localhost host is allowed
+backend/tests/postgresGuard.test.js	Postgres Guard Tests > remote host + ALLOW_REMOTE_DB=1 is allowed
+backend/tests/postgresGuard.test.js	Postgres Guard Tests > remote host + RENDER=true is allowed
+backend/tests/postgresGuard.test.js	Postgres Guard Tests > remote host alone is refused
+backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store enforces pending order cap of 2 per customer/phone
+backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store order enforces per-IP rate limit
+backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store order rejects line count exceeding 30 lines
+backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store order rejects line item quantity exceeding 50 units
+backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store pending order expiry restores stock correctly
+backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store phone normalization treats "+855 12 345 678", "012345678" and "012 345 678" as the same phone number for rate limiting
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant DELETE /api/Orders/:id returns 403
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/%75sers returns 403 or 404
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/REPORTS returns 403
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/USERS returns 403
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/Users/ returns 403
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant PATCH /api/Orders/:id/Status returns 403
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant POST /api/Orders/:id/Cancel returns 403
+backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant POST /api/Orders/:id/Refund returns 403
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot delete Tenant A product
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot PUT or DELETE Tenant A customer
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot PUT or DELETE Tenant A order
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot PUT or DELETE Tenant A supplier
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot PUT or DELETE Tenant A user
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot read Tenant A product by id
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Admin B cannot update Tenant A product
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Spoofed X-Tenant-Id header cannot bypass tenant isolation for Admin B
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Suspended tenant user existing token returns 403 on protected endpoint
+backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Suspended tenant user real login returns 403
+backend/tests/security.test.js	Security and Rate Limiting Tests > non-admin (staff) cannot create or promote an admin
+backend/tests/security.test.js	Security and Rate Limiting Tests > repeated bad logins trigger 429 rate limit with Retry-After
+backend/tests/security.test.js	Security and Rate Limiting Tests > tenant B cannot change tenant A roles or data
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: ::1 _test
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: 127.0.0.1 _test
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: db without _test suffix
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: garbage
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: localhost _test
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: no URL
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: remote host
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: remote supabase
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > assertTestDatabaseUrl: wrong port
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > default port comes from DEFAULT_TEST_DB_PORT unless TEST_DB_PORT overrides it
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: ::1
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: 127.0.0.1
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: empty URL
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: garbage
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: localhost
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: remote host
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocal: remote supabase
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocalHost: ::1
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocalHost: 127.0.0.1
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocalHost: empty host
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocalHost: localhost
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > isLocalHost: remote host
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > parseDbUrl: garbage
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > parseDbUrl: parses host/port/database
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > database without _test
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > invalid URL
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > missing URL
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > remote URL
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > remote URL + CONFIRM_LIVE (no bypass)
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > valid local _test URL
+backend/tests/postgresGuard.test.js	Test DB guard allow/deny matrix > require-time guard fails closed > wrong port

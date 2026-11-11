@@ -142,11 +142,6 @@ describe('Case Variants & Null Tenant Test Suite', () => {
     expect(res.status).toBe(403);
   });
 
-  test('Null-tenant user GET /api/analytics/stats returns 403 and zero rows', async () => {
-    const res = await request(app).get('/api/analytics/stats').set('Authorization', 'Bearer ' + nullUserToken);       
-    expect(res.status).toBe(403);
-  });
-
   test('Null-tenant user GET /api/warranties returns 403 and zero rows', async () => {
     const res = await request(app).get('/api/warranties').set('Authorization', 'Bearer ' + nullUserToken);      
     expect(res.status).toBe(403);

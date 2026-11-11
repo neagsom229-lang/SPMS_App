@@ -32,7 +32,6 @@ const categoryRoutes = require('./routes/categories');
 const paymentRoutes = require('./routes/paymentRoutes');
 const warrantyRoutes = require('./routes/warranties');
 const serviceRoutes = require('./routes/services');
-const analyticsRoutes = require('./routes/analytics');
 const publicRoutes = require('./routes/public');
 const reportRoutes = require('./routes/reports');
 
@@ -157,7 +156,6 @@ const { registerLimiter } = require("./middleware/rateLimit");
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register-client", registerLimiter);
 app.use("/api/reports", apiLimiter);
-app.use("/api/analytics", apiLimiter);
 app.use("/api/export", apiLimiter);
 
 // ============================================
@@ -264,7 +262,6 @@ mountRoute('/api/categories', categoryRoutes);
 mountRoute('/api/payment', paymentRoutes);
 mountRoute('/api/warranties', warrantyRoutes);
 mountRoute('/api/services', serviceRoutes);
-mountRoute('/api/analytics', analyticsRoutes);
 mountRoute('/api/public', publicRoutes);
 mountRoute('/api/reports', reportRoutes);
 

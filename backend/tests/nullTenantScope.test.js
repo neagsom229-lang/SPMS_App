@@ -45,14 +45,14 @@ describe('Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests'
     await db.query('DELETE FROM tenants WHERE id IN ($1, $2, $3)', [tenantAId, tenantBId, suspendedTenantId]);
   });
 
-  const endpoints = ['orders', 'products', 'customers', 'suppliers', 'stock', 'categories', 'analytics', 'warranties', 'services'];
+  const endpoints = ['orders', 'products', 'customers', 'suppliers', 'stock', 'categories', 'warranties', 'services'];
 
   endpoints.forEach(ep => {
     it(`Null tenant user gets 403 and zero rows on GET /api/${ep}`, async () => {
       const res = await request(app)
         .get(`/api/${ep}`)
         .set('Authorization', `Bearer ${nullToken}`);
-      const expected = { orders: 200, products: 200, customers: 200, suppliers: 200, stock: 200, categories: 200, analytics: 404, warranties: 200, services: 200 };
+      const expected = { orders: 200, products: 200, customers: 200, suppliers: 200, stock: 200, categories: 200, warranties: 200, services: 200 };
       expect(res.status).toBe(expected[ep]);
       if (res.status === 200) {
         const data = Array.isArray(res.body) ? res.body : (res.body.data || res.body.items || []);

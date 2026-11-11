@@ -4,7 +4,8 @@
 const { URL } = require('url');
 
 const TEST_DB_HOST = '127.0.0.1';
-const TEST_DB_PORT = Number(process.env.TEST_DB_PORT || 55432);
+const DEFAULT_TEST_DB_PORT = 55432;
+const TEST_DB_PORT = Number(process.env.TEST_DB_PORT || DEFAULT_TEST_DB_PORT);
 const TEST_DB_USER = 'postgres';
 const TEST_DB_PASSWORD = 'postgres';
 const TEST_DB_NAME = 'spms_test';
@@ -69,6 +70,7 @@ if (dbUrl) {
 
 module.exports = {
   TEST_DB_HOST,
+  DEFAULT_TEST_DB_PORT,
   TEST_DB_PORT,
   TEST_DB_USER,
   TEST_DB_PASSWORD,

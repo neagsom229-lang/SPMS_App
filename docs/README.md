@@ -36,11 +36,6 @@ GET /api/reports/customers - Customer report
 GET /api/reports/orders - Order report
 GET /api/reports/sales - Sales report
 
-### Analytics
-GET /api/analytics/monthly-revenue - Monthly revenue
-GET /api/analytics/summary - Summary stats
-GET /api/analytics/top-products - Top products
-
 ## Deployment
 1. Deploy backend to Render
 2. Deploy frontend to Vercel

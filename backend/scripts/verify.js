@@ -57,6 +57,14 @@ console.log('=== VERIFY PIPELINE STARTING ===');
   console.log(`Test Suites: ${passedSuites} passed, ${totalSuites} total`);
   console.log(`Tests: ${jestData.numPassedTests} passed, ${totalTests} total`);
 
+  // Per-file floor against the COMMITTED expected-names baseline (HEAD), never
+  // the working tree: only an owner commit can lower a file's count.
+  const namesCheck = require('./names-diff').checkAgainstCommitted(jestData);
+  if (!namesCheck.ok) {
+    console.error('❌ expected-names check failed: a test file is below its committed count');
+    process.exit(1);
+  }
+
   const FLOOR_TESTS = 102;
   const FLOOR_SUITES = 15;
 
