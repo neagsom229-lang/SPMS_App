@@ -136,4 +136,23 @@ test('golden path: product -> stock -> sale -> order -> dashboard', async ({ pag
   await expect
     .poll(async () => Number((await apiGet(page, '/dashboard/stats')).totalRevenue))
     .toBeCloseTo(revenueBefore + PRICE * SELL_QTY, 2);
+
+  // 9. Both dashboard charts draw more than zero <path> elements for the
+  //    seeded data. The trend chart (Dashboard.jsx:46) draws one area <path>
+  //    plus a <rect> bar per month; the sales-mix donut (Dashboard.jsx:88)
+  //    draws one arc <path> per category.
+  const trend = page.locator('svg[aria-label="Revenue and orders, trailing 6 months"]');
+  await expect(trend).toBeVisible();
+  await expect
+    .poll(async () => trend.locator('path').count(), { message: 'trend chart area path' })
+    .toBeGreaterThan(0);
+  await expect
+    .poll(async () => trend.locator('rect').count(), { message: 'trend chart month bars' })
+    .toBeGreaterThan(0);
+
+  const donut = page.locator('svg[aria-label="Sales mix by category"]');
+  await expect(donut).toBeVisible();
+  await expect
+    .poll(async () => donut.locator('path').count(), { message: 'sales mix donut arc paths' })
+    .toBeGreaterThan(0);
 });

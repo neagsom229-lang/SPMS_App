@@ -119,8 +119,12 @@ migrations in order; they are written to be re-runnable.
 
 ## Manual subscription payment (super admin)
 
-There is no super-admin screen for this yet (only `SystemUsers` exists), so the
-procedure is the API itself. Use a super-admin token in `TOKEN`:
+There is no working super-admin screen for this yet (the React app has only
+`SystemUsers`). `frontend/admin.html` is stale: it calls `/payment/admin/pending`
+and `/payment/verify/:id`, which no longer exist, it sends an `x-admin-secret`
+header no middleware reads, and Vite does not build it. Do not use it.
+
+The procedure is the API itself. Use a super-admin token in `TOKEN`:
 
 1. List sessions, newest first (optionally `?status=PENDING` or `?q=<text>`):
 

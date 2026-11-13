@@ -154,6 +154,9 @@ describe('Role Policy Case-Variant and Route Walk Tests', () => {
   });
 
   it('Cashier case-variant GET /api/REPORTS returns 403', async () => {
+    // The reports prefix has no GET / handler, so the allowed role gets 404;
+    // expectDenied cannot be used here (it requires a 2xx for the allowed role).
+    // The cashier is stopped by rolePolicy before the router.
     const res = await request(app)
       .get('/api/REPORTS')
       .set('Authorization', `Bearer ${cashierToken}`);

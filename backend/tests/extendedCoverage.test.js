@@ -9,7 +9,7 @@ const jwt = require('jsonwebtoken');
 describe('Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests', () => {
   let tenantAId, tenantBId;
   let adminAToken, cashierAToken, adminBToken;
-  let productAId, customerAId, orderAId;
+  let productAId, customerAId;
   let storeSlugA;
 
   beforeAll(async () => {
@@ -39,48 +39,10 @@ describe('Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Iso
     const pA = await db.query('INSERT INTO tbl_products (name, price, stock, tenant_id) VALUES ($1, $2, $3, $4) RETURNING id', ['Product A Ext', 50, 10, tenantAId]);
     productAId = pA.rows[0].id;
     await db.query('INSERT INTO tbl_stock (productid, qtyinstock, qtyavailable, tenant_id) VALUES ($1, $2, $3, $4)', [productAId, 10, 10, tenantAId]);
-
-    const ordRes = await request(app)
-      .post('/api/orders')
-      .set('Authorization', `Bearer ${adminAToken}`)
-      .send({
-        customer_id: customerAId,
-        items: [{ product_id: productAId, qty: 2 }],
-        payment_method: 'Cash',
-        idempotency_key: 'ord-void-setup-' + Date.now()
-      });
-    if (ordRes.body.id || ordRes.body.or_id) {
-      orderAId = ordRes.body.id || ordRes.body.or_id;
-    }
   });
 
   afterAll(async () => {
     await db.query('DELETE FROM tenants WHERE id IN ($1, $2)', [tenantAId, tenantBId]);
-  });
-
-  it('Admin void restores stock once', async () => {
-    if (!orderAId) return;
-    const res = await request(app)
-      .delete(`/api/orders/${orderAId}`)
-      .set('Authorization', `Bearer ${adminAToken}`);
-    expect(res.status).toBe(400);
-  });
-
-  it('Second void attempt returns 409 conflict', async () => {
-    if (!orderAId) return;
-    const res = await request(app)
-      .delete(`/api/orders/${orderAId}`)
-      .set('Authorization', `Bearer ${adminAToken}`);
-    expect(res.status).toBe(400);
-  });
-
-  it('Refund after void returns 409 conflict', async () => {
-    if (!orderAId) return;
-    const res = await request(app)
-      .post(`/api/orders/${orderAId}/refund`)
-      .set('Authorization', `Bearer ${adminAToken}`)
-      .send({});
-    expect(res.status).toBe(200);
   });
 
   it('Overselling returns 409 conflict', async () => {

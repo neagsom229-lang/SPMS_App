@@ -1,23 +1,25 @@
 -- 027_perf_list_indexes.sql
 --
--- Additive, idempotent indexes for the list screens measured in Phase 5b
--- (5,000 products / 20,000 orders, spms_perf_test).
+-- Additive, idempotent. Measured on 50 tenants x 100 products x 400 orders
+-- (scratch DB spms_perf_test, queried as tenant 1, EXPLAIN ANALYZE BUFFERS,
+-- median of 5 runs each).
 --
---   products list   WHERE tenant_id = $1 ORDER BY id DESC LIMIT 20
---   orders list     WHERE tenant_id = $1 ORDER BY or_id DESC LIMIT 20
---   orders status   WHERE tenant_id = $1 AND status = $2 ORDER BY or_id DESC
---   order detail    WHERE order_id = $1
+--   order detail  SELECT * FROM tbl_order_items WHERE order_id = $1
+--                 before 1.158 ms (Seq Scan, 20,000 rows) -> after 0.027 ms
+--                 with this index: 43x, so it is kept.
 --
--- Every statement is IF NOT EXISTS, so replaying this migration on a database
--- that already has the indexes is a no-op.
-CREATE INDEX IF NOT EXISTS idx_products_tenant_id_desc
-  ON public.tbl_products USING btree (tenant_id, id DESC);
-
-CREATE INDEX IF NOT EXISTS idx_orders_tenant_or_id_desc
-  ON public.tbl_orders USING btree (tenant_id, or_id DESC);
-
-CREATE INDEX IF NOT EXISTS idx_orders_tenant_status_or_id_desc
-  ON public.tbl_orders USING btree (tenant_id, status, or_id DESC);
-
+-- The three tenant-prefixed candidates were also re-measured:
+--
+--   products list  WHERE tenant_id=$1 ORDER BY id DESC LIMIT 20   1.278 -> 0.044 ms (29x)
+--   orders list    WHERE tenant_id=$1 ORDER BY or_id DESC LIMIT 20 3.077 -> 0.071 ms (43x)
+--   orders status  WHERE tenant_id=$1 AND status=$2 ORDER BY or_id DESC
+--                                                                0.430 -> 0.114 ms (3.8x)
+--
+-- They beat the 2x rule, but Phase 8e says "keep only idx_order_items_order_id",
+-- so they are intentionally left out here. Owner decision pending; if they are
+-- wanted, add them in a new migration rather than editing this one.
+--
+-- IF NOT EXISTS, so replaying this migration on a database that already has the
+-- index is a no-op.
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id
   ON public.tbl_order_items USING btree (order_id);

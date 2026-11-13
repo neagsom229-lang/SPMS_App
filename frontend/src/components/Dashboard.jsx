@@ -81,33 +81,42 @@ const TrendChart = ({ data }) => {
 const DonutChart = ({ data }) => {
   const total = data.reduce((sum, d) => sum + (Number(d.value) || 0), 0) || 1;
   const R = 70;
-  const C = 2 * Math.PI * R;
-  let offset = 0;
+  let angleStart = -Math.PI / 2;
+
+  // One <path> arc per category, so every segment is a real path element.
+  const arc = (start, sweep) => {
+    const point = (a) => [100 + R * Math.cos(a), 100 + R * Math.sin(a)];
+    if (sweep >= Math.PI * 2 - 1e-6) {
+      const [x0, y0] = point(-Math.PI / 2);
+      const [xm, ym] = point(Math.PI / 2);
+      return `M ${x0.toFixed(3)} ${y0.toFixed(3)} A ${R} ${R} 0 1 1 ${xm.toFixed(3)} ${ym.toFixed(3)} ` +
+        `A ${R} ${R} 0 1 1 ${x0.toFixed(3)} ${y0.toFixed(3)}`;
+    }
+    const [x0, y0] = point(start);
+    const [x1, y1] = point(start + sweep);
+    const largeArc = sweep > Math.PI ? 1 : 0;
+    return `M ${x0.toFixed(3)} ${y0.toFixed(3)} A ${R} ${R} 0 ${largeArc} 1 ${x1.toFixed(3)} ${y1.toFixed(3)}`;
+  };
 
   return (
     <svg viewBox="0 0 200 200" className="w-full h-full" role="img" aria-label="Sales mix by category">
-      <g transform="rotate(-90 100 100)">
-        {data.map((d, i) => {
-          const len = ((Number(d.value) || 0) / total) * C;
-          const segment = (
-            <circle
-              key={i}
-              cx="100"
-              cy="100"
-              r={R}
-              fill="none"
-              stroke={d.color || CHART_COLORS[i % CHART_COLORS.length]}
-              strokeWidth="26"
-              strokeDasharray={`${len} ${C - len}`}
-              strokeDashoffset={-offset}
-            >
-              <title>{`${d.name}: ${formatCurrency(d.value)}`}</title>
-            </circle>
-          );
-          offset += len;
-          return segment;
-        })}
-      </g>
+      {data.map((d, i) => {
+        const sweep = ((Number(d.value) || 0) / total) * Math.PI * 2;
+        const start = angleStart;
+        angleStart += sweep;
+        if (sweep <= 0) return null;
+        return (
+          <path
+            key={i}
+            d={arc(start, sweep)}
+            fill="none"
+            stroke={d.color || CHART_COLORS[i % CHART_COLORS.length]}
+            strokeWidth="26"
+          >
+            <title>{`${d.name}: ${formatCurrency(d.value)}`}</title>
+          </path>
+        );
+      })}
     </svg>
   );
 };
