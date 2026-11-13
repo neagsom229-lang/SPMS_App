@@ -146,17 +146,6 @@ router.get('/bakong/check/:md5', authenticate, requireTenant, async (req, res) =
   }
 });
 
-// Locked legacy aliases (cannot set PAID)
-router.get('/status/:id', authenticate, requireTenant, (req, res) => {
-  res.status(410).json({ error: 'Endpoint deprecated' });
-});
-router.get('/khqr', authenticate, requireTenant, (req, res) => {
-  res.status(410).json({ error: 'Endpoint deprecated' });
-});
-router.post('/confirm', authenticate, requireTenant, (req, res) => {
-  res.status(410).json({ error: 'Endpoint deprecated' });
-});
-
 // 4. Super Admin Endpoints
 router.get('/admin/sessions', authenticate, requireSuperAdmin, async (req, res) => {
   try {

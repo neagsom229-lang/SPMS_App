@@ -17,5 +17,5 @@ services:
         sync: false
       - key: BAKONG_MERCHANT_CITY
         sync: false
-      - key: PLANS_CONFIRMED
-        value: "true"
+      # PLANS_CONFIRMED is intentionally left unset here.
+      # The owner sets it in the Render dashboard after confirming prices.

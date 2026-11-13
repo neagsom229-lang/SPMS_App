@@ -116,3 +116,40 @@ mutant or a failing golden path.
 The production deploy plan for schema changes is the signature diff printed by
 `npm run rehearse -- <schema-only-dump.sql>` (owner-run only). Apply new
 migrations in order; they are written to be re-runnable.
+
+## Manual subscription payment (super admin)
+
+There is no super-admin screen for this yet (only `SystemUsers` exists), so the
+procedure is the API itself. Use a super-admin token in `TOKEN`:
+
+1. List sessions, newest first (optionally `?status=PENDING` or `?q=<text>`):
+
+   ```bash
+   curl -fsS "https://<backend-host>/api/payment/admin/sessions?status=PENDING" \
+     -H "Authorization: Bearer $TOKEN"
+   ```
+
+2. Mark one paid. A reason is required; empty or whitespace returns 400, and an
+   unknown session id returns 404:
+
+   ```bash
+   curl -fsS -X POST \
+     "https://<backend-host>/api/payment/admin/sessions/<session-id>/mark-paid" \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"reason":"bank slip #123"}'
+   ```
+
+3. One transaction writes all three rows:
+
+   - `khqr_sessions`: `status = 'PAID'`, `bakong_hash = 'MANUAL-<random hex>'`,
+     `paid_at = NOW()`, `verified_by = 'manual:<admin user id>'`,
+     `raw_response = {reason, marked_by}`.
+   - `tenants`: `plan = <session plan>`, and
+     `plan_expires_at = max(plan_expires_at, NOW()) + <period_months> months`
+     (a renewal before expiry extends the existing expiry, not today).
+   - `tbl_activity_logs`: `action = 'SUBSCRIPTION_MANUAL_PAID'`,
+     `user_id = <admin user id>`, `details = {plan, reason, hash}`.
+
+   Any error rolls all three back. Repeating the call on an already-paid session
+   returns 200 but does not extend the plan again.

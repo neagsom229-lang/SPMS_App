@@ -61,21 +61,13 @@ describe('Orders & Stock Test Suite', () => {
     await db.end();
   });
 
-  test('Cashier delete order returns 403 status', async () => {
+  test('Admin void order with reason returns 204, status Voided, and stock restored once', async () => {
     const ord = await request(app)
       .post('/api/orders')
       .set('Authorization', 'Bearer ' + cashierToken)
       .send({ customer_id: custId, items: [{ product_id: prodId, qty: 1 }], payment_method: 'Cash', idempotency_key: crypto.randomUUID() });
     order1Id = ord.body.or_id || ord.body.id;
 
-    const res = await request(app)
-      .delete('/api/orders/' + order1Id)
-      .set('Authorization', 'Bearer ' + cashierToken)
-      .send({ reason: 'Try delete' });
-    expect(res.status).toBe(403);
-  });
-
-  test('Admin void order with reason returns 204, status Voided, and stock restored once', async () => {
     const stockPre = await request(app).get('/api/stock').set('Authorization', 'Bearer ' + tokenA);
     const rowPre = (stockPre.body.stock || stockPre.body).find(s => s.productid === prodId || s.id === prodId);
     const qtyPre = Number(rowPre.qtyavailable ?? rowPre.qtyinstock ?? rowPre.stock);

@@ -276,11 +276,12 @@ describe('Bakong payment routes', () => {
     expect(res.status).toBe(200);
 
     const log = await pool.query(
-      `SELECT user_id, details FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_MANUAL_PAID' ORDER BY id DESC LIMIT 1`,
+      `SELECT user_id, action, details FROM tbl_activity_logs WHERE tenant_id = $1 ORDER BY id DESC LIMIT 1`,
       [tenantPlanId]
     );
     const details = JSON.parse(log.rows[0].details);
     expect(log.rows[0].user_id).toBe(superId);
+    expect(log.rows[0].action).toBe('SUBSCRIPTION_MANUAL_PAID');
     expect(details.reason).toBe(reason);
   });
 
@@ -302,5 +303,75 @@ describe('Bakong payment routes', () => {
     expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-02-01T00:00:00.000Z');
 
     expect(await countLogs()).toBe(before + 1);
+  });
+
+  test('mark-paid with an empty reason returns 400 and leaves the session pending', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    const before = await snapshot(sessionId, tenantPlanId);
+
+    const res = await markPaid(sessionId, superToken, '');
+
+    expect(res.status).toBe(400);
+    expect(await snapshot(sessionId, tenantPlanId)).toEqual(before);
+  });
+
+  test('mark-paid with a whitespace-only reason returns 400 and leaves the session pending', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    const before = await snapshot(sessionId, tenantPlanId);
+
+    const res = await markPaid(sessionId, superToken, '   ');
+
+    expect(res.status).toBe(400);
+    expect(await snapshot(sessionId, tenantPlanId)).toEqual(before);
+  });
+
+  test('mark-paid for a missing session returns 404 and writes no ledger row', async () => {
+    const countLogs = async () => (await pool.query(
+      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_MANUAL_PAID'`,
+      [tenantPlanId]
+    )).rows[0].cnt;
+    const before = await countLogs();
+
+    const res = await markPaid(999999999, superToken, 'missing session');
+
+    expect(res.status).toBe(404);
+    expect(await countLogs()).toBe(before);
+  });
+
+  test('renewal before expiry extends from the existing expiry, not from now', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    await pool.query(
+      `UPDATE tenants SET plan_expires_at = NOW() + interval '10 days' WHERE id = $1`,
+      [tenantPlanId]
+    );
+    const expected = (await pool.query(
+      `SELECT (plan_expires_at + interval '1 month') AS expires FROM tenants WHERE id = $1`,
+      [tenantPlanId]
+    )).rows[0].expires;
+
+    const res = await markPaid(sessionId, superToken, 'early renewal');
+
+    expect(res.status).toBe(200);
+    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe(new Date(expected).toISOString());
+  });
+
+  test('two different sessions marked paid in a row both succeed', async () => {
+    const firstSession = await createSession(tenantPlanId, md5());
+    const secondSession = await createSession(tenantPlanId, md5());
+    const countLogs = async () => (await pool.query(
+      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_MANUAL_PAID'`,
+      [tenantPlanId]
+    )).rows[0].cnt;
+    const before = await countLogs();
+
+    const first = await markPaid(firstSession, superToken, 'first session');
+    const second = await markPaid(secondSession, superToken, 'second session');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await countLogs()).toBe(before + 2);
+    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-03-01T00:00:00.000Z');
   });
 });

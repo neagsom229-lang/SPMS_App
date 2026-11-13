@@ -3,6 +3,7 @@ const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/cache');
+const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
@@ -10,8 +11,8 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   const scope = getScope(req, res);
   if (!scope) return;
-  const { page = 1, limit = 20, search, category, status } = req.query;
-  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const { search, category, status } = req.query;
+  const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
     let whereClause = ' WHERE 1=1';
@@ -69,17 +70,17 @@ router.get('/', authenticate, async (req, res) => {
       ORDER BY p.id DESC 
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
-    params.push(parseInt(limit, 10), offset);
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
 
     res.json({
       products: result.rows,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page,
+        limit,
         total,
-        totalPages: Math.ceil(total / parseInt(limit, 10))
+        totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {

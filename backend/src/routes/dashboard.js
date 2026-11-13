@@ -3,6 +3,7 @@ const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
 const { REVENUE_STATUSES } = require('../constants/sales');
+const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
@@ -197,14 +198,34 @@ router.get('/sales-summary', authenticate, async (req, res) => {
     }
     const durationMs = dTo.getTime() - dFrom.getTime();
     const dFromPrev = new Date(dFrom.getTime() - durationMs);
-    
-    currStart = `'${dFrom.toISOString()}'::timestamptz`;
-    currEnd = `'${new Date(dTo.getTime() + 86400000 - 1).toISOString()}'::timestamptz`;
-    prevStart = `'${dFromPrev.toISOString()}'::timestamptz`;
-    prevEnd = `'${dFrom.toISOString()}'::timestamptz`;
+    // Bound parameters instead of interpolated ISO strings (SQL injection safe)
+    currStart = dFrom.toISOString();
+    currEnd = new Date(dTo.getTime() + 86400000 - 1).toISOString();
+    prevStart = dFromPrev.toISOString();
+    prevEnd = dFrom.toISOString();
   } else {
     return res.status(400).json({ error: 'Invalid range parameter' });
   }
+
+  const isCustom = range === 'custom';
+  // Date bound-param indices start after tenantId ($1) and revenueStatuses ($2)
+  const dCurr1 = isCustom ? 3 : null;
+  const dCurr2 = isCustom ? 4 : null;
+  const dPrev1 = isCustom ? 5 : null;
+  const dPrev2 = isCustom ? 6 : null;
+
+  // Date condition fragments: bound params for custom range, SQL expressions otherwise
+  const currCond = isCustom
+    ? ` AND o.created_at >= $${dCurr1}::timestamptz AND o.created_at <= $${dCurr2}::timestamptz`
+    : ` AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}`;
+  const prevCond = isCustom
+    ? ` AND o.created_at >= $${dPrev1}::timestamptz AND o.created_at <= $${dPrev2}::timestamptz`
+    : ` AND o.created_at >= ${prevStart} AND o.created_at <= ${prevEnd}`;
+  const currGenStart = isCustom ? ` $${dCurr1}::timestamptz` : ` (${currStart})::timestamptz`;
+  const currGenEnd = isCustom ? ` $${dCurr2}::timestamptz` : ` (${currEnd})::timestamptz`;
+
+  const currParams = isCustom ? [currStart, currEnd] : [];
+  const prevParams = isCustom ? [prevStart, prevEnd] : [];
 
   try {
     const revenueStatuses = REVENUE_STATUSES;
@@ -221,9 +242,9 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       JOIN tbl_order_items i ON i.order_id = o.or_id
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+        ${currCond}
     `;
-    const kpiRes = await pool.query(kpiQuery, [tenantId, revenueStatuses]);
+    const kpiRes = await pool.query(kpiQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     // 2. Previous KPIs
     const prevKpiQuery = `
@@ -237,9 +258,9 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       JOIN tbl_order_items i ON i.order_id = o.or_id
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= ${prevStart} AND o.created_at < ${prevEnd}
+        ${prevCond}
     `;
-    const prevKpiRes = await pool.query(prevKpiQuery, [tenantId, revenueStatuses]);
+    const prevKpiRes = await pool.query(prevKpiQuery, [...[tenantId, revenueStatuses], ...prevParams]);
 
     // 3. Timeseries
     let timeseriesQuery = '';
@@ -279,8 +300,8 @@ router.get('/sales-summary', authenticate, async (req, res) => {
           COALESCE(SUM(sub.orders), 0) as orders,
           COALESCE(SUM(sub.units), 0) as units
         FROM generate_series(
-          (${currStart})::timestamptz AT TIME ZONE 'Asia/Phnom_Penh',
-          (${currEnd})::timestamptz AT TIME ZONE 'Asia/Phnom_Penh',
+          ${currGenStart} AT TIME ZONE 'Asia/Phnom_Penh',
+          ${currGenEnd} AT TIME ZONE 'Asia/Phnom_Penh',
           INTERVAL '1 day'
         ) bucket
         LEFT JOIN (
@@ -293,14 +314,14 @@ router.get('/sales-summary', authenticate, async (req, res) => {
           JOIN tbl_order_items i ON i.order_id = o.or_id
           WHERE ($1::int IS NULL OR o.tenant_id = $1)
             AND o.status = ANY($2::text[])
-            AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+            ${currCond}
           GROUP BY d
         ) sub ON bucket::date = sub.d::date
         GROUP BY bucket
         ORDER BY bucket
       `;
     }
-    const timeseriesRes = await pool.query(timeseriesQuery, [tenantId, revenueStatuses]);
+    const timeseriesRes = await pool.query(timeseriesQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     // 4. By category
     const catQuery = `
@@ -314,11 +335,11 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       LEFT JOIN tbl_categories c ON c.id = p.category_id
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+        ${currCond}
       GROUP BY c.name
       ORDER BY revenue DESC
     `;
-    const catRes = await pool.query(catQuery, [tenantId, revenueStatuses]);
+    const catRes = await pool.query(catQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     // 5. By payment method
     const pmQuery = `
@@ -330,11 +351,11 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       JOIN tbl_order_items i ON i.order_id = o.or_id
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+        ${currCond}
       GROUP BY o.payment_method
       ORDER BY revenue DESC
     `;
-    const pmRes = await pool.query(pmQuery, [tenantId, revenueStatuses]);
+    const pmRes = await pool.query(pmQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     // 6. By source (POS vs ONLINE)
     const sourceQuery = `
@@ -346,11 +367,11 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       JOIN tbl_order_items i ON i.order_id = o.or_id
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+        ${currCond}
       GROUP BY COALESCE(NULLIF(o.source, ''), 'POS')
       ORDER BY revenue DESC
     `;
-    const sourceRes = await pool.query(sourceQuery, [tenantId, revenueStatuses]);
+    const sourceRes = await pool.query(sourceQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     // 7. Refunds
     const refundQuery = `
@@ -360,7 +381,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
           FROM tbl_orders o
           WHERE ($1::int IS NULL OR o.tenant_id = $1)
             AND o.status = 'Refunded'
-            AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+            ${currCond}
         ) + (
           SELECT COALESCE(SUM(i.refunded_amount), 0)
           FROM tbl_orders o
@@ -368,17 +389,17 @@ router.get('/sales-summary', authenticate, async (req, res) => {
           WHERE ($1::int IS NULL OR o.tenant_id = $1)
             AND o.status = ANY($2::text[])
             AND i.refunded_amount > 0
-            AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+            ${currCond}
         ) as amount,
         (
           SELECT COUNT(DISTINCT o.or_id)
           FROM tbl_orders o
           WHERE ($1::int IS NULL OR o.tenant_id = $1)
             AND (o.status = 'Refunded' OR EXISTS (SELECT 1 FROM tbl_order_items i WHERE i.order_id = o.or_id AND i.refunded_amount > 0))
-            AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+            ${currCond}
         ) as count
     `;
-    const refundRes = await pool.query(refundQuery, [tenantId, revenueStatuses]);
+    const refundRes = await pool.query(refundQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     // 8. Open online orders
     const openOnlineQuery = `
@@ -457,12 +478,12 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       JOIN tbl_products p ON p.id = i.product_id
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}
+        ${currCond}
       GROUP BY p.id, p.name, p.name_kh
       ORDER BY total_revenue DESC
       LIMIT 10
     `;
-    const topProdRes = await pool.query(topProdQuery, [tenantId, revenueStatuses]);
+    const topProdRes = await pool.query(topProdQuery, [...[tenantId, revenueStatuses], ...currParams]);
 
     const kpi = kpiRes.rows[0];
     const prevKpi = prevKpiRes.rows[0];
@@ -555,11 +576,77 @@ router.get('/sales-summary', authenticate, async (req, res) => {
   }
 });
 
+// ===== ANALYTICS SUMMARY (tenant-scoped SQL aggregate for totals) =====
+router.get('/analytics-summary', authenticate, async (req, res) => {
+  const scope = getScope(req, res);
+  if (!scope) return;
+  const tenantId = scope.tenantId;
+  const { from, to } = req.query;
+
+  if (!from || !to) {
+    return res.status(400).json({ error: 'from and to query parameters are required' });
+  }
+
+  const dFrom = new Date(from);
+  const dTo = new Date(to);
+  if (isNaN(dFrom.getTime()) || isNaN(dTo.getTime()) || dFrom > dTo) {
+    return res.status(400).json({ error: 'Invalid date range' });
+  }
+  const diffDays = (dTo - dFrom) / (1000 * 60 * 60 * 24);
+  if (diffDays > 366) {
+    return res.status(400).json({ error: 'Custom range cannot exceed 366 days' });
+  }
+  const dToInclusive = new Date(dTo.getTime() + 86400000 - 1);
+
+  try {
+    const revenueStatuses = REVENUE_STATUSES;
+
+    const query = `
+      SELECT 
+        COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) as net_revenue,
+        COUNT(DISTINCT o.or_id) as total_orders,
+        COALESCE(AVG(o.total), 0) as average_order_value,
+        COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) as units_sold,
+        COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) as gross_profit,
+        COUNT(DISTINCT o.customer_id) as total_customers
+      FROM tbl_orders o
+      JOIN tbl_order_items i ON i.order_id = o.or_id
+      WHERE ($1::int IS NULL OR o.tenant_id = $1)
+        AND o.status = ANY($2::text[])
+        AND o.created_at >= $3::timestamptz
+        AND o.created_at <= $4::timestamptz
+    `;
+    const result = await pool.query(query, [tenantId, revenueStatuses, dFrom.toISOString(), dToInclusive.toISOString()]);
+    const row = result.rows[0];
+
+    const netRevenue = parseFloat(row.net_revenue || 0);
+    const totalOrders = parseInt(row.total_orders || 0);
+    const averageOrderValue = parseFloat(row.average_order_value || 0);
+    const unitsSold = parseInt(row.units_sold || 0);
+    const grossProfit = parseFloat(row.gross_profit || 0);
+    const totalCustomers = parseInt(row.total_customers || 0);
+    const profitMargin = netRevenue > 0 ? parseFloat(((grossProfit / netRevenue) * 100).toFixed(2)) : 0;
+
+    res.json({
+      net_revenue: netRevenue,
+      total_orders: totalOrders,
+      average_order_value: averageOrderValue,
+      units_sold: unitsSold,
+      gross_profit: grossProfit,
+      profit_margin: profitMargin,
+      total_customers: totalCustomers,
+    });
+  } catch (error) {
+    console.error('❌ Analytics summary error:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics summary' });
+  }
+});
+
 // ===== RECENT ORDERS =====
 router.get('/recent', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
   const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const { limit = 5 } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 5, maxLimit: 200 });
 
   try {
     let query = `
@@ -577,7 +664,7 @@ router.get('/recent', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY o.created_at DESC LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit, 10));
+    params.push(limit);
 
     const result = await pool.query(query, params);
     res.json(result.rows);

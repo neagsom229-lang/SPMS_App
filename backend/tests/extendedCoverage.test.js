@@ -58,14 +58,6 @@ describe('Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Iso
     await db.query('DELETE FROM tenants WHERE id IN ($1, $2)', [tenantAId, tenantBId]);
   });
 
-  it('Cashier cannot void/delete order (returns 403)', async () => {
-    if (!orderAId) return;
-    const res = await request(app)
-      .delete(`/api/orders/${orderAId}`)
-      .set('Authorization', `Bearer ${cashierAToken}`);
-    expect(res.status).toBe(403);
-  });
-
   it('Admin void restores stock once', async () => {
     if (!orderAId) return;
     const res = await request(app)

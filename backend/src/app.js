@@ -183,7 +183,7 @@ app.get("/api/db-test", authenticate, requireSuperAdmin, async (req, res) => {
 app.get("/api/activity-logs", authenticate, async (req, res) => {
   const scope = getScope(req, res);
   if (!scope) return;
-  const { limit = 50 } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 50, maxLimit: 200 });
 
   try {
     let query = `SELECT l.*, u.username FROM tbl_activity_logs l LEFT JOIN tbl_users u ON l.user_id = u.userid`;
@@ -195,7 +195,7 @@ app.get("/api/activity-logs", authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit, 10) || 50);
+    params.push(limit);
 
     const result = await db.query(query, params);
     res.json(result.rows);

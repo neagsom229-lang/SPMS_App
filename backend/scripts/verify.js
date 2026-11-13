@@ -6,7 +6,7 @@
 //   3. test-name gate against HEAD, per file
 //   4. frontend production build, with every chunk size printed
 //   5. npm audit --omit=dev --audit-level=high
-//   6. secret scan (gitleaks when installed, else a regex scan of tracked files)
+//   6. secret scan (gitleaks git history; fails if gitleaks is not installed)
 // Any failure exits 1.
 const { execFileSync, execSync } = require('child_process');
 const fs = require('fs');
@@ -202,20 +202,19 @@ function scanSecretsWithRegex() {
   return hits;
 }
 
-let gitleaks = false;
+let gitleaksVersion = null;
 try {
-  execFileSync('gitleaks', ['version'], { stdio: 'ignore' });
-  gitleaks = true;
+  gitleaksVersion = execFileSync('gitleaks', ['version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 } catch (e) {
-  gitleaks = false;
+  gitleaksVersion = null;
 }
-if (gitleaks) {
-  console.log('scanner: gitleaks');
+if (gitleaksVersion) {
+  console.log(`scanner: gitleaks ${gitleaksVersion} (git history, --redact)`);
   run('gitleaks', () => {
-    execFileSync('gitleaks', ['detect', '--source', '.', '--no-banner', '--redact', '--exit-code', '1'], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync('gitleaks', ['git', '--no-banner', '--redact', '--exit-code', '1', '--config', '.gitleaks.toml'], { cwd: ROOT, stdio: 'inherit' });
   });
 } else {
-  console.log('scanner: regex fallback (gitleaks not installed)');
+  console.log('scanner: gitleaks not installed (git history NOT scanned)');
   const hits = scanSecretsWithRegex();
   if (hits.length) {
     hits.forEach(h => console.error(`  ${h}`));
@@ -223,6 +222,7 @@ if (gitleaks) {
   } else {
     console.log('  no secret patterns found in tracked files');
   }
+  fail('secret scan: install gitleaks so git history is scanned (winget install gitleaks)');
 }
 
 // result ---------------------------------------------------------------------

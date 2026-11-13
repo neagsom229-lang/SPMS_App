@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 class BusinessError extends Error { constructor(status, message) { super(message); this.status = status; } }
 const db = require('../config/postgres');
 const crypto = require('crypto');
+const { parsePaging } = require('../utils/paging');
 
 const publicOrderLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -138,7 +139,7 @@ router.get('/store/:slug/categories', async (req, res) => {
 router.get('/store/:slug/menu', async (req, res) => {
   try {
     const { slug } = req.params;
-    const { category, q, sort, page = 1, limit = 100 } = req.query;
+    const { category, q, sort } = req.query;
 
     // 1. Resolve tenant_id from store_settings using slug
     const storeRes = await db.query('SELECT tenant_id FROM store_settings WHERE slug = $1', [slug]);
@@ -182,9 +183,9 @@ router.get('/store/:slug/menu', async (req, res) => {
       query += ` ORDER BY p.id DESC`;
     }
 
-    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const { limit, offset } = parsePaging(req, { defaultLimit: 100 });
     query += ` LIMIT $${paramIdx++} OFFSET $${paramIdx++}`;
-    params.push(parseInt(limit, 10), offset);
+    params.push(limit, offset);
 
     const result = await db.query(query, params);
 

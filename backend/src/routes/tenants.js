@@ -3,13 +3,14 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../config/postgres');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
 // ===== GET ALL TENANTS WITH STATS =====
 router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
-  const { page = 1, limit = 20, search, status } = req.query;
-  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const { search, status } = req.query;
+  const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
     let query = `
@@ -42,7 +43,7 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
     }
 
     query += ` GROUP BY t.id ORDER BY t.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit, 10), offset);
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
 
@@ -66,10 +67,10 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
     res.json({
       tenants: result.rows,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page,
+        limit,
         total: parseInt(countResult.rows[0]?.total || 0, 10),
-        totalPages: Math.ceil(parseInt(countResult.rows[0]?.total || 0, 10) / parseInt(limit, 10))
+        totalPages: Math.ceil(parseInt(countResult.rows[0]?.total || 0, 10) / limit)
       }
     });
   } catch (error) {

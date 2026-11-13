@@ -15,3 +15,7 @@
 - Tests may run in parallel only if each jest worker has its own database.
 - `backend/jest.config.js` `maxWorkers` is 1 until the owner says otherwise.
 - Reports are raw command output only. If a number differs from the owner's terminal, say so.
+- Never set an owner-confirmation flag (PLANS_CONFIRMED etc.) to true and never edit render.yaml or other deployment config without owner approval: list the proposed change and wait.
+- Never delete, move or copy any file the owner marked HOLD, and never copy data files into temp folders.
+- Never download or run binaries. Ask the owner to install tools and say which.
+- `npm run verify` and `npm run dev` must work with backend/.env ABSENT. If one needs it, that is a bug to fix with test-only defaults.

@@ -4,6 +4,7 @@ const pool = require('../config/postgres');
 const { authenticate } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/cache');
 const { BusinessError } = require('../lib/errors');
+const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
@@ -23,8 +24,8 @@ router.get('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req, res);
   if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const { page = 1, limit = 20, status, search } = req.query;
-  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const { status, search } = req.query;
+  const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
     let whereClause = ' WHERE 1=1';
@@ -69,17 +70,17 @@ router.get('/', authenticate, async (req, res) => {
       ORDER BY o.or_id DESC 
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
-    params.push(parseInt(limit, 10), offset);
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
 
     res.json({
       orders: result.rows,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page,
+        limit,
         total,
-        totalPages: Math.ceil(total / parseInt(limit, 10))
+        totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -199,8 +200,8 @@ router.get('/online', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
-  const { status, page = 1, limit = 20 } = req.query;
-  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const { status } = req.query;
+  const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
     let whereClause = ' WHERE o.tenant_id = $1 AND o.source = \'ONLINE\'';
@@ -232,7 +233,7 @@ router.get('/online', authenticate, async (req, res) => {
       ORDER BY o.or_id DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
-    params.push(parseInt(limit, 10), offset);
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
     const orders = result.rows;
@@ -254,10 +255,10 @@ router.get('/online', authenticate, async (req, res) => {
     res.json({
       orders,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page,
+        limit,
         total,
-        totalPages: Math.ceil(total / parseInt(limit, 10))
+        totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {

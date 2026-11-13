@@ -438,6 +438,7 @@ const Analytics = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [toast, setToast] = useState(null);
+  const [apiSummary, setApiSummary] = useState(null);
 
   // ===== REFS =====
   const statsRef = useRef(null);
@@ -552,6 +553,22 @@ const Analytics = () => {
     };
   }, [showExportMenu]);
 
+  // ===== FETCH TENANT-SCOPED SQL TOTALS (accurate past 1,000 orders) =====
+  useEffect(() => {
+    const fetchAnalyticsSummary = async () => {
+      const { start, end } = getRangeBounds(dateRange);
+      try {
+        const res = await apiClient.get('/dashboard/analytics-summary', {
+          params: { from: start.toISOString(), to: end.toISOString() },
+        });
+        if (isMounted.current) setApiSummary(res.data);
+      } catch (error) {
+        debugError('❌ Error fetching analytics summary:', error);
+      }
+    };
+    fetchAnalyticsSummary();
+  }, [dateRange]);
+
   // ===== HANDLERS =====
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -616,25 +633,33 @@ const Analytics = () => {
   // SUMMARY METRICS (all real, with real period-over-period growth)
   // ============================================
   const summary = useMemo(() => {
-    const totalRevenue = ordersInRange.reduce((sum, o) => sum + num(o.total), 0);
-    const totalOrders = ordersInRange.length;
+    // Use tenant-scoped SQL totals when available (accurate past 1,000 orders),
+    // falling back to frontend-computed values from the downloaded order list.
+    const totalRevenue = apiSummary?.net_revenue !== undefined ? num(apiSummary.net_revenue)
+      : ordersInRange.reduce((sum, o) => sum + num(o.total), 0);
+    const totalOrders = apiSummary?.total_orders !== undefined ? num(apiSummary.total_orders)
+      : ordersInRange.length;
     const prevRevenue = ordersInPrevRange.reduce((sum, o) => sum + num(o.total), 0);
     const prevOrders = ordersInPrevRange.length;
 
     const distinctProductIds = new Set(itemsInRange.map(it => it.product_id));
     const totalProductsSold = distinctProductIds.size;
 
-    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const averageOrderValue = apiSummary?.average_order_value !== undefined ? num(apiSummary.average_order_value)
+      : (totalOrders > 0 ? totalRevenue / totalOrders : 0);
 
     let totalCost = 0;
     itemsInRange.forEach(it => {
       const cost = num(productsById[it.product_id]?.buyin_price);
       totalCost += num(it.qty) * cost;
     });
-    const profit = totalRevenue - totalCost;
-    const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+    const profit = apiSummary?.gross_profit !== undefined ? num(apiSummary.gross_profit)
+      : totalRevenue - totalCost;
+    const profitMargin = apiSummary?.profit_margin !== undefined ? num(apiSummary.profit_margin)
+      : (totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0);
 
-    const distinctCustomersInRange = new Set(ordersInRange.map(o => o.customer_id));
+    const distinctCustomersInRange = apiSummary?.total_customers !== undefined ? num(apiSummary.total_customers)
+      : new Set(ordersInRange.map(o => o.customer_id)).size;
     const distinctCustomersInPrevRange = new Set(ordersInPrevRange.map(o => o.customer_id));
 
     const customerOrderCounts = {};
@@ -642,8 +667,8 @@ const Analytics = () => {
       customerOrderCounts[o.customer_id] = (customerOrderCounts[o.customer_id] || 0) + 1;
     });
     const repeatCustomers = Object.values(customerOrderCounts).filter(c => c > 1).length;
-    const repeatCustomerRate = distinctCustomersInRange.size > 0
-      ? (repeatCustomers / distinctCustomersInRange.size) * 100
+    const repeatCustomerRate = distinctCustomersInRange > 0
+      ? (repeatCustomers / distinctCustomersInRange) * 100
       : 0;
 
     // FIX: previous formula returned 0% coverage whenever itemsInRange was
@@ -668,10 +693,10 @@ const Analytics = () => {
       orderGrowth: percentChange(totalOrders, prevOrders),
       customerGrowth: percentChange(distinctCustomersInRange.size, distinctCustomersInPrevRange.size),
       repeatCustomerRate,
-      totalCustomersInRange: distinctCustomersInRange.size,
+      totalCustomersInRange: distinctCustomersInRange,
       itemDetailCoverage
     };
-  }, [ordersInRange, ordersInPrevRange, itemsInRange, productsById, orderItemsById]);
+  }, [ordersInRange, ordersInPrevRange, itemsInRange, productsById, orderItemsById, apiSummary]);
 
   // ============================================
   // MONTHLY CHART DATA (revenue / orders / profit / customers per month, in-range)
