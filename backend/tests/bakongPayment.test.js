@@ -128,24 +128,11 @@ describe('Bakong payment routes', () => {
     expect(row.rows[0].tenant_id).toBe(tenantPlanId);
   });
 
-  test('invalid md5 is rejected with 400', async () => {
+  test('removed KHQR check endpoint is gone (404)', async () => {
     const res = await request(app)
-      .get('/api/payment/bakong/check/not-an-md5')
+      .get(`/api/payment/bakong/check/${md5()}`)
       .set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(400);
-  });
-
-  test('another tenant cannot read a session md5 (404)', async () => {
-    const sessionMd5 = md5();
-    await createSession(tenantPlanId, sessionMd5);
-
-    await expectDenied(app, {
-      method: 'get',
-      path: `/api/payment/bakong/check/${sessionMd5}`,
-      deniedToken: otherToken,
-      allowedToken: adminToken,
-      status: 404,
-    });
+    expect(res.status).toBe(404);
   });
 
   test('pricing is server-side: client amount ignored, invalid plan/period/currency and period >= 120 rejected', async () => {
@@ -194,22 +181,11 @@ describe('Bakong payment routes', () => {
     }
   });
 
-  test('session status only reads the DB and never activates a pending session', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
-
+  test('subscription status is not read from the removed endpoint anymore', async () => {
     const res = await request(app)
-      .get(`/api/payment/bakong/check/${sessionMd5}`)
+      .get(`/api/payment/bakong/check/${md5()}`)
       .set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe('PENDING');
-
-    const session = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [sessionId]);
-    expect(session.rows[0].status).toBe('PENDING');
-
-    const tenant = await pool.query(`SELECT plan, plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
-    expect(tenant.rows[0].plan).toBe('shophouse');
-    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-01-01T00:00:00.000Z');
+    expect(res.status).toBe(404);
   });
 
   test('staff cannot mark a session paid', async () => {

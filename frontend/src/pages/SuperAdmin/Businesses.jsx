@@ -14,6 +14,8 @@ const Businesses = () => {
   const [tenants, setTenants] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [search, setSearch] = useState('');
+  const [pendingSessions, setPendingSessions] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
   const [formData, setFormData] = useState({
@@ -28,6 +30,7 @@ const Businesses = () => {
 
   useEffect(() => {
     fetchTenants();
+    fetchPendingSessions();
   }, [search]);
 
   const fetchTenants = async () => {
@@ -43,6 +46,31 @@ const Businesses = () => {
       toast.error('Failed to load businesses');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPendingSessions = async () => {
+    try {
+      setPendingLoading(true);
+      const res = await apiClient.get('/payment/admin/sessions', { params: { status: 'PENDING' } });
+      setPendingSessions(res.data?.sessions || []);
+    } catch (error) {
+      console.error('Fetch pending sessions error:', error);
+    } finally {
+      setPendingLoading(false);
+    }
+  };
+
+  const markSessionPaid = async (sessionId) => {
+    const reason = window.prompt('Reason for manual mark-paid:');
+    if (!reason) return;
+    try {
+      await apiClient.post(`/payment/admin/sessions/${sessionId}/mark-paid`, { reason });
+      toast.success('Session marked as paid');
+      fetchPendingSessions();
+    } catch (error) {
+      console.error('Mark session paid error:', error);
+      toast.error('Failed to mark session paid');
     }
   };
 
@@ -217,6 +245,61 @@ const Businesses = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Pending payment sessions panel (super admin) */}
+      <div className="mt-6 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <h2 className="text-base font-semibold text-white">Pending Payment Sessions</h2>
+          <button
+            onClick={fetchPendingSessions}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-sm transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
+        {pendingLoading ? (
+          <div className="px-4 py-8 text-center text-gray-400 text-sm">Loading pending sessions...</div>
+        ) : pendingSessions.length === 0 ? (
+          <div className="px-4 py-8 text-center text-gray-400 text-sm">No pending payment sessions</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tenant</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Plan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Amount</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {pendingSessions.map((session) => (
+                  <tr key={session.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-4 py-3 text-gray-300 text-sm">{session.tenant_name || '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400">
+                        {session.plan || 'free'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-300 text-sm">{session.amount ?? 0}</td>
+                    <td className="px-4 py-3 text-gray-300 text-sm">{new Date(session.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => markSessionPaid(session.id)}
+                        className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-sm transition-colors"
+                      >
+                        Mark Paid
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Modal */}

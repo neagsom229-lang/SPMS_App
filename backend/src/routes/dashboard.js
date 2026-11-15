@@ -3,86 +3,12 @@ const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
 const { REVENUE_STATUSES } = require('../constants/sales');
-const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
-
-// ===== SYSTEM STATS FOR SUPER ADMIN =====
-router.get('/system/stats', authenticate, async (req, res) => {
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
-  
-  if (!isSuperAdmin) {
-    return res.status(403).json({ error: 'Access denied. Super admin only.' });
-  }
-
-  try {
-    let totalTenants = 0;
-    let totalUsers = 0;
-    let totalProducts = 0;
-    let totalOrders = 0;
-    let totalRevenue = 0;
-    let totalCustomers = 0;
-
-    try {
-      const tenantResult = await pool.query('SELECT COUNT(*) as count FROM tenants');
-      totalTenants = parseInt(tenantResult.rows[0]?.count || 0);
-    } catch (e) {
-      console.warn('Tenants query failed:', e.message);
-    }
-
-    try {
-      const userResult = await pool.query('SELECT COUNT(*) as count FROM tbl_users');
-      totalUsers = parseInt(userResult.rows[0]?.count || 0);
-    } catch (e) {
-      console.warn('Users query failed:', e.message);
-    }
-
-    try {
-      const productResult = await pool.query("SELECT COUNT(*) as count FROM tbl_products WHERE status = 'Active'");
-      totalProducts = parseInt(productResult.rows[0]?.count || 0);
-    } catch (e) {
-      console.warn('Products query failed:', e.message);
-    }
-
-    try {
-      const orderResult = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE status = ANY($1)", [REVENUE_STATUSES]);
-      totalOrders = parseInt(orderResult.rows[0]?.count || 0);
-      totalRevenue = parseFloat(orderResult.rows[0]?.total || 0);
-    } catch (e) {
-      console.warn('Orders query failed:', e.message);
-    }
-
-    try {
-      const customerResult = await pool.query("SELECT COUNT(*) as count FROM tbl_customers WHERE status = 'Active'");
-      totalCustomers = parseInt(customerResult.rows[0]?.count || 0);
-    } catch (e) {
-      console.warn('Customers query failed:', e.message);
-    }
-
-    res.json({
-      totalTenants,
-      totalUsers,
-      totalProducts,
-      totalOrders,
-      totalRevenue,
-      totalCustomers
-    });
-  } catch (error) {
-    console.error('❌ System stats error:', error);
-    res.json({
-      totalTenants: 0,
-      totalUsers: 0,
-      totalProducts: 0,
-      totalOrders: 0,
-      totalRevenue: 0,
-      totalCustomers: 0
-    });
-  }
-});
 
 // ===== DASHBOARD STATS =====
 router.get('/stats', authenticate, async (req, res) => {
@@ -600,32 +526,143 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
 
   try {
     const revenueStatuses = REVENUE_STATUSES;
-
-    const query = `
-      SELECT 
-        COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) as net_revenue,
-        COUNT(DISTINCT o.or_id) as total_orders,
-        COALESCE(AVG(o.total), 0) as average_order_value,
-        COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) as units_sold,
-        COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) as gross_profit,
-        COUNT(DISTINCT o.customer_id) as total_customers
-      FROM tbl_orders o
-      JOIN tbl_order_items i ON i.order_id = o.or_id
+    const params = [tenantId, revenueStatuses, dFrom.toISOString(), dToInclusive.toISOString()];
+    const where = `
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
         AND o.created_at >= $3::timestamptz
-        AND o.created_at <= $4::timestamptz
-    `;
-    const result = await pool.query(query, [tenantId, revenueStatuses, dFrom.toISOString(), dToInclusive.toISOString()]);
-    const row = result.rows[0];
+        AND o.created_at <= $4::timestamptz`;
+    const joined = `FROM tbl_orders o JOIN tbl_order_items i ON i.order_id = o.or_id ${where}`;
 
+    const [result, dayRes, monthRes, yearRes, topQtyRes, topRevenueRes, customerRes, repeatRes, prevRes] = await Promise.all([
+      pool.query(`
+        SELECT 
+          COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) as net_revenue,
+          COUNT(DISTINCT o.or_id) as total_orders,
+          COALESCE(AVG(o.total), 0) as average_order_value,
+          COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) as units_sold,
+          COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) as gross_profit,
+          COUNT(DISTINCT o.customer_id) as total_customers,
+          COUNT(DISTINCT i.product_id) as products_sold
+        ${joined}
+      `, params),
+
+      pool.query(`
+        SELECT to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') AS date,
+               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
+               COUNT(DISTINCT o.or_id) AS orders,
+               COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) AS units,
+               COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) AS profit
+        ${joined}
+        GROUP BY 1 ORDER BY 1
+      `, params),
+
+      pool.query(`
+        SELECT to_char(date_trunc('month', o.created_at), 'YYYY-MM') AS month,
+               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
+               COUNT(DISTINCT o.or_id) AS orders,
+               COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) AS units,
+               COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) AS profit
+        ${joined}
+        GROUP BY 1 ORDER BY 1
+      `, params),
+
+      pool.query(`
+        SELECT to_char(date_trunc('year', o.created_at), 'YYYY') AS year,
+               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
+               COUNT(DISTINCT o.or_id) AS orders
+        ${joined}
+        GROUP BY 1 ORDER BY 1
+      `, params),
+
+      pool.query(`
+        SELECT i.product_id,
+               COALESCE(p.name, 'Unknown Product') AS name,
+               COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) AS qty,
+               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
+               COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) AS profit
+        FROM tbl_order_items i
+        JOIN tbl_orders o ON o.or_id = i.order_id
+        LEFT JOIN tbl_products p ON p.id = i.product_id AND p.tenant_id = o.tenant_id
+        ${where}
+        GROUP BY i.product_id, p.name
+        ORDER BY qty DESC, revenue DESC
+        LIMIT 10
+      `, params),
+
+      pool.query(`
+        SELECT i.product_id,
+               COALESCE(p.name, 'Unknown Product') AS name,
+               COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) AS qty,
+               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
+               COALESCE(SUM((i.unit_price - COALESCE(i.buy_price, 0)) * (i.qty - COALESCE(i.refunded_qty, 0))), 0) AS profit
+        FROM tbl_order_items i
+        JOIN tbl_orders o ON o.or_id = i.order_id
+        LEFT JOIN tbl_products p ON p.id = i.product_id AND p.tenant_id = o.tenant_id
+        ${where}
+        GROUP BY i.product_id, p.name
+        ORDER BY revenue DESC, qty DESC
+        LIMIT 10
+      `, params),
+
+      pool.query(`
+        SELECT o.customer_id,
+               COALESCE(c.name, o.customer_name, 'Unknown Customer') AS name,
+               COUNT(*) AS orders,
+               COALESCE(SUM(o.total), 0) AS total_spent,
+               MAX(o.created_at) AS last_order
+        FROM tbl_orders o
+        LEFT JOIN tbl_customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
+        ${where}
+        GROUP BY o.customer_id, c.name, o.customer_name
+        ORDER BY total_spent DESC
+        LIMIT 100
+      `, params),
+
+      pool.query(`
+        SELECT COUNT(*)::int AS repeat_customers
+        FROM (
+          SELECT o.customer_id
+          FROM tbl_orders o
+          ${where}
+          GROUP BY o.customer_id
+          HAVING COUNT(*) > 1
+        ) rc
+      `, params),
+
+      pool.query(`
+        SELECT COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS previous_net_revenue,
+               COUNT(DISTINCT o.or_id) AS previous_orders,
+               COUNT(DISTINCT o.customer_id) AS previous_customers
+        FROM tbl_orders o
+        JOIN tbl_order_items i ON i.order_id = o.or_id
+        WHERE ($1::int IS NULL OR o.tenant_id = $1)
+          AND o.status = ANY($2::text[])
+          AND o.created_at >= $4::timestamptz
+          AND o.created_at < $3::timestamptz
+      `, [tenantId, revenueStatuses, dFrom.toISOString(), new Date(dFrom.getTime() - (dTo - dFrom)).toISOString()]),
+    ]);
+
+    const row = result.rows[0];
     const netRevenue = parseFloat(row.net_revenue || 0);
     const totalOrders = parseInt(row.total_orders || 0);
     const averageOrderValue = parseFloat(row.average_order_value || 0);
     const unitsSold = parseInt(row.units_sold || 0);
     const grossProfit = parseFloat(row.gross_profit || 0);
     const totalCustomers = parseInt(row.total_customers || 0);
+    const productsSold = parseInt(row.products_sold || 0);
     const profitMargin = netRevenue > 0 ? parseFloat(((grossProfit / netRevenue) * 100).toFixed(2)) : 0;
+
+    const repeatCustomers = parseInt(repeatRes.rows[0]?.repeat_customers || 0, 10);
+    const prev = prevRes.rows[0];
+
+    const mapProduct = r => ({
+      product_id: r.product_id,
+      name: r.name,
+      qty: parseInt(r.qty || 0),
+      revenue: parseFloat(r.revenue || 0),
+      profit: parseFloat(r.profit || 0),
+    });
 
     res.json({
       net_revenue: netRevenue,
@@ -635,6 +672,39 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
       gross_profit: grossProfit,
       profit_margin: profitMargin,
       total_customers: totalCustomers,
+      products_sold: productsSold,
+      repeat_customers: repeatCustomers,
+      previous_net_revenue: parseFloat(prev.previous_net_revenue || 0),
+      previous_orders: parseInt(prev.previous_orders || 0),
+      previous_customers: parseInt(prev.previous_customers || 0),
+      revenue_by_day: dayRes.rows.map(r => ({
+        date: r.date,
+        revenue: parseFloat(r.revenue || 0),
+        orders: parseInt(r.orders || 0),
+        units: parseInt(r.units || 0),
+        profit: parseFloat(r.profit || 0),
+      })),
+      revenue_by_month: monthRes.rows.map(r => ({
+        month: r.month,
+        revenue: parseFloat(r.revenue || 0),
+        orders: parseInt(r.orders || 0),
+        units: parseInt(r.units || 0),
+        profit: parseFloat(r.profit || 0),
+      })),
+      revenue_by_year: yearRes.rows.map(r => ({
+        year: r.year,
+        revenue: parseFloat(r.revenue || 0),
+        orders: parseInt(r.orders || 0),
+      })),
+      top_products_by_qty: topQtyRes.rows.map(mapProduct),
+      top_products_by_revenue: topRevenueRes.rows.map(mapProduct),
+      customers: customerRes.rows.map(r => ({
+        customer_id: r.customer_id,
+        name: r.name,
+        orders: parseInt(r.orders || 0),
+        total_spent: parseFloat(r.total_spent || 0),
+        last_order: r.last_order,
+      })),
     });
   } catch (error) {
     console.error('❌ Analytics summary error:', error);
@@ -642,94 +712,5 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
   }
 });
 
-// ===== RECENT ORDERS =====
-router.get('/recent', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const { limit } = parsePaging(req, { defaultLimit: 5, maxLimit: 200 });
-
-  try {
-    let query = `
-      SELECT o.*, c.name as customer_name, u.fullname as created_by_name
-      FROM tbl_orders o
-      LEFT JOIN tbl_customers c ON c.id = o.customer_id
-      LEFT JOIN tbl_users u ON u.userid = o.user_id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (!isSuperAdmin && tenantId) {
-      query += ` AND o.tenant_id = $1`;
-      params.push(tenantId);
-    }
-
-    query += ` ORDER BY o.created_at DESC LIMIT $${params.length + 1}`;
-    params.push(limit);
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('❌ Get recent orders error:', error);
-    res.status(500).json({ error: 'Failed to fetch recent orders' });
-  }
-});
-
-// ===== LOW STOCK =====
-router.get('/low-stock', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
-
-  try {
-    let query = `
-      SELECT p.*, s.qtyavailable, s.qtyreserved 
-      FROM tbl_products p
-      JOIN tbl_stock s ON s.productid = p.id
-      WHERE p.status = 'Active' AND s.qtyavailable <= p.qty_alert
-    `;
-    const params = [];
-
-    if (!isSuperAdmin && tenantId) {
-      query += ` AND p.tenant_id = $1`;
-      params.push(tenantId);
-    }
-
-    query += ' ORDER BY s.qtyavailable ASC LIMIT 10';
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('❌ Get low stock error:', error);
-    res.status(500).json({ error: 'Failed to fetch low stock' });
-  }
-});
-
-// ===== PENDING ORDERS =====
-router.get('/pending', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const isSuperAdmin = req.user?.isSuperAdmin || false;
-
-  try {
-    let query = `
-      SELECT o.*, c.name as customer_name
-      FROM tbl_orders o
-      LEFT JOIN tbl_customers c ON c.id = o.customer_id
-      WHERE o.status = 'Pending'
-    `;
-    const params = [];
-
-    if (!isSuperAdmin && tenantId) {
-      query += ` AND o.tenant_id = $1`;
-      params.push(tenantId);
-    }
-
-    query += ' ORDER BY o.created_at DESC LIMIT 10';
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('❌ Get pending orders error:', error);
-    res.status(500).json({ error: 'Failed to fetch pending orders' });
-  }
-});
 
 module.exports = router;

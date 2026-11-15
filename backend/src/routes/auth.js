@@ -32,17 +32,6 @@ router.put('/profile', authenticate, async (req, res) => {
 });
 
 // ============================================
-// TEST ROUTE
-// ============================================
-router.get('/test', (req, res) => {
-  res.json({
-    message: '✅ Auth route is working!',
-    timestamp: new Date().toISOString(),
-    status: 'ok'
-  });
-});
-
-// ============================================
 // LOGIN
 // ============================================
 router.post('/login', async (req, res) => {

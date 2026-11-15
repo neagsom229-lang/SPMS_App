@@ -225,6 +225,28 @@ if (gitleaksVersion) {
   fail('secret scan: install gitleaks so git history is scanned (winget install gitleaks)');
 }
 
+// early-return guard for tests (phase 9h): a test must not skip via an
+// early return; it must always run its assertions.
+const EARLY_RETURN_RE = /^\s*if\s*\([^)]*\)\s*return\s*;/gm;
+function scanEarlyReturns() {
+  const files = execFileSync('git', ['ls-files', 'backend/tests'], { cwd: ROOT, encoding: 'utf8' })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter(f => /\.test\.js$/.test(f));
+  const hits = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    EARLY_RETURN_RE.lastIndex = 0;
+    let m;
+    while ((m = EARLY_RETURN_RE.exec(text)) !== null) hits.push(f);
+  }
+  return hits;
+}
+const earlyReturnHits = scanEarlyReturns();
+if (earlyReturnHits.length) {
+  earlyReturnHits.forEach(h => fail(`test style guard: early return in ${h}`));
+}
+
 // result ---------------------------------------------------------------------
 if (failures.length) {
   console.error(`\n❌ VERIFY FAILED (${seconds()}s): ${failures.length} check(s)`);

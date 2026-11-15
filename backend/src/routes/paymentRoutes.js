@@ -108,43 +108,6 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
   }
 });
 
-// 3. Check KHQR session status (DB read only: no provider call, no activation)
-router.get('/bakong/check/:md5', authenticate, requireTenant, async (req, res) => {
-  try {
-    const { md5 } = req.params;
-    if (!md5 || !/^[a-f0-9]{32}$/.test(md5)) {
-      return res.status(400).json({ error: 'Invalid MD5 format' });
-    }
-
-    const sessionRes = await db.query(
-      `SELECT * FROM khqr_sessions WHERE md5 = $1 AND tenant_id = $2`,
-      [md5, req.tenantId]
-    );
-
-    if (sessionRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-
-    const session = sessionRes.rows[0];
-
-    if (session.status === 'PAID') {
-      return res.json({ status: 'PAID', plan: session.plan, expires_at: session.expires_at });
-    }
-
-    if (session.status === 'EXPIRED') {
-      return res.json({ status: 'EXPIRED' });
-    }
-
-    if (session.expires_at && new Date(session.expires_at) < new Date()) {
-      return res.json({ status: 'EXPIRED' });
-    }
-
-    return res.json({ status: 'PENDING', plan: session.plan, expires_at: session.expires_at });
-  } catch (err) {
-    console.error('Error checking KHQR status:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 // 4. Super Admin Endpoints
 router.get('/admin/sessions', authenticate, requireSuperAdmin, async (req, res) => {

@@ -122,6 +122,34 @@ describe('Orders & Stock Test Suite', () => {
     expect(conflicts.length).toBe(19);
   });
 
+  test('Product creation seeds a stock row with the requested initial quantity', async () => {
+    const stockProdRes = await request(app)
+      .post('/api/products')
+      .set('Authorization', 'Bearer ' + tokenA)
+      .send({ name: 'Stock Seed ' + runId, barcode: 'SS-' + runId, cost: 5, price: 15, stock: 25, category_id: catId });
+    const stockProdId = stockProdRes.body.id;
+
+    const stockRes = await request(app).get('/api/stock').set('Authorization', 'Bearer ' + tokenA);
+    const stockList = stockRes.body.stock || stockRes.body;
+    const stockRow = (Array.isArray(stockList) ? stockList : []).find(s => s.productid === stockProdId || s.id === stockProdId);
+    expect(stockRow).toBeDefined();
+    expect(Number(stockRow.qtyavailable ?? stockRow.qtyinstock ?? stockRow.stock)).toBe(25);
+  });
+
+  test('Product creation with zero stock seeds a stock row with zero quantity', async () => {
+    const zeroProdRes = await request(app)
+      .post('/api/products')
+      .set('Authorization', 'Bearer ' + tokenA)
+      .send({ name: 'Zero Stock ' + runId, barcode: 'ZS-' + runId, cost: 5, price: 15, stock: 0, category_id: catId });
+    const zeroProdId = zeroProdRes.body.id;
+
+    const stockRes = await request(app).get('/api/stock').set('Authorization', 'Bearer ' + tokenA);
+    const stockList = stockRes.body.stock || stockRes.body;
+    const stockRow = (Array.isArray(stockList) ? stockList : []).find(s => s.productid === zeroProdId || s.id === zeroProdId);
+    expect(stockRow).toBeDefined();
+    expect(Number(stockRow.qtyavailable ?? stockRow.qtyinstock ?? stockRow.stock)).toBe(0);
+  });
+
   test('Duplicate line items in cart returns 409 conflict', async () => {
     const dupProdRes = await request(app).post('/api/products').set('Authorization', 'Bearer ' + tokenA).send({ name: 'Dup Prod ' + runId, barcode: 'DUP-' + runId, cost: 1, price: 10, stock: 10, category_id: catId });
     const dupProdId = dupProdRes.body.id;

@@ -31,16 +31,21 @@ const TrendChart = ({ data }) => {
   const maxOrders = Math.max(1, ...data.map((d) => Number(d.orders) || 0));
   const maxRevenue = Math.max(1, ...data.map((d) => Number(d.revenue) || 0));
   const barW = Math.min(28, slot * 0.4);
-  const pts = data.map((d, i) => ({
+  const barPts = data.map((d, i) => ({
     x: slot * i + slot / 2,
-    y: padTop + plotH - ((Number(d.revenue) || 0) / maxRevenue) * plotH,
+    h: ((Number(d.revenue) || 0) / maxRevenue) * plotH,
     d,
   }));
-  const line = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const linePts = data.map((d, i) => ({
+    x: slot * i + slot / 2,
+    y: padTop + plotH - ((Number(d.orders) || 0) / maxOrders) * plotH,
+    d,
+  }));
+  const line = linePts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const area =
-    `M ${pts[0].x.toFixed(1)} ${padTop + plotH} ` +
-    pts.map((p) => `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') +
-    ` L ${pts[pts.length - 1].x.toFixed(1)} ${padTop + plotH} Z`;
+    `M ${linePts[0].x.toFixed(1)} ${padTop + plotH} ` +
+    linePts.map((p) => `L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ') +
+    ` L ${linePts[linePts.length - 1].x.toFixed(1)} ${padTop + plotH} Z`;
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full" role="img" aria-label="Revenue and orders, trailing 6 months">
@@ -54,20 +59,27 @@ const TrendChart = ({ data }) => {
         const y = padTop + (plotH / 4) * i;
         return <line key={i} x1="0" y1={y} x2={W} y2={y} stroke="#334155" strokeOpacity="0.3" strokeDasharray="3 3" />;
       })}
-      {pts.map((p, i) => {
-        const h = ((Number(p.d.orders) || 0) / maxOrders) * plotH;
-        return (
-          <rect key={i} x={p.x - barW / 2} y={padTop + plotH - h} width={barW} height={h} rx="4" fill="#6366f1">
-            <title>{`${p.d.name}: ${p.d.orders} orders`}</title>
-          </rect>
-        );
-      })}
+      {barPts.map((p, i) => (
+        <rect
+          key={i}
+          data-month={p.d.key}
+          data-value={Number(p.d.revenue) || 0}
+          x={p.x - barW / 2}
+          y={padTop + plotH - p.h}
+          width={barW}
+          height={p.h}
+          rx="4"
+          fill="#6366f1"
+        >
+          <title>{`${p.d.name}: ${formatCurrency(p.d.revenue)} revenue`}</title>
+        </rect>
+      ))}
       <path d={area} fill="url(#dashboard-rev)" />
       <polyline points={line} fill="none" stroke="#06b6d4" strokeWidth="3" strokeLinejoin="round" />
-      {pts.map((p, i) => (
+      {linePts.map((p, i) => (
         <g key={i}>
-          <circle cx={p.x} cy={p.y} r="3.5" fill="#06b6d4">
-            <title>{`${p.d.name}: ${formatCurrency(p.d.revenue)}`}</title>
+          <circle cx={p.x} cy={p.y} r="3.5" fill="#06b6d4" data-value={Number(p.d.orders) || 0}>
+            <title>{`${p.d.name}: ${p.d.orders} orders`}</title>
           </circle>
           <text x={p.x} y={H - 8} textAnchor="middle" fill="#94a3b8" fontSize="11">
             {p.d.name}
@@ -108,6 +120,8 @@ const DonutChart = ({ data }) => {
         return (
           <path
             key={i}
+            data-name={d.name}
+            data-value={Number(d.value) || 0}
             d={arc(start, sweep)}
             fill="none"
             stroke={d.color || CHART_COLORS[i % CHART_COLORS.length]}
@@ -201,67 +215,33 @@ const extractArrayData = (responseData, extraKeys = []) => {
   return [];
 };
 
-const generateChartDataFromOrders = (orders) => {
+// Builds the trailing six calendar months (UTC keys, matching date_trunc in
+// /dashboard/analytics-summary) and fills them from the SQL revenue_by_month
+// aggregate. No value here is invented: a month with no sales is a real zero.
+const buildMonthlySeries = (revenueByMonth = []) => {
+  const byMonth = {};
+  revenueByMonth.forEach((row) => { byMonth[row.month] = row; });
+
   const now = new Date();
   const buckets = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  for (let i = 5; i >= 0; i -= 1) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const row = byMonth[key];
     buckets.push({
-      year: d.getFullYear(),
-      monthIndex: d.getMonth(),
-      name: MONTH_NAMES[d.getMonth()],
-      revenue: 0,
-      orders: 0,
+      key,
+      name: MONTH_NAMES[d.getUTCMonth()],
+      revenue: Number(row?.revenue) || 0,
+      orders: Number(row?.orders) || 0,
     });
   }
-
-  if (orders && orders.length > 0) {
-    orders.forEach((order) => {
-      const date = new Date(order.ORDER_DATE || order.order_date || order.date);
-      if (Number.isNaN(date.getTime())) return;
-      const bucket = buckets.find((b) => b.year === date.getFullYear() && b.monthIndex === date.getMonth());
-      if (!bucket) return;
-      bucket.revenue += Number(order.AMOUNT_US || order.amount_us || order.total || 0);
-      bucket.orders += 1;
-    });
-  }
-
-  return buckets.map((b) => ({
-    name: b.name,
-    revenue: b.revenue || (1200 + Math.random() * 800),
-    orders: b.orders || (10 + Math.floor(Math.random() * 15)),
-    profit: (b.revenue || 1200) * 0.4,
-  }));
-};
-
-const generateSalesDistribution = (orders) => {
-  const total = orders.reduce((sum, o) => sum + Number(o.AMOUNT_US || o.amount_us || o.total || 0), 0);
-  if (total === 0) {
-    return [
-      { name: "Custom PCs", value: 12500, color: "#06b6d4" },
-      { name: "Laptops", value: 9800, color: "#6366f1" },
-      { name: "Monitors", value: 6400, color: "#8b5cf6" },
-      { name: "Peripherals", value: 3200, color: "#ec4899" },
-      { name: "Smart Home", value: 1800, color: "#10b981" },
-    ];
-  }
-  return [
-    { name: "Custom PCs", value: total * 0.40, color: "#06b6d4" },
-    { name: "Laptops", value: total * 0.25, color: "#6366f1" },
-    { name: "Monitors", value: total * 0.18, color: "#8b5cf6" },
-    { name: "Peripherals", value: total * 0.10, color: "#ec4899" },
-    { name: "Smart Home", value: total * 0.07, color: "#10b981" },
-  ];
+  return buckets;
 };
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const isCashier = String(user?.role || '').toLowerCase() === 'cashier';
-  const [salesRange, setSalesRange] = useState('30d');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [showLowStockModal, setShowLowStockModal] = useState(false);
-  const [showPendingOrdersModal, setShowPendingOrdersModal] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
   // Queries pulling from backend API
@@ -285,55 +265,99 @@ const Dashboard = () => {
     retry: 1,
   });
 
-  const lowStockQuery = useQuery({
-    queryKey: ["lowStock"],
+  // Trailing six months, straight from the tenant-scoped SQL aggregates.
+  const analyticsRange = useMemo(() => {
+    const now = new Date();
+    const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
+    return { from: from.toISOString(), to: now.toISOString() };
+  }, []);
+
+  const analyticsQuery = useQuery({
+    queryKey: ["dashboardAnalytics", analyticsRange.from, analyticsRange.to],
     queryFn: async () => {
-      const res = await apiClient.get("/stock/low-stock");
-      return extractArrayData(res.data, ["stock", "items"]);
+      const res = await apiClient.get("/dashboard/analytics-summary", {
+        params: analyticsRange,
+      });
+      return res.data || {};
     },
     staleTime: REFRESH_STALE_TIME_MS,
     retry: 1,
   });
 
-  const pendingOrdersQuery = useQuery({
-    queryKey: ["pendingOrders"],
+  const salesMixQuery = useQuery({
+    queryKey: ["dashboardSalesMix", analyticsRange.from, analyticsRange.to],
     queryFn: async () => {
-      const res = await apiClient.get("/orders/pending");
-      return extractArrayData(res.data, ["orders", "items"]);
+      const res = await apiClient.get("/dashboard/sales-summary", {
+        params: { range: "custom", ...analyticsRange },
+      });
+      return res.data || {};
     },
     staleTime: REFRESH_STALE_TIME_MS,
     retry: 1,
   });
 
   const statsRaw = statsQuery.data || {};
+  const analytics = analyticsQuery.data || {};
   const recentOrders = ordersQuery.data || [];
-  const lowStockProducts = lowStockQuery.data || [];
-  const pendingOrdersList = pendingOrdersQuery.data || [];
 
-  const chartData = useMemo(() => generateChartDataFromOrders(recentOrders), [recentOrders]);
-  const salesDistribution = useMemo(() => generateSalesDistribution(recentOrders), [recentOrders]);
+  const chartData = useMemo(
+    () => buildMonthlySeries(analytics.revenue_by_month || []),
+    [analytics]
+  );
+
+  const salesDistribution = useMemo(() => {
+    return (salesMixQuery.data?.by_category || [])
+      .filter((row) => Number(row.revenue) > 0)
+      .map((row, i) => ({
+        name: row.name,
+        value: Number(row.revenue) || 0,
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      }));
+  }, [salesMixQuery.data]);
 
   const stats = useMemo(() => {
-    const totalOrders = getStat(statsRaw, ["total_orders", "totalOrders", "orders_count"], 142);
-    const totalRevenue = getStat(statsRaw, ["total_revenue", "totalRevenue", "revenue"], 85678.50);
-    const totalCustomers = getStat(statsRaw, ["total_customers", "totalCustomers"], 2150);
-    const totalProducts = getStat(statsRaw, ["total_products", "totalProducts"], 43);
+    const totalOrders = getStat(statsRaw, ["total_orders", "totalOrders", "orders_count"], 0);
+    const totalRevenue = getStat(statsRaw, ["total_revenue", "totalRevenue", "revenue"], 0);
+    const totalCustomers = getStat(statsRaw, ["total_customers", "totalCustomers"], 0);
+    const totalProducts = getStat(statsRaw, ["total_products", "totalProducts"], 0);
+
+    // Today's numbers come from the same SQL aggregate as the charts.
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const today = (analytics.revenue_by_day || []).find((row) => row.date === todayKey);
+    const todayOrders = Number(today?.orders) || 0;
+
+    // Month-over-month growth from the real monthly series (null when there
+    // is no previous month with revenue to compare against).
+    const currentMonth = chartData[chartData.length - 1]?.revenue || 0;
+    const previousMonth = chartData[chartData.length - 2]?.revenue || 0;
+    const growthRate = previousMonth > 0
+      ? ((currentMonth - previousMonth) / previousMonth) * 100
+      : null;
 
     return {
       totalCustomers,
       totalProducts,
       totalOrders,
       totalRevenue,
-      lowStockItems: lowStockProducts.length || 3,
-      pendingOrders: pendingOrdersList.length || 4,
-      growthRate: getStat(statsRaw, ["growth_rate", "growthRate"], 24.6),
-      conversionRate: getStat(statsRaw, ["conversion_rate", "conversionRate"], 6.8),
-      avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 233.56,
-      todaySales: getStat(statsRaw, ["today_sales", "todaySales"], 3450.00),
-      todayOrders: getStat(statsRaw, ["today_orders", "todayOrders"], 14),
-      activeUsers: getStat(statsRaw, ["active_users", "activeUsers"], 32),
+      lowStockItems: getStat(statsRaw, ["low_stock", "lowStock", "low_stock_count"], 0),
+      pendingOrders: getStat(statsRaw, ["pending_orders", "pendingOrders"], 0),
+      recentOrders: getStat(statsRaw, ["recent_orders", "recentOrders"], 0),
+      growthRate,
+      todayOrders,
+      repeatCustomers: getStat(analytics, ["repeat_customers", "repeatCustomers"], 0),
     };
-  }, [statsRaw, lowStockProducts.length, pendingOrdersList.length]);
+  }, [statsRaw, analytics, chartData]);
+
+  const hasSales = useMemo(
+    () => chartData.some((month) => month.revenue > 0 || month.orders > 0),
+    [chartData]
+  );
+
+  // Honest empty state: a brand-new tenant has no sales at all, while an
+  // established tenant can simply have none inside the six-month window.
+  const emptyChartText = stats.totalOrders > 0
+    ? 'No sales in the last 6 months'
+    : 'No sales yet';
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -348,10 +372,10 @@ const Dashboard = () => {
   const refreshData = useCallback(() => {
     statsQuery.refetch();
     ordersQuery.refetch();
-    lowStockQuery.refetch();
-    pendingOrdersQuery.refetch();
+    analyticsQuery.refetch();
+    salesMixQuery.refetch();
     toast.success('Dashboard refreshed successfully');
-  }, [statsQuery, ordersQuery, lowStockQuery, pendingOrdersQuery]);
+  }, [statsQuery, ordersQuery, analyticsQuery, salesMixQuery]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 font-sans antialiased selection:bg-cyan-500 selection:text-slate-950">
@@ -404,7 +428,7 @@ const Dashboard = () => {
               Welcome back, <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400">{user?.username || user?.fullname || 'Admin'}</span>
             </h1>
             <p className="text-slate-400 text-sm mt-2 max-w-xl leading-relaxed">
-              Managing 43+ high-end electronics items, real-time sales telemetry, and automated inventory sync.
+              {stats.totalProducts} products tracked, {stats.totalOrders} completed orders, {stats.lowStockItems} low-stock alerts.
             </p>
           </div>
 
@@ -430,10 +454,10 @@ const Dashboard = () => {
       {/* STATS KPI CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {[
-          { label: 'Total Revenue', value: formatCurrency(stats.totalRevenue), sub: `+${stats.growthRate}% growth`, icon: DollarSign, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30' },
+          { label: 'Total Revenue', value: formatCurrency(stats.totalRevenue), sub: stats.growthRate === null ? 'No prior month to compare' : `${stats.growthRate >= 0 ? '+' : ''}${stats.growthRate.toFixed(1)}% vs last month`, icon: DollarSign, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/30' },
           { label: 'Total Orders', value: stats.totalOrders.toLocaleString(), sub: `${stats.todayOrders} orders today`, icon: ShoppingCart, color: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/30' },
           { label: 'Active Products', value: stats.totalProducts.toLocaleString(), sub: `${stats.lowStockItems} low stock alerts`, icon: Package, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/30' },
-          { label: 'Total Customers', value: stats.totalCustomers.toLocaleString(), sub: `${stats.activeUsers} online right now`, icon: Users, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
+          { label: 'Total Customers', value: stats.totalCustomers.toLocaleString(), sub: `${stats.repeatCustomers} repeat customers`, icon: Users, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
         ].map((card, idx) => {
           const Icon = card.icon;
           return (
@@ -470,7 +494,11 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="h-80 w-full">
-            <TrendChart data={chartData} />
+            {hasSales ? (
+              <TrendChart data={chartData} />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-slate-500 text-sm">{emptyChartText}</div>
+            )}
           </div>
         </div>
 
@@ -485,7 +513,11 @@ const Dashboard = () => {
           </div>
 
           <div className="h-64 w-full my-4">
-            <DonutChart data={salesDistribution} />
+            {salesDistribution.length > 0 ? (
+              <DonutChart data={salesDistribution} />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center text-slate-500 text-sm">{emptyChartText}</div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-2 pt-4 border-t border-slate-800">
@@ -533,7 +565,7 @@ const Dashboard = () => {
                 {recentOrders.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-8 text-center text-slate-500">
-                      No orders recorded yet. Visit the 3D Storefront to place test orders!
+                      No sales yet
                     </td>
                   </tr>
                 ) : (
@@ -576,21 +608,27 @@ const Dashboard = () => {
             <div className="space-y-4">
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                 <div className="flex justify-between text-xs mb-1.5 font-bold">
-                  <span className="text-slate-300">Database Connection</span>
-                  <span className="text-emerald-400 flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> Active (PostgreSQL)</span>
+                  <span className="text-slate-300">Completed Orders (7 days)</span>
+                  <span className="text-emerald-400 flex items-center"><CheckCircle className="w-3 h-3 mr-1" /> {stats.recentOrders}</span>
                 </div>
                 <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                  <div className="bg-emerald-500 h-full w-full rounded-full" />
+                  <div
+                    className="bg-emerald-500 h-full rounded-full"
+                    style={{ width: `${stats.totalOrders > 0 ? Math.min(100, (stats.recentOrders / stats.totalOrders) * 100) : 0}%` }}
+                  />
                 </div>
               </div>
 
               <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                 <div className="flex justify-between text-xs mb-1.5 font-bold">
-                  <span className="text-slate-300">Storefront Status</span>
-                  <span className="text-cyan-400 flex items-center"><Zap className="w-3 h-3 mr-1" /> Online (/shop/demo-store)</span>
+                  <span className="text-slate-300">Pending Orders</span>
+                  <span className="text-cyan-400 flex items-center"><Clock className="w-3 h-3 mr-1" /> {stats.pendingOrders}</span>
                 </div>
                 <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                  <div className="bg-cyan-400 h-full w-full rounded-full" />
+                  <div
+                    className="bg-cyan-400 h-full rounded-full"
+                    style={{ width: `${stats.totalOrders > 0 ? Math.min(100, (stats.pendingOrders / stats.totalOrders) * 100) : 0}%` }}
+                  />
                 </div>
               </div>
 
@@ -600,7 +638,10 @@ const Dashboard = () => {
                   <span className="text-amber-400 font-mono">{stats.lowStockItems} items require restock</span>
                 </div>
                 <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
-                  <div className="bg-amber-500 h-full w-3/4 rounded-full" />
+                  <div
+                    className="bg-amber-500 h-full rounded-full"
+                    style={{ width: `${stats.totalProducts > 0 ? Math.min(100, (stats.lowStockItems / stats.totalProducts) * 100) : 0}%` }}
+                  />
                 </div>
               </div>
             </div>
@@ -627,7 +668,7 @@ const Dashboard = () => {
             </div>
             <h3 className="text-xl font-black text-white mb-2">TechFlow Dashboard Ready!</h3>
             <p className="text-xs text-slate-400 mb-6 leading-relaxed">
-              Your 43+ high-end electronics items are live, orders are syncing instantly, and the 3D storefront is fully operational.
+              {stats.totalProducts} products tracked, {stats.totalOrders} completed orders, {stats.lowStockItems} low-stock alerts.
             </p>
             <button
               onClick={() => setShowWelcomeModal(false)}

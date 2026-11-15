@@ -2,6 +2,7 @@
 const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
+const { parsePaging } = require('../utils/paging');
 const rolePolicy = require('../middleware/rolePolicy');
 
 const router = express.Router();
@@ -80,8 +81,8 @@ router.get('/log', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
-  const { product_id, limit } = req.query;
-  const parsedLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+  const { product_id } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 50 });
 
   try {
     let query = `
@@ -99,7 +100,7 @@ router.get('/log', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY l.created_at DESC, l.id DESC LIMIT $${idx}`;
-    params.push(parsedLimit);
+    params.push(limit);
 
     const result = await pool.query(query, params);
     res.json(result.rows);

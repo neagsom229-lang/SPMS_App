@@ -129,44 +129,15 @@ router.post('/', authenticate, async (req, res) => {
     const tenantId = getTenantId(req, res);
     if (!tenantId) return;
     const id = req.params.id;
+    if (!/^\d+$/.test(id)) return res.status(404).json({ error: 'Supplier not found' });
     try {
     const result = await pool.query(`DELETE FROM tbl_suppliers WHERE id = $1 AND tenant_id = $2 RETURNING id`, [id, tenantId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Supplier not found' });
     res.json({ message: 'Supplier deleted successfully' });
     } catch (err) {
+    console.error("❌ Delete supplier error:", err.message);
     res.status(500).json({ error: err.message });
     }
     });
-
-    // ===== BULK DELETE =====
-router.delete('/bulk', authenticate, async (req, res) => {
-  const tenantId = getTenantId(req);
-  const { ids } = req.body;
-
-  if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: 'No supplier IDs provided' });
-  }
-
-  try {
-    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    const query = `
-      DELETE FROM tbl_suppliers 
-      WHERE sup_id IN (${placeholders}) AND tenant_id = $${ids.length + 1}
-    `;
-    const result = await pool.query(query, [...ids, tenantId]);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Suppliers not found' });
-    }
-
-    res.json({
-      message: `${result.rowCount} suppliers deleted successfully`,
-      deleted: result.rowCount,
-    });
-  } catch (err) {
-    console.error("❌ Bulk delete error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 module.exports = router;

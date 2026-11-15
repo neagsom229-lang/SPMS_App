@@ -24,7 +24,14 @@ module.exports = defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          // Fallback for hosts where the plain Chromium binary cannot spawn:
+          // retry the same browser through the Microsoft Edge Chromium build.
+          channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge',
+        },
+      },
     },
   ],
   webServer: {

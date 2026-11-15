@@ -19,3 +19,6 @@
 - Never delete, move or copy any file the owner marked HOLD, and never copy data files into temp folders.
 - Never download or run binaries. Ask the owner to install tools and say which.
 - `npm run verify` and `npm run dev` must work with backend/.env ABSENT. If one needs it, that is a bug to fix with test-only defaults.
+- Never describe your own earlier actions without git evidence (`git log` / `git diff`).
+- Tests must not contain early returns (`if (!x) return;`) or conditional expects.
+- Never publish ports on 0.0.0.0.

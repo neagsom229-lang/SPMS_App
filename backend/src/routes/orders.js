@@ -24,7 +24,7 @@ router.get('/', authenticate, async (req, res) => {
   const tenantId = getTenantId(req, res);
   if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const { status, search } = req.query;
+  const { status, search, customer_id } = req.query;
   const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
@@ -47,6 +47,15 @@ router.get('/', authenticate, async (req, res) => {
     if (search) {
       whereClause += ` AND (o.order_no ILIKE $${paramIndex} OR c.name ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (customer_id !== undefined) {
+      if (!/^[1-9]\d{0,9}$/.test(String(customer_id))) {
+        return res.status(400).json({ error: 'Invalid customer_id' });
+      }
+      whereClause += ` AND o.customer_id = $${paramIndex}`;
+      params.push(parseInt(customer_id, 10));
       paramIndex++;
     }
 
@@ -94,7 +103,7 @@ router.get('/recent', authenticate, async (req, res) => {
   const tenantId = getTenantId(req, res);
   if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const { limit = 5 } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 5 });
 
   try {
     let query = `
@@ -111,7 +120,7 @@ router.get('/recent', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY o.created_at DESC LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit, 10));
+    params.push(limit);
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -126,7 +135,7 @@ router.get('/pending', authenticate, async (req, res) => {
   const tenantId = getTenantId(req, res);
   if (!tenantId && !req.user?.isSuperAdmin) return;
   const isSuperAdmin = req.user?.isSuperAdmin || false;
-  const { limit = 10 } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 10 });
 
   try {
     let query = `
@@ -143,7 +152,7 @@ router.get('/pending', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY o.created_at DESC LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit, 10));
+    params.push(limit);
 
     const result = await pool.query(query, params);
     res.json(result.rows);

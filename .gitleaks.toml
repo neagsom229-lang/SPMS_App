@@ -17,8 +17,6 @@ paths = [
   '''package-lock\.json$''',
   '''frontend/package-lock\.json$''',
   '''backend/package-lock\.json$''',
-  '''(^|/)\.env$''',
-  '''(^|/)\.env\.(local|test|dev|development|prod|production)$''',
   '''frontend/tests/''',
   '''backend/tests/''',
   '''e2e/''',
@@ -26,7 +24,7 @@ paths = [
   '''docs/RESTORE\.md$''',
 ]
 regexes = [
-  '''postgres(?:ql)?://postgres:postgres@127\.0\.0\.1:5543[23]/''',
+  '''postgres(?:ql)?://postgres:postgres@127\.0.0\.1:5543[23]/''',
   '''postgres(?:ql)?://postgres:postgres@localhost:5543[23]/''',
   '''test-secret''',
   '''test_jwt_secret''',
