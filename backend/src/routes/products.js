@@ -11,7 +11,8 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   const scope = getScope(req, res);
   if (!scope) return;
-  const { search, category, status } = req.query;
+  const { search, q, category, status } = req.query;
+  const searchTerm = search || q;
   const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
@@ -25,9 +26,9 @@ router.get('/', authenticate, async (req, res) => {
       paramIndex++;
     }
 
-    if (search) {
+    if (searchTerm) {
       whereClause += ` AND (p.name ILIKE $${paramIndex} OR p.name_kh ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
+      params.push(`%${searchTerm}%`);
       paramIndex++;
     }
 

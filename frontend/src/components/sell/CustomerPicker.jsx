@@ -4,7 +4,7 @@ import { User, UserPlus, X } from 'lucide-react';
 import apiClient from '../../api/client';
 import { toast } from 'react-hot-toast';
 
-const CustomerPicker = ({ customers, selectedCustomer, onSelectCustomer, onCustomerAdded }) => {
+const CustomerPicker = ({ customers, selectedCustomer, onSelectCustomer, onCustomerAdded, searchQuery, onSearchChange }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -55,6 +55,14 @@ const CustomerPicker = ({ customers, selectedCustomer, onSelectCustomer, onCusto
           <UserPlus className="w-3.5 h-3.5" /> Quick Add
         </button>
       </div>
+
+      <input
+        type="text"
+        value={searchQuery || ''}
+        onChange={e => onSearchChange && onSearchChange(e.target.value)}
+        placeholder="Search customers..."
+        className="w-full px-3 py-2 mb-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      />
 
       <select
         value={selectedCustomer}

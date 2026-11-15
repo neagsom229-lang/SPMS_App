@@ -87,8 +87,8 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
     const qrImage = await QRCode.toDataURL(qrString);
 
     await db.query(
-      `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, expected_amount, currency, md5, qr_string, status, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, 'PENDING', $9)
+      `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, currency, md5, qr_string, status, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', $9)
        ON CONFLICT DO NOTHING`,
       [req.tenantId, req.user.userId, storedPlan, months, expectedAmount, normCurr, md5, qrString, expiresAt]
     );

@@ -3,11 +3,17 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Search, Plus, Package, QrCode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const ProductCatalog = ({ products, cart, onAddToCart }) => {
+const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveByBarcode }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const barcodeInputRef = useRef(null);
   const navigate = useNavigate();
+
+  // Report the query up so SellPage can run the debounced server-side ?q= search.
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    if (onSearchChange) onSearchChange(value.trim());
+  };
 
   // Compute remaining stock per product (stock minus quantity in cart)
   const cartQtyMap = useMemo(() => {
@@ -35,10 +41,12 @@ const ProductCatalog = ({ products, cart, onAddToCart }) => {
       if (status.toLowerCase() !== 'active') return false;
 
       const name = p.name || p.name_en || p.NAME_EN || '';
+      const nameKh = p.name_kh || p.NAME_KH || '';
       const barcode = p.barcode || p.BARCODE || '';
       const cat = p.category || p.category_en || p.CATEGORY || p.brand || p.BRAND || '';
 
       const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            nameKh.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             barcode.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCat = selectedCategory === 'All' || cat === selectedCategory;
 
@@ -50,16 +58,22 @@ const ProductCatalog = ({ products, cart, onAddToCart }) => {
     });
   }, [products, searchQuery, selectedCategory, cartQtyMap]);
 
-  // Barcode / Search form submit (Enter adds product if exact barcode match)
-  const handleBarcodeSubmit = (e) => {
+  // Barcode / Search form submit (Enter adds product if exact barcode match).
+  // Falls back to a direct ?q= lookup when the debounced search response has
+  // not arrived yet.
+  const handleBarcodeSubmit = async (e) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     const query = searchQuery.trim().toLowerCase();
-    const found = products.find(p => {
+    let found = products.find(p => {
       const b = String(p.barcode || p.BARCODE || '').toLowerCase();
       const id = String(p.id || p.PRODUCT_ID || '');
       return b === query || id === query;
     });
+
+    if (!found && resolveByBarcode) {
+      found = await resolveByBarcode(searchQuery.trim());
+    }
 
     if (found) {
       const stock = Number(found.stock ?? found.qtyinstock ?? found.qtyavailable ?? 0);
@@ -67,6 +81,7 @@ const ProductCatalog = ({ products, cart, onAddToCart }) => {
       if (stock - inCart > 0) {
         onAddToCart(found);
         setSearchQuery('');
+        if (onSearchChange) onSearchChange('');
       } else {
         alert('Product out of stock');
       }
@@ -83,7 +98,7 @@ const ProductCatalog = ({ products, cart, onAddToCart }) => {
             ref={barcodeInputRef}
             type="text"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={e => handleSearchChange(e.target.value)}
             placeholder="Scan barcode or search products..."
             className="w-full pl-10 pr-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-sm"
           />

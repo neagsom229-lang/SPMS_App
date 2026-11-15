@@ -109,6 +109,51 @@ if (jestData) {
   }
 }
 
+// 3b. proposed baseline (phase 10g) -------------------------------------------
+// After every full jest run, write what expected-names.txt WOULD become and
+// classify the difference per file, so the owner can review and run
+// `npm run names:accept`. verify never edits the committed baseline itself.
+if (jestData) {
+  const nd = require('./names-diff');
+  const actual = nd.namesFromJestData(jestData);
+  const committed = nd.readCommitted();
+  const expected = committed.ok ? nd.parse(committed.text) : [];
+  const key = r => `${r.file}\t${r.name}`;
+  const actKeys = new Set(actual.map(key));
+  const expKeys = new Set(expected.map(key));
+  const removed = expected.filter(r => !actKeys.has(key(r)));
+  const added = actual.filter(r => !expKeys.has(key(r)));
+  const group = rows => {
+    const m = new Map();
+    for (const r of rows) {
+      if (!m.has(r.file)) m.set(r.file, []);
+      m.get(r.file).push(r.name);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  };
+  console.log('-- removed per file (committed, missing in this run) --');
+  const remByFile = group(removed);
+  if (remByFile.length === 0) console.log('  (none)');
+  for (const [f, names] of remByFile) {
+    console.log(`  ${f}`);
+    names.sort().forEach(n => console.log(`    - ${n}`));
+  }
+  console.log('-- added per file (in this run, not committed) --');
+  const addByFile = group(added);
+  if (addByFile.length === 0) console.log('  (none)');
+  for (const [f, names] of addByFile) {
+    console.log(`  ${f}`);
+    names.sort().forEach(n => console.log(`    + ${n}`));
+  }
+  const proposed = [...actual]
+    .map(r => `${r.file}\t${r.name}`)
+    .sort()
+    .join('\n') + '\n';
+  const proposedPath = path.join(ROOT, 'backend', 'tests', 'expected-names.proposed.txt');
+  fs.writeFileSync(proposedPath, proposed);
+  console.log(`wrote ${path.relative(ROOT, proposedPath)} (${actual.length} names); owner runs: npm run names:accept`);
+}
+
 // 4. frontend build ----------------------------------------------------------
 step('4/6 frontend build');
 const built = run('frontend build', () => {

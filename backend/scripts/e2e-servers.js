@@ -28,6 +28,10 @@ function childEnv(extra = {}) {
     SPMS_DB_MODE: 'test',
     DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: 'development',
+    // Test-only default: create-qr refuses to run without a merchant id, so the
+    // e2e suite must not depend on backend/.env existing. Same value the jest
+    // suite uses (backend/tests/setup.js).
+    BAKONG_ACCOUNT_ID: process.env.BAKONG_ACCOUNT_ID || 'abaakhppxxx@abaa',
     ...extra,
   };
   delete env.DIRECT_URL;

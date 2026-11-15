@@ -35,9 +35,12 @@ const Login = () => {
   }, [isLocked, getLockRemaining]);
 
   // ===== REDIRECT IF ALREADY LOGGED IN =====
+  // A user who must still change their password is sent to the change-password
+  // screen instead of the dashboard (the API would reject every call with
+  // PASSWORD_CHANGE_REQUIRED anyway).
   useEffect(() => {
     if (user) {
-      navigate('/dashboard');
+      navigate(user.mustChangePassword ? '/change-password' : '/dashboard');
     }
   }, [user, navigate]);
 
@@ -62,8 +65,10 @@ const Login = () => {
       
       if (result.success) {
         toast.success('Welcome back! 🎉');
-        // Redirect based on role
-        if (isSuperAdmin) {
+        // Forced password change first; otherwise redirect based on role
+        if (result.user?.mustChangePassword) {
+          navigate('/change-password');
+        } else if (isSuperAdmin) {
           navigate('/admin');
         } else {
           navigate('/dashboard');

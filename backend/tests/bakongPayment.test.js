@@ -45,8 +45,8 @@ describe('Bakong payment routes', () => {
 
   async function createSession(tenantId, md5, extra = {}) {
     const res = await pool.query(
-      `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, expected_amount, currency, md5, status, expires_at)
-       VALUES ($1, $2, $3, 1, $4, $4, 'USD', $5, 'PENDING', NOW() + interval '15 minutes') RETURNING id`,
+      `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, currency, md5, status, expires_at)
+       VALUES ($1, $2, $3, 1, $4, 'USD', $5, 'PENDING', NOW() + interval '15 minutes') RETURNING id`,
       [tenantId, extra.userId || null, extra.plan || 'shophouse', extra.amount || 19, md5]
     );
     return res.rows[0].id;
@@ -121,9 +121,8 @@ describe('Bakong payment routes', () => {
     expect(qrChain.status).toBe(200);
     expect(Number(qrChain.body.amount)).toBe(49);
 
-    const row = await pool.query(`SELECT status, expected_amount, plan, tenant_id FROM khqr_sessions WHERE md5 = $1`, [qr.body.md5]);
+    const row = await pool.query(`SELECT status, plan, tenant_id FROM khqr_sessions WHERE md5 = $1`, [qr.body.md5]);
     expect(row.rows[0].status).toBe('PENDING');
-    expect(Number(row.rows[0].expected_amount)).toBe(19);
     expect(row.rows[0].plan).toBe('shophouse');
     expect(row.rows[0].tenant_id).toBe(tenantPlanId);
   });
@@ -143,8 +142,8 @@ describe('Bakong payment routes', () => {
     expect(legit.status).toBe(200);
     expect(Number(legit.body.amount)).toBe(19);
 
-    const stored = await pool.query(`SELECT expected_amount FROM khqr_sessions WHERE md5 = $1`, [legit.body.md5]);
-    expect(Number(stored.rows[0].expected_amount)).toBe(19);
+    const stored = await pool.query(`SELECT amount FROM khqr_sessions WHERE md5 = $1`, [legit.body.md5]);
+    expect(Number(stored.rows[0].amount)).toBe(19);
 
     const unknownPlan = await request(app)
       .post('/api/payment/bakong/create-qr')

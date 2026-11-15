@@ -299,7 +299,7 @@ describe('Analytics summary tenant-scoped SQL aggregate', () => {
     expect(res.status).toBe(200);
 
     const sqlRes = await db.query(
-      `SELECT to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') AS date,
+      `SELECT to_char(date_trunc('day', (o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Phnom_Penh'), 'YYYY-MM-DD') AS date,
               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
               COUNT(DISTINCT o.or_id) AS orders
        FROM tbl_orders o
@@ -329,7 +329,7 @@ describe('Analytics summary tenant-scoped SQL aggregate', () => {
     expect(res.status).toBe(200);
 
     const sqlRes = await db.query(
-      `SELECT to_char(date_trunc('month', o.created_at), 'YYYY-MM') AS month,
+      `SELECT to_char(date_trunc('month', (o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Phnom_Penh'), 'YYYY-MM') AS month,
               COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
               COUNT(DISTINCT o.or_id) AS orders
        FROM tbl_orders o

@@ -22,6 +22,7 @@ const ActivityLog = lazy(() => import("./components/ActivityLog"));
 const Warranty = lazy(() => import("./components/Warranty"));
 const Analytics = lazy(() => import("./components/Analytics"));
 const Profile = lazy(() => import("./components/Profile"));
+const ChangePassword = lazy(() => import("./components/ChangePassword"));
 const SellPage = lazy(() => import("./components/sell/SellPage"));
 const OnlineOrders = lazy(() => import("./components/orders/OnlineOrders"));
 const RegisterBusiness = lazy(() => import('./pages/RegisterBusiness'));
@@ -196,6 +197,10 @@ function App() {
                     <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
                     <Route path="/profile" element={<Layout><Profile /></Layout>} />
                     <Route path="/settings" element={<Layout><Settings /></Layout>} />
+                    {/* No Layout: the sidebar fires API calls that the auth
+                        middleware rejects with PASSWORD_CHANGE_REQUIRED until
+                        the new password is set. */}
+                    <Route path="/change-password" element={<ChangePassword />} />
                   </Route>
 
                   {/* ===== CATCH ALL ===== */}

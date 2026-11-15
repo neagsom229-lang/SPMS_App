@@ -16,7 +16,8 @@ router.get('/', authenticate, async (req, res) => {
   if (!scope) return;
   const tenantId = scope.tenantId;
   const isSuperAdmin = scope.isSuperAdmin;
-  const { search } = req.query;
+  const { search, q } = req.query;
+  const searchTerm = search || q;
 
   try {
     let sql = "SELECT * FROM tbl_customers WHERE LOWER(status) = 'active'";
@@ -27,10 +28,10 @@ router.get('/', authenticate, async (req, res) => {
       params.push(tenantId);
     }
 
-    if (search) {
+    if (searchTerm) {
       const paramIndex = params.length + 1;
       sql += ` AND (name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
+      params.push(`%${searchTerm}%`);
     }
 
     sql += " ORDER BY name ASC";

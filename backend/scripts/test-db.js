@@ -2,7 +2,8 @@
 //
 //   1. load database/baseline.sql   (schema after migration 014, no data)
 //   2. mark ONLY migrations 001-014 as applied
-//   3. run 015-LATEST through scripts/run_migration.js (the real runner)
+//   3. run every migration after the baseline through scripts/run_migration.js
+//      (the real runner)
 //
 // productionReplayCheck() additionally proves the runner is a no-op when the
 // effects of 015-LATEST already exist but the ledger still stops at 014.
@@ -19,7 +20,7 @@ const BASELINE = path.join(ROOT, 'database', 'baseline.sql');
 const MIGRATIONS = path.join(ROOT, 'database', 'migrations');
 const REPLAY_DB = 'spms_replay_test';
 const BASELINE_MAX = 14;
-const LATEST = 27;
+const LATEST = 28;
 
 function migrationFilesFrom(min, max) {
   return fs.readdirSync(MIGRATIONS)

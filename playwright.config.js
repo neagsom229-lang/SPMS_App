@@ -27,9 +27,11 @@ module.exports = defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          // Fallback for hosts where the plain Chromium binary cannot spawn:
-          // retry the same browser through the Microsoft Edge Chromium build.
-          channel: process.env.PLAYWRIGHT_CHANNEL || 'msedge',
+          // Bundled Chromium is the default. Set PLAYWRIGHT_CHANNEL=msedge
+          // only on hosts where the bundled Chromium binary cannot spawn.
+          ...(process.env.PLAYWRIGHT_CHANNEL
+            ? { channel: process.env.PLAYWRIGHT_CHANNEL }
+            : {}),
         },
       },
     },

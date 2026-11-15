@@ -14,6 +14,9 @@ const SellPage = () => {
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [productQuery, setProductQuery] = useState('');
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [productTotal, setProductTotal] = useState(0);
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -30,31 +33,86 @@ const SellPage = () => {
     setIdempotencyKey(crypto.randomUUID());
   }, [cart]);
 
-  // Fetch Catalog & Customers
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Fetch products (?q= search, limit 50 while searching, 200 newest otherwise)
+  const loadProducts = useCallback(async (q) => {
+    const params = q ? { q, limit: 50 } : { limit: 200 };
+    const res = await apiClient.get('/products', { params });
+    const list = res.data.products || res.data.data || (Array.isArray(res.data) ? res.data : []);
+    setProducts(list);
+    const total = res.data.pagination?.total;
+    setProductTotal(typeof total === 'number' ? total : list.length);
+    return list;
+  }, []);
+
+  // Fetch customers (?q= search on name / phone / email)
+  const loadCustomers = useCallback(async (q) => {
+    const params = q ? { q } : { limit: 200 };
+    const res = await apiClient.get('/customers', { params });
+    return res.data.customers || res.data.data || (Array.isArray(res.data) ? res.data : []);
+  }, []);
+
+  // Initial load (immediate) + debounced search for both lists. The sequence
+  // counter drops stale responses so a slow older request cannot overwrite a
+  // newer one.
+  const bootedRef = React.useRef(false);
+  const seqRef = React.useRef(0);
+  useEffect(() => {
+    const initial = !bootedRef.current;
+    const timer = setTimeout(async () => {
+      bootedRef.current = true;
+      const seq = ++seqRef.current;
+      if (initial) setLoading(true);
+      try {
+        const [prodList, custList] = await Promise.all([
+          loadProducts(productQuery),
+          loadCustomers(customerQuery)
+        ]);
+        if (seq !== seqRef.current) return;
+        setProducts(prodList);
+        setCustomers(custList);
+      } catch (err) {
+        if (seq !== seqRef.current) return;
+        console.error('Failed to load sell data:', err);
+        toast.error('Failed to load product catalog or customers');
+      } finally {
+        if (initial && seq === seqRef.current) setLoading(false);
+      }
+    }, initial ? 0 : 300);
+    return () => clearTimeout(timer);
+  }, [productQuery, customerQuery, loadProducts, loadCustomers]);
+
+  // Immediate refresh (used by the Refresh button and after a sale) with the
+  // queries that are currently in the inputs.
+  const refreshNow = useCallback(async () => {
+    const seq = ++seqRef.current;
     try {
-      const [prodRes, custRes] = await Promise.all([
-        apiClient.get('/products', { params: { limit: 200 } }),
-        apiClient.get('/customers', { params: { limit: 200 } })
+      const [prodList, custList] = await Promise.all([
+        loadProducts(productQuery),
+        loadCustomers(customerQuery)
       ]);
-
-      const prodList = prodRes.data.products || prodRes.data.data || (Array.isArray(prodRes.data) ? prodRes.data : []);
-      const custList = custRes.data.customers || custRes.data.data || (Array.isArray(custRes.data) ? custRes.data : []);
-
+      if (seq !== seqRef.current) return;
       setProducts(prodList);
       setCustomers(custList);
     } catch (err) {
-      console.error('Failed to load sell data:', err);
+      if (seq !== seqRef.current) return;
+      console.error('Failed to refresh sell data:', err);
       toast.error('Failed to load product catalog or customers');
-    } finally {
-      setLoading(false);
+    }
+  }, [loadProducts, loadCustomers, productQuery, customerQuery]);
+
+  // Exact-barcode lookup: used when Enter is pressed before the debounced
+  // search response has arrived.
+  const resolveByBarcode = useCallback(async (term) => {
+    try {
+      const res = await apiClient.get('/products', { params: { q: term, limit: 50 } });
+      const list = res.data.products || [];
+      const wanted = String(term).toLowerCase();
+      return list.find(p => String(p.barcode || p.BARCODE || '').toLowerCase() === wanted) || null;
+    } catch (err) {
+      console.error('Barcode lookup failed:', err);
+      return null;
     }
   }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   // Add to cart with stock capping
   const handleAddToCart = (product) => {
@@ -172,12 +230,12 @@ const SellPage = () => {
       setCart([]);
       setDiscount(0);
       setShowPaymentModal(false);
-      fetchData(); // Refresh product stock levels
+      refreshNow(); // Refresh product stock levels
     } catch (err) {
       console.error('Checkout error:', err);
       const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to complete sale';
       toast.error(errorMsg);
-      fetchData();
+      refreshNow();
     } finally {
       setProcessing(false);
     }
@@ -202,7 +260,7 @@ const SellPage = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400">Scan items, build cart, and process checkout</p>
         </div>
         <button
-          onClick={fetchData}
+          onClick={refreshNow}
           className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow hover:bg-gray-50 dark:hover:bg-gray-700 transition"
         >
           <RefreshCw className="w-4 h-4" /> Refresh
@@ -212,10 +270,20 @@ const SellPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Catalog */}
         <div className="lg:col-span-2">
+          {!productQuery && productTotal > 200 && (
+            <div
+              data-testid="newest-note"
+              className="mb-3 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-sm rounded-xl"
+            >
+              Showing 200 newest - search for more
+            </div>
+          )}
           <ProductCatalog
             products={products}
             cart={cart}
             onAddToCart={handleAddToCart}
+            onSearchChange={setProductQuery}
+            resolveByBarcode={resolveByBarcode}
           />
         </div>
 
@@ -226,6 +294,8 @@ const SellPage = () => {
             selectedCustomer={selectedCustomer}
             onSelectCustomer={setSelectedCustomer}
             onCustomerAdded={(newC) => setCustomers(prev => [newC, ...prev])}
+            searchQuery={customerQuery}
+            onSearchChange={setCustomerQuery}
           />
           <div className="flex-1 min-h-0">
             <CartPanel

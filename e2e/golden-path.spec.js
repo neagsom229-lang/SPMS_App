@@ -13,6 +13,8 @@ const { test, expect } = require('@playwright/test');
 const API = process.env.E2E_API_URL || 'http://127.0.0.1:5050/api';
 
 const ADMIN = { username: 'demo_admin', password: 'Demo1234!' };
+// seeded by backend/scripts/seed-demo.js with must_change_password = TRUE
+const FORCED = { username: 'demo_forced', password: 'Demo1234!', nextPassword: 'NewPass123!' };
 const PRICE = 12.34;
 const SELL_QTY = 2;
 const RECEIVED_QTY = 15;
@@ -212,4 +214,39 @@ test('fresh tenant dashboard shows the empty state', async ({ page }) => {
   await page.getByRole('button', { name: 'Enter Control Center' }).click();
 
   await expect(page.getByText('No sales yet').first()).toBeVisible();
+});
+
+test('forced password change: blocked until a new password is set', async ({ page }) => {
+  // 1. A user with must_change_password = TRUE lands on /change-password.
+  await page.goto('/login');
+  await page.locator('input[name="username"]').fill(FORCED.username);
+  await page.locator('input[name="password"]').fill(FORCED.password);
+  await page.getByRole('button', { name: 'Sign In' }).click();
+  await expect(page).toHaveURL(/\/change-password/);
+
+  // 2. The rest of the app is unusable: every API call comes back
+  //    PASSWORD_CHANGE_REQUIRED and the client bounces back here.
+  await page.goto('/dashboard');
+  await expect(page).toHaveURL(/\/change-password/);
+
+  // 3. Changing the password releases the account.
+  await page.locator('input[name="oldPassword"]').fill(FORCED.password);
+  await page.locator('input[name="newPassword"]').fill(FORCED.nextPassword);
+  await page.locator('input[name="confirmPassword"]').fill(FORCED.nextPassword);
+  await page.getByRole('button', { name: 'Change Password' }).click();
+  await expect(page).toHaveURL(/\/dashboard/);
+
+  const trend = page.locator('svg[aria-label="Revenue and orders, trailing 6 months"]');
+  await expect(trend).toBeVisible();
+
+  // 4. The new password really is the one stored on the server.
+  const relogin = await page.request.post(`${API}/auth/login`, {
+    data: { username: FORCED.username, password: FORCED.nextPassword },
+  });
+  expect(relogin.ok(), `login with the new password -> ${relogin.status()}`).toBeTruthy();
+
+  const wrongOld = await page.request.post(`${API}/auth/login`, {
+    data: { username: FORCED.username, password: FORCED.password },
+  });
+  expect(wrongOld.ok(), 'the temporary password must stop working').toBeFalsy();
 });

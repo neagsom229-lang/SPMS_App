@@ -17,6 +17,12 @@ const { assertDatabaseUrl } = require('./_guard');
 const DEMO_SUBDOMAIN = 'demo';
 const ADMIN = { username: 'demo_admin', password: 'Demo1234!', role: 'Admin' };
 const STAFF = { username: 'demo_staff', password: 'Demo1234!', role: 'Staff' };
+// must_change_password = TRUE: the Playwright forced-password step logs in as
+// this user and must be bounced to /change-password.
+const FORCED = { username: 'demo_forced', password: 'Demo1234!', role: 'Staff', mustChangePassword: true };
+// Platform owner: the only account that can open /admin/tenants (the
+// super-admin routes) and the pending payment sessions panel.
+const ROOT = { username: 'demo_root', password: 'Demo1234!', role: 'Super Admin' };
 
 async function seed() {
   const identity = assertDatabaseUrl(process.env.DATABASE_URL, MODE);
@@ -49,14 +55,31 @@ async function seed() {
     );
 
     const users = [];
-    for (const user of [ADMIN, STAFF]) {
+    for (const user of [ADMIN, STAFF, FORCED]) {
       const res = await client.query(
-        `INSERT INTO tbl_users (username, email, password, fullname, role, status, tenant_id)
-         VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6) RETURNING userid`,
-        [user.username, `${user.username}@demo.test`, bcrypt.hashSync(user.password, 10), user.username, user.role, tenantId]
+        `INSERT INTO tbl_users (username, email, password, fullname, role, status, tenant_id, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6, $7) RETURNING userid`,
+        [
+          user.username,
+          `${user.username}@demo.test`,
+          bcrypt.hashSync(user.password, 10),
+          user.username,
+          user.role,
+          tenantId,
+          user.mustChangePassword === true,
+        ]
       );
       users.push({ ...user, id: res.rows[0].userid });
     }
+
+    // Super admin: no tenant (CHECK allows is_super_admin = TRUE with a NULL
+    // tenant_id). Nothing else in this seed can create one, and without it the
+    // super-admin routes have no account to test with.
+    await client.query(
+      `INSERT INTO tbl_users (username, email, password, fullname, role, status, is_super_admin, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, 'ACTIVE', TRUE, NULL)`,
+      [ROOT.username, `${ROOT.username}@demo.test`, bcrypt.hashSync(ROOT.password, 10), ROOT.username, ROOT.role]
+    );
 
     const customers = [];
     for (let i = 1; i <= 5; i += 1) {
@@ -131,6 +154,8 @@ async function seed() {
     console.log('  credentials (printed once):');
     console.log(`    admin: ${ADMIN.username} / ${ADMIN.password}`);
     console.log(`    staff: ${STAFF.username} / ${STAFF.password}`);
+    console.log(`    forced password change: ${FORCED.username} / ${FORCED.password}`);
+    console.log(`    super admin: ${ROOT.username} / ${ROOT.password}`);
     return true;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -149,4 +174,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { seed, DEMO_SUBDOMAIN, ADMIN, STAFF };
+module.exports = { seed, DEMO_SUBDOMAIN, ADMIN, STAFF, FORCED, ROOT };

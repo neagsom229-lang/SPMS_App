@@ -548,7 +548,7 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
       `, params),
 
       pool.query(`
-        SELECT to_char(date_trunc('day', o.created_at), 'YYYY-MM-DD') AS date,
+        SELECT to_char(date_trunc('day', (o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Phnom_Penh'), 'YYYY-MM-DD') AS date,
                COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
                COUNT(DISTINCT o.or_id) AS orders,
                COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) AS units,
@@ -558,7 +558,7 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
       `, params),
 
       pool.query(`
-        SELECT to_char(date_trunc('month', o.created_at), 'YYYY-MM') AS month,
+        SELECT to_char(date_trunc('month', (o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Phnom_Penh'), 'YYYY-MM') AS month,
                COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
                COUNT(DISTINCT o.or_id) AS orders,
                COALESCE(SUM(i.qty - COALESCE(i.refunded_qty, 0)), 0) AS units,
@@ -568,7 +568,7 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
       `, params),
 
       pool.query(`
-        SELECT to_char(date_trunc('year', o.created_at), 'YYYY') AS year,
+        SELECT to_char(date_trunc('year', (o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Phnom_Penh'), 'YYYY') AS year,
                COALESCE(SUM(i.subtotal - COALESCE(i.refunded_amount, 0)), 0) AS revenue,
                COUNT(DISTINCT o.or_id) AS orders
         ${joined}
