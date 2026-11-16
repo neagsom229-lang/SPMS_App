@@ -12,12 +12,18 @@
 -- is a no-op on a database that already has the columns. Nothing here is
 -- required by the billing path, which keeps using tenants.plan /
 -- tenants.plan_expires_at (migration 023).
+--
+-- Deliberately NOT created here (owner decision, 11a-fix step 2):
+--   - tenants.subscription_plan: duplicated tenants.plan (023). Both routes and
+--     the super-admin UI now read/write tenants.plan.
+--   - tenants.max_users / tenants.max_products: no code enforces them anywhere
+--     (git grep over backend/src and frontend/src shows only the tenants route
+--     round-tripping them) and the UI has no field for them. The DB defaults
+--     (5 / 100) implied limits that never existed, so the columns are dropped
+--     from this migration and removed from the route.
 
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS email VARCHAR(255);
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS phone VARCHAR(100);
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address TEXT;
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS subscription_plan VARCHAR(50) DEFAULT 'free';
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_users INTEGER DEFAULT 5;
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS max_products INTEGER DEFAULT 100;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS settings JSONB DEFAULT '{"theme": "light"}'::jsonb;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;

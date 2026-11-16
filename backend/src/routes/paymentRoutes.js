@@ -8,6 +8,24 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const PLANS = require('../config/plans');
 
+// Extends a tenant's plan inside the caller's transaction (mark-paid).
+// plan_expires_at is `timestamp` (stored UTC wall time) while NOW() is
+// timestamptz: without explicit AT TIME ZONE 'UTC' the implicit cast uses the
+// session TimeZone — a session set to 'Asia/Phnom_Penh' stores local wall time
+// (+7h off, calendar-day shift possible). Months are added to the naive UTC
+// wall time, so "one calendar month later in UTC" is session-independent.
+// LOWER keeps stored plan values canonical (legacy rows may hold 'SHOPHOUSE');
+// a session with no plan keeps the tenant's current plan instead of writing a
+// placeholder value.
+const extendPlan = (client, plan, months, tenantId) =>
+  client.query(
+    `UPDATE tenants
+        SET plan = COALESCE(LOWER(NULLIF($1, '')), plan),
+            plan_expires_at = (GREATEST(plan_expires_at AT TIME ZONE 'UTC', NOW()) AT TIME ZONE 'UTC') + make_interval(months => $2)
+      WHERE id = $3`,
+    [plan, months, tenantId]
+  );
+
 // 1. GET Subscription info (read-only)
 router.get('/subscription', authenticate, requireTenant, async (req, res) => {
   try {
@@ -15,10 +33,11 @@ router.get('/subscription', authenticate, requireTenant, async (req, res) => {
       `SELECT plan, plan_expires_at FROM tenants WHERE id = $1`,
       [req.tenantId]
     );
-    const tenant = tenantRes.rows[0] || { plan: 'FREE', plan_expires_at: null };
+    const tenant = tenantRes.rows[0] || { plan: null, plan_expires_at: null };
     res.json({
       success: true,
-      plan: tenant.plan || 'FREE',
+      // case-insensitive, NULL reads as free (live rows hold 'FREE', 'free', ...)
+      plan: String(tenant.plan || 'free').toLowerCase(),
       expires: tenant.plan_expires_at
     });
   } catch (err) {
@@ -45,7 +64,7 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
     }
 
     const { plan = 'PRO', period_months = 1, currency = 'USD' } = req.body;
-    const normPlan = String(plan).toUpperCase();
+    const normPlan = String(plan).toLowerCase();   // canonical plan values are lowercase
     const normCurr = String(currency).toUpperCase();
     const months = Number(period_months);
 
@@ -61,7 +80,7 @@ router.post('/bakong/create-qr', authenticate, requireTenant, async (req, res) =
     }
 
     const expectedAmount = PLANS[normPlan][months][normCurr];
-    const storedPlan = normPlan.toLowerCase();
+    const storedPlan = normPlan;
     const orderId = `SUB-${req.tenantId}-${Date.now()}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -163,13 +182,7 @@ router.post('/admin/sessions/:id/mark-paid', authenticate, requireSuperAdmin, as
       );
 
       if (updateRes.rowCount > 0) {
-        await client.query(
-          `UPDATE tenants
-           SET plan = $1,
-               plan_expires_at = COALESCE(GREATEST(plan_expires_at, NOW()), NOW()) + make_interval(months => $2)
-           WHERE id = $3`,
-          [session.plan || 'PRO', months, session.tenant_id]
-        );
+        await extendPlan(client, session.plan, months, session.tenant_id);
         await client.query(`INSERT INTO tbl_activity_logs (tenant_id, user_id, action, details) VALUES ($1, $2, $3, $4)`,
           [session.tenant_id, req.user.userId, 'SUBSCRIPTION_MANUAL_PAID', JSON.stringify({ plan: session.plan, reason, hash: manualHash })]);
       }
@@ -188,4 +201,8 @@ router.post('/admin/sessions/:id/mark-paid', authenticate, requireSuperAdmin, as
   }
 });
 
+// Test hook: lets a test run the mark-paid UPDATE on a connection whose
+// session TimeZone is not the pool default (precedent: tenants.js
+// systemStatsHandler).
+router.extendPlan = extendPlan;
 module.exports = router;

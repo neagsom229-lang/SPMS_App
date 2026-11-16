@@ -22,3 +22,4 @@
 - Never describe your own earlier actions without git evidence (`git log` / `git diff`).
 - Tests must not contain early returns (`if (!x) return;`) or conditional expects.
 - Never publish ports on 0.0.0.0.
+- A report must not say "live" for anything but production; say "local e2e server".

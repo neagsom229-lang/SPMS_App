@@ -142,7 +142,7 @@ const Pricing = () => {
   }, [user, safeUserId, userSubscription, navigate]);
 
   const hasActiveSubscription = useCallback((planId) => {
-    return userSubscription && userSubscription.status === 'active' && userSubscription.plan === planId;
+    return userSubscription && userSubscription.status === 'active' && String(userSubscription.plan || 'free').toLowerCase() === String(planId).toLowerCase();
   }, [userSubscription]);
 
   const renderActionButton = (plan) => {

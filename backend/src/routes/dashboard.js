@@ -10,6 +10,24 @@ const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
 
+// ===== local-day window boundaries =====
+// tbl_orders.created_at is `timestamp` holding UTC wall time, so every window
+// below is computed to a naive UTC `timestamp` as well. Chain (all steps
+// session-explicit): NOW() -> local wall (AT TIME ZONE 'Asia/Phnom_Penh') ->
+// DATE_TRUNC -> instant (AT TIME ZONE 'Asia/Phnom_Penh') -> UTC wall
+// (AT TIME ZONE 'UTC'). The result compares timestamp-to-timestamp against
+// created_at: index friendly and independent of the connection TimeZone.
+// The old chain converted twice before truncating and started "today" at
+// local 14:00 (07:00 UTC) instead of local 00:00 (17:00 UTC the day before).
+const LOCAL_DAY_START =
+  "DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Phnom_Penh') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
+const LOCAL_PREV_DAY_START =
+  "DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Phnom_Penh' - INTERVAL '1 day') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
+const LOCAL_MONTH_START =
+  "DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Phnom_Penh') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
+const LOCAL_PREV_MONTH_START =
+  "DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Phnom_Penh' - INTERVAL '1 month') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
+
 // ===== DASHBOARD STATS =====
 router.get('/stats', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
@@ -25,7 +43,7 @@ router.get('/stats', authenticate, async (req, res) => {
         pool.query("SELECT COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE status = ANY($1)", [REVENUE_STATUSES]),
         pool.query("SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE s.qtyavailable <= p.qty_alert AND p.status = 'Active'"),
         pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE status = 'Pending'"),
-        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= NOW() - INTERVAL '7 days' AND status = ANY($1)", [REVENUE_STATUSES]),
+        pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE created_at >= (NOW() - INTERVAL '7 days') AT TIME ZONE 'UTC' AND status = ANY($1)", [REVENUE_STATUSES]),
       ]);
 
       return res.json({
@@ -61,7 +79,7 @@ router.get('/stats', authenticate, async (req, res) => {
       pool.query("SELECT COALESCE(SUM(total), 0) as total FROM tbl_orders WHERE tenant_id = $1 AND status = ANY($2)", [tenantId, REVENUE_STATUSES]),
       pool.query("SELECT COUNT(*) as count FROM tbl_stock s JOIN tbl_products p ON s.productid = p.id WHERE p.tenant_id = $1 AND s.qtyavailable <= p.qty_alert AND p.status = 'Active'", [tenantId]),
       pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND status = 'Pending'", [tenantId]),
-      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND created_at >= NOW() - INTERVAL '7 days' AND status = ANY($2)", [tenantId, REVENUE_STATUSES]),
+      pool.query("SELECT COUNT(*) as count FROM tbl_orders WHERE tenant_id = $1 AND created_at >= (NOW() - INTERVAL '7 days') AT TIME ZONE 'UTC' AND status = ANY($2)", [tenantId, REVENUE_STATUSES]),
     ]);
 
     res.json({
@@ -87,28 +105,30 @@ router.get('/sales-summary', authenticate, async (req, res) => {
   const tenantId = scope.tenantId;
   const { range = '30d', from, to } = req.query;
 
-  let currStart, currEnd = "NOW()", prevStart, prevEnd;
+  // All boundaries are naive UTC wall `timestamp` expressions (see the
+  // LOCAL_* constants); NOW() AT TIME ZONE 'UTC' matches created_at's type.
+  let currStart, currEnd = "NOW() AT TIME ZONE 'UTC'", prevStart, prevEnd;
 
   if (range === 'today') {
-    currStart = "DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
-    currEnd = "NOW()";
-    prevStart = "DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh' - INTERVAL '1 day') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
-    prevEnd = "DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
+    currStart = LOCAL_DAY_START;
+    currEnd = "NOW() AT TIME ZONE 'UTC'";
+    prevStart = LOCAL_PREV_DAY_START;
+    prevEnd = LOCAL_DAY_START;
   } else if (range === '7d') {
-    currStart = "NOW() - INTERVAL '7 days'";
-    currEnd = "NOW()";
-    prevStart = "NOW() - INTERVAL '14 days'";
-    prevEnd = "NOW() - INTERVAL '7 days'";
+    currStart = "(NOW() - INTERVAL '7 days') AT TIME ZONE 'UTC'";
+    currEnd = "NOW() AT TIME ZONE 'UTC'";
+    prevStart = "(NOW() - INTERVAL '14 days') AT TIME ZONE 'UTC'";
+    prevEnd = "(NOW() - INTERVAL '7 days') AT TIME ZONE 'UTC'";
   } else if (range === '30d') {
-    currStart = "NOW() - INTERVAL '30 days'";
-    currEnd = "NOW()";
-    prevStart = "NOW() - INTERVAL '60 days'";
-    prevEnd = "NOW() - INTERVAL '30 days'";
+    currStart = "(NOW() - INTERVAL '30 days') AT TIME ZONE 'UTC'";
+    currEnd = "NOW() AT TIME ZONE 'UTC'";
+    prevStart = "(NOW() - INTERVAL '60 days') AT TIME ZONE 'UTC'";
+    prevEnd = "(NOW() - INTERVAL '30 days') AT TIME ZONE 'UTC'";
   } else if (range === 'month') {
-    currStart = "DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
-    currEnd = "NOW()";
-    prevStart = "DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh' - INTERVAL '1 month') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
-    prevEnd = "DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh') AT TIME ZONE 'Asia/Phnom_Penh' AT TIME ZONE 'UTC'";
+    currStart = LOCAL_MONTH_START;
+    currEnd = "NOW() AT TIME ZONE 'UTC'";
+    prevStart = LOCAL_PREV_MONTH_START;
+    prevEnd = LOCAL_MONTH_START;
   } else if (range === 'custom') {
     if (!from || !to) {
       return res.status(400).json({ error: 'from and to query parameters are required for custom range' });
@@ -140,15 +160,23 @@ router.get('/sales-summary', authenticate, async (req, res) => {
   const dPrev1 = isCustom ? 5 : null;
   const dPrev2 = isCustom ? 6 : null;
 
-  // Date condition fragments: bound params for custom range, SQL expressions otherwise
+  // Date condition fragments: bound params for custom range, SQL expressions otherwise.
+  // Every comparison against o.created_at (naive UTC wall `timestamp`) stays
+  // timestamp-vs-timestamp: ($N::timestamptz AT TIME ZONE 'UTC') converts the
+  // bound instant back to UTC wall explicitly instead of relying on the
+  // session TimeZone to cast the parameter (or the column).
   const currCond = isCustom
-    ? ` AND o.created_at >= $${dCurr1}::timestamptz AND o.created_at <= $${dCurr2}::timestamptz`
+    ? ` AND o.created_at >= ($${dCurr1}::timestamptz AT TIME ZONE 'UTC') AND o.created_at <= ($${dCurr2}::timestamptz AT TIME ZONE 'UTC')`
     : ` AND o.created_at >= ${currStart} AND o.created_at <= ${currEnd}`;
   const prevCond = isCustom
-    ? ` AND o.created_at >= $${dPrev1}::timestamptz AND o.created_at <= $${dPrev2}::timestamptz`
+    ? ` AND o.created_at >= ($${dPrev1}::timestamptz AT TIME ZONE 'UTC') AND o.created_at <= ($${dPrev2}::timestamptz AT TIME ZONE 'UTC')`
     : ` AND o.created_at >= ${prevStart} AND o.created_at <= ${prevEnd}`;
-  const currGenStart = isCustom ? ` $${dCurr1}::timestamptz` : ` (${currStart})::timestamptz`;
-  const currGenEnd = isCustom ? ` $${dCurr2}::timestamptz` : ` (${currEnd})::timestamptz`;
+  // generate_series bounds as timestamptz: the daily series below applies
+  // AT TIME ZONE 'Asia/Phnom_Penh' to get naive local-wall day buckets.
+  // Custom params are already timestamptz instants; the window expressions are
+  // naive UTC wall, so AT TIME ZONE 'UTC' makes the instant explicit.
+  const currGenStart = isCustom ? ` $${dCurr1}::timestamptz` : ` (${currStart}) AT TIME ZONE 'UTC'`;
+  const currGenEnd = isCustom ? ` $${dCurr2}::timestamptz` : ` (${currEnd}) AT TIME ZONE 'UTC'`;
 
   const currParams = isCustom ? [currStart, currEnd] : [];
   const prevParams = isCustom ? [prevStart, prevEnd] : [];
@@ -191,15 +219,20 @@ router.get('/sales-summary', authenticate, async (req, res) => {
     // 3. Timeseries
     let timeseriesQuery = '';
     if (range === 'today') {
+      // Buckets are naive local-wall `timestamp` hours: DATE_TRUNC on the
+      // local wall gives the same type as sub.h (created_at converted to the
+      // local wall), so the LEFT JOIN compares timestamp-to-timestamp. The old
+      // series produced timestamptz buckets against a timestamp sub.h, and the
+      // labels converted an already-local value a second time.
       timeseriesQuery = `
         SELECT 
-          to_char(bucket AT TIME ZONE 'Asia/Phnom_Penh', 'YYYY-MM-DD HH24:00') as bucket,
+          to_char(bucket, 'YYYY-MM-DD HH24:00') as bucket,
           COALESCE(SUM(sub.revenue), 0) as revenue,
           COALESCE(SUM(sub.orders), 0) as orders,
           COALESCE(SUM(sub.units), 0) as units
         FROM generate_series(
-          DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh'),
-          DATE_TRUNC('day', NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Phnom_Penh') + INTERVAL '23 hours',
+          DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Phnom_Penh'),
+          DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Phnom_Penh') + INTERVAL '23 hours',
           INTERVAL '1 hour'
         ) bucket
         LEFT JOIN (
@@ -219,9 +252,13 @@ router.get('/sales-summary', authenticate, async (req, res) => {
         ORDER BY bucket
       `;
     } else {
+      // bucket arrives as naive local wall (currGen* converted to local via
+      // AT TIME ZONE 'Asia/Phnom_Penh'), so to_char formats it directly: a
+      // second AT TIME ZONE would reinterpret local wall as an instant and
+      // shift the date label by 7h under a UTC session.
       timeseriesQuery = `
         SELECT 
-          to_char(bucket AT TIME ZONE 'Asia/Phnom_Penh', 'YYYY-MM-DD') as bucket,
+          to_char(bucket, 'YYYY-MM-DD') as bucket,
           COALESCE(SUM(sub.revenue), 0) as revenue,
           COALESCE(SUM(sub.orders), 0) as orders,
           COALESCE(SUM(sub.units), 0) as units
@@ -360,7 +397,7 @@ router.get('/sales-summary', authenticate, async (req, res) => {
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.source = 'ONLINE'
         AND o.status IN ('Pending', 'Confirmed', 'Preparing')
-        AND o.created_at < NOW() - INTERVAL '30 minutes'
+        AND o.created_at < (NOW() - INTERVAL '30 minutes') AT TIME ZONE 'UTC'
     `;
     const [lowStockRes, outStockRes, pendingOnlineRes] = await Promise.all([
       pool.query(lowStockQuery, [tenantId]),
@@ -530,8 +567,8 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
     const where = `
       WHERE ($1::int IS NULL OR o.tenant_id = $1)
         AND o.status = ANY($2::text[])
-        AND o.created_at >= $3::timestamptz
-        AND o.created_at <= $4::timestamptz`;
+        AND o.created_at >= ($3::timestamptz AT TIME ZONE 'UTC')
+        AND o.created_at <= ($4::timestamptz AT TIME ZONE 'UTC')`;
     const joined = `FROM tbl_orders o JOIN tbl_order_items i ON i.order_id = o.or_id ${where}`;
 
     const [result, dayRes, monthRes, yearRes, topQtyRes, topRevenueRes, customerRes, repeatRes, prevRes] = await Promise.all([
@@ -638,8 +675,8 @@ router.get('/analytics-summary', authenticate, async (req, res) => {
         JOIN tbl_order_items i ON i.order_id = o.or_id
         WHERE ($1::int IS NULL OR o.tenant_id = $1)
           AND o.status = ANY($2::text[])
-          AND o.created_at >= $4::timestamptz
-          AND o.created_at < $3::timestamptz
+          AND o.created_at >= ($4::timestamptz AT TIME ZONE 'UTC')
+          AND o.created_at < ($3::timestamptz AT TIME ZONE 'UTC')
       `, [tenantId, revenueStatuses, dFrom.toISOString(), new Date(dFrom.getTime() - (dTo - dFrom)).toISOString()]),
     ]);
 

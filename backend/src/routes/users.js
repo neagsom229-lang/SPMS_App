@@ -227,6 +227,16 @@ router.delete('/:id', authenticate, async (req, res) => {
 // ===== UPDATE USER PASSWORD =====
 router.put('/:id/password', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const userRole = req.user?.role;
+
+  // Same gate as the other user-management routes (GET /, POST /, PUT /:id):
+  // resetting someone's password is an admin action. Without it any
+  // authenticated staff member could take over any account in the tenant.
+  if (!isSuperAdmin && userRole !== 'Admin' && userRole !== 'Super Admin') {
+    return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+  }
+
   const id = req.params.id;
   const { newPassword, password } = req.body;
   const pwd = newPassword || password;

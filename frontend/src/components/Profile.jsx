@@ -461,6 +461,13 @@ const Profile = () => {
   }, [formData, profile.user_id, profile.username, updateUser, getAvatarColor, showMessage]);
 
   // ===== HANDLE CHANGE PASSWORD =====
+  // Self-service change through POST /auth/change-password, which verifies the
+  // current password (oldPassword is mandatory server-side) and returns a
+  // fresh token. The previous call went to the admin-only
+  // PUT /users/:id/password with keys that route does not read
+  // (current_password/new_password vs newPassword/password), so every attempt
+  // failed with 400 - and had it succeeded, it would have skipped the
+  // current-password check entirely.
   const handleChangePassword = useCallback(async (e) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
@@ -474,14 +481,17 @@ const Profile = () => {
 
     setLoading(true);
     try {
-      const userId = profile.user_id;
-      if (userId) {
-        await apiClient.put(`/users/${userId}/password`, {
-          current_password: passwordData.currentPassword,
-          new_password: passwordData.newPassword
-        });
+      const res = await apiClient.post('/auth/change-password', {
+        oldPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
+      });
+
+      // The server returns a fresh token; swap it in so storage stays current.
+      if (res.data && res.data.token) {
+        localStorage.setItem('token', res.data.token);
+        apiClient.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
       }
-      
+
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setShowPasswordForm(false);
       showMessage('✅ Password changed successfully!', 'success');
@@ -491,7 +501,7 @@ const Profile = () => {
     } finally {
       setLoading(false);
     }
-  }, [passwordData, profile.user_id, showMessage]);
+  }, [passwordData, showMessage]);
 
   // ===== TOGGLE THEME =====
   const toggleTheme = useCallback(() => {

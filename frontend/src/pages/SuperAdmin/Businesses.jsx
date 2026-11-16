@@ -25,7 +25,7 @@ const Businesses = () => {
     phone: '',
     address: '',
     status: 'ACTIVE',
-    subscription_plan: 'free'
+    plan: 'free'
   });
 
   useEffect(() => {
@@ -93,7 +93,7 @@ const Businesses = () => {
         phone: '',
         address: '',
         status: 'ACTIVE',
-        subscription_plan: 'free'
+        plan: 'free'
       });
       fetchTenants();
     } catch (error) {
@@ -124,7 +124,9 @@ const Businesses = () => {
       phone: tenant.phone || '',
       address: tenant.address || '',
       status: tenant.status || 'ACTIVE',
-      subscription_plan: tenant.subscription_plan || 'free'
+      // case-insensitive: the <select> value must equal an option value, and a
+      // legacy row holding 'FREE' would otherwise render a blank select
+      plan: String(tenant.plan || 'free').toLowerCase()
     });
     setShowModal(true);
   };
@@ -154,7 +156,7 @@ const Businesses = () => {
               phone: '',
               address: '',
               status: 'ACTIVE',
-              subscription_plan: 'free'
+              plan: 'free'
             });
             setShowModal(true);
           }}
@@ -211,7 +213,7 @@ const Businesses = () => {
                     <td className="px-4 py-3 text-gray-300 text-sm">{tenant.email}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 rounded-full text-xs bg-indigo-500/20 text-indigo-400">
-                        {tenant.subscription_plan || 'free'}
+                        {String(tenant.plan || 'free').toLowerCase()}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -281,7 +283,7 @@ const Businesses = () => {
                     <td className="px-4 py-3 text-gray-300 text-sm">{session.tenant_name || '—'}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400">
-                        {session.plan || 'free'}
+                        {String(session.plan || 'free').toLowerCase()}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-300 text-sm">{session.amount ?? 0}</td>
@@ -391,16 +393,17 @@ const Businesses = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Subscription Plan
+                  Plan
                 </label>
                 <select
-                  value={formData.subscription_plan}
-                  onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
+                  value={formData.plan}
+                  onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="free">Free</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
+                  <option value="market-stall">Market Stall</option>
+                  <option value="shophouse">Shop House</option>
+                  <option value="chain">Chain</option>
                 </select>
               </div>
 

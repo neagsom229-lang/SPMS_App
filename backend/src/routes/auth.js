@@ -372,7 +372,15 @@ router.post('/change-password', authenticate, async (req, res) => {
     }
     const user = userRes.rows[0];
 
-    if (user.password && user.password.startsWith('$2') && oldPassword) {
+    // The old password is mandatory whenever the stored one is a bcrypt hash:
+    // previously the whole check was skipped when oldPassword was omitted, so
+    // any authenticated session could change its password without proving it
+    // knew the current one. (A legacy non-bcrypt stored value cannot be
+    // verified here and keeps the old behaviour.)
+    if (user.password && user.password.startsWith('$2')) {
+      if (typeof oldPassword !== 'string' || oldPassword.length === 0) {
+        return res.status(400).json({ error: 'Old password is required' });
+      }
       const isValid = await bcrypt.compare(oldPassword, user.password);
       if (!isValid) {
         return res.status(401).json({ error: 'Invalid old password' });

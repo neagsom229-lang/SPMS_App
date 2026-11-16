@@ -53,12 +53,19 @@ step('1/6 test database');
 function dbReachable() {
   return new Promise(resolve => {
     const client = new Client({ connectionString: testDatabaseUrl(), connectionTimeoutMillis: 2000 });
+    // jest's globalSetup rebuilds the test database with
+    // `DROP DATABASE ... WITH (FORCE)`, which can kill this probe socket.
+    // pg then emits 'error' on the Client; without a listener that is an
+    // unhandled 'error' event that crashes the whole pipeline *after* every
+    // check has already passed. The probe's verdict is settled below only
+    // once end() has completed, so no socket outlives this function, and a
+    // late FORCE-kill is ignored either way.
+    client.on('error', () => {});
     client
       .connect()
       .then(() => client.query('SELECT 1'))
-      .then(() => resolve(true))
-      .catch(() => resolve(false))
-      .finally(() => client.end().catch(() => {}));
+      .then(() => client.end().then(() => resolve(true)))
+      .catch(() => client.end().catch(() => {}).then(() => resolve(false)));
   });
 }
 

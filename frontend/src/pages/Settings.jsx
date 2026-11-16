@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
+import apiClient from '../api/client';
 import {
   Settings as SettingsIcon,
   Shield,
@@ -149,7 +150,7 @@ import {
 } from 'lucide-react';
 
 const Settings = () => {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
@@ -451,6 +452,16 @@ const Settings = () => {
   };
 
   // ===== HANDLE PROFILE UPDATE =====
+  // Real API calls (this handler previously waited 1.5s and toasted success
+  // without calling any endpoint):
+  //   PUT  /auth/profile         persists fullname + email - the only profile
+  //                              columns tbl_users has (phone/address/bio are
+  //                              not stored server-side and are not sent)
+  //   PUT  /users/:id            username rename - admin only, matching the
+  //                              input's disabled={!isAdmin}
+  //   POST /auth/change-password when a new password is filled - verifies the
+  //                              current password server-side and returns a
+  //                              fresh token
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     if (profileData.newPassword && profileData.newPassword.length < 6) {
@@ -464,16 +475,47 @@ const Settings = () => {
 
     setSaving(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Profile updated successfully!');
+      const profileRes = await apiClient.put('/auth/profile', {
+        fullname: profileData.fullname,
+        email: profileData.email,
+      });
+
+      const uid = user?.user_id || user?.id;
+      if (isAdmin && uid && profileData.username && profileData.username !== user?.username) {
+        await apiClient.put(`/users/${uid}`, { username: profileData.username });
+      }
+
+      if (profileData.newPassword) {
+        const pwdRes = await apiClient.post('/auth/change-password', {
+          oldPassword: profileData.currentPassword,
+          newPassword: profileData.newPassword,
+        });
+        if (pwdRes.data && pwdRes.data.token) {
+          localStorage.setItem('token', pwdRes.data.token);
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${pwdRes.data.token}`;
+        }
+      }
+
+      // Mirror the server's saved values into the auth context and localStorage
+      // so a reload does not show stale data.
+      const updatedUser = {
+        ...(user || {}),
+        fullname: (profileRes.data && profileRes.data.user && profileRes.data.user.fullname) || profileData.fullname,
+        email: (profileRes.data && profileRes.data.user && profileRes.data.user.email) || profileData.email,
+        username: profileData.username
+      };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+
       setProfileData({
         ...profileData,
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
+      toast.success('Profile updated successfully!');
     } catch (error) {
-      toast.error('Failed to update profile');
+      toast.error(error.response?.data?.error || 'Failed to update profile');
     } finally {
       setSaving(false);
     }

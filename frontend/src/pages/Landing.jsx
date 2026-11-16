@@ -512,14 +512,14 @@ const Landing = () => {
   };
 
   const hasActivePlan = (planId) => {
-    return user && userSubscription && userSubscription.status === 'active' && userSubscription.plan === planId;
+    return user && userSubscription && userSubscription.status === 'active' && String(userSubscription.plan || 'free').toLowerCase() === String(planId).toLowerCase();
   };
 
   const getPlanButton = (plan) => {
     if (hasActivePlan(plan.id)) {
       return { text: 'Go to Dashboard', action: goToDashboard, className: 'kf-btn-primary w-full justify-center', isActive: true };
     }
-    if (user && userSubscription && userSubscription.status === 'active' && userSubscription.plan !== plan.id) {
+    if (user && userSubscription && userSubscription.status === 'active' && String(userSubscription.plan || 'free').toLowerCase() !== String(plan.id).toLowerCase()) {
       return { text: `Current: ${userSubscription.planName}`, action: null, className: 'kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60', isActive: false, isDisabled: true };
     }
     if (!user) {

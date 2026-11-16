@@ -137,7 +137,7 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
 router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
   const {
     name, subdomain, email, phone, address, status,
-    subscription_plan = 'free', max_users = 5, max_products = 100,
+    plan = 'free',
     settings
   } = req.body;
 
@@ -175,8 +175,8 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
 
     const tenantResult = await client.query(
       `INSERT INTO tenants 
-        (name, subdomain, email, phone, address, status, subscription_plan, max_users, max_products, settings, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        (name, subdomain, email, phone, address, status, plan, settings, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING *`,
       [
         name,
@@ -185,9 +185,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
         phone || null,
         address || null,
         status || 'ACTIVE',
-        subscription_plan,
-        max_users,
-        max_products,
+        String(plan || 'free').toLowerCase(),
         settings || '{"theme": "light"}'
       ]
     );
@@ -233,7 +231,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
 router.put('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   const {
     name, email, phone, address, status,
-    subscription_plan, max_users, max_products,
+    plan,
     settings
   } = req.body;
 
@@ -245,17 +243,14 @@ router.put('/:id', authenticate, requireSuperAdmin, async (req, res) => {
            phone = COALESCE($3, phone),
            address = COALESCE($4, address),
            status = COALESCE($5, status),
-           subscription_plan = COALESCE($6, subscription_plan),
-           max_users = COALESCE($7, max_users),
-           max_products = COALESCE($8, max_products),
-           settings = COALESCE($9, settings),
+           plan = COALESCE(LOWER($6), plan),
+           settings = COALESCE($7, settings),
            updated_at = NOW()
-       WHERE id = $10
+       WHERE id = $8
        RETURNING *`,
       [
         name, email, phone, address, status,
-        subscription_plan, max_users, max_products,
-        settings, req.params.id
+        plan, settings, req.params.id
       ]
     );
 

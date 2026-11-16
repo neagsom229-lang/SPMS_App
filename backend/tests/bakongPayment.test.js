@@ -1,8 +1,9 @@
 const request = require('supertest');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 const app = require('../src/app');
+const paymentRoutes = require('../src/routes/paymentRoutes');
 const { expectDenied } = require('./utils/expectDenied');
 
 const runId = crypto.randomBytes(4).toString('hex');
@@ -348,5 +349,126 @@ describe('Bakong payment routes', () => {
     expect(await countLogs()).toBe(before + 2);
     const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
     expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-03-01T00:00:00.000Z');
+  });
+
+  // ===== 11a-fix step 3b: plan casing and expiry =====
+
+  async function createCasingTenant(plan, suffix) {
+    const res = await pool.query(
+      `INSERT INTO tenants (name, subdomain, status, plan) VALUES ($1, $2, 'ACTIVE', $3) RETURNING id`,
+      [`Case ${suffix} ${runId}`, `${prefix}case-${suffix}`, plan]
+    );
+    return res.rows[0].id;
+  }
+
+  async function subscriptionPlanFor(tenantId, suffix) {
+    const username = `${prefix}case-${suffix}`;
+    await createUser(username, tenantId);
+    const token = await login(username);
+    const res = await request(app).get('/api/payment/subscription').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    return res.body.plan;
+  }
+
+  test("stored plans 'FREE', 'free' and NULL all read as free", async () => {
+    const upperId = await createCasingTenant('FREE', 'upper');
+    const lowerId = await createCasingTenant('free', 'lower');
+    const nullId = await createCasingTenant(null, 'null');
+
+    expect(await subscriptionPlanFor(upperId, 'upper')).toBe('free');
+    expect(await subscriptionPlanFor(lowerId, 'lower')).toBe('free');
+    expect(await subscriptionPlanFor(nullId, 'null')).toBe('free');
+  });
+
+  test("stored plan 'SHOPHOUSE' reads as shophouse", async () => {
+    const id = await createCasingTenant('SHOPHOUSE', 'uppershop');
+
+    expect(await subscriptionPlanFor(id, 'uppershop')).toBe('shophouse');
+  });
+
+  test('create-qr accepts an uppercase plan name and prices it at the plan rate', async () => {
+    const qr = await request(app)
+      .post('/api/payment/bakong/create-qr')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ plan: 'SHOPHOUSE', period_months: 1, currency: 'USD' });
+
+    expect(qr.status).toBe(200);
+    expect(Number(qr.body.amount)).toBe(19);
+  });
+
+  test('create-qr stores the requested plan in lowercase', async () => {
+    const qr = await request(app)
+      .post('/api/payment/bakong/create-qr')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ plan: 'SHOPHOUSE', period_months: 1, currency: 'USD' });
+    expect(qr.status).toBe(200);
+
+    const row = await pool.query(`SELECT plan FROM khqr_sessions WHERE md5 = $1`, [qr.body.md5]);
+    expect(row.rows[0].plan).toBe('shophouse');
+  });
+
+  test("mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' extends a future expiry by exactly one calendar month in UTC", async () => {
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("SET TIME ZONE 'Asia/Phnom_Penh'");
+      const t = await client.query(
+        `INSERT INTO tenants (name, subdomain, status, plan, plan_expires_at)
+         VALUES ($1, $2, 'ACTIVE', 'chain', '2030-01-15 11:30:44') RETURNING id`,
+        [`Pnh future ${runId}`, `${prefix}pnh-future`]
+      );
+      const id = t.rows[0].id;
+
+      await paymentRoutes.extendPlan(client, 'chain', 1, id);
+
+      const r = await client.query(
+        `SELECT to_char(plan_expires_at, 'YYYY-MM-DD HH24:MI:SS') AS exp FROM tenants WHERE id = $1`,
+        [id]
+      );
+      expect(r.rows[0].exp).toBe('2030-02-15 11:30:44');
+    } finally {
+      await client.end();
+    }
+  });
+
+  test("mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' computes a new expiry in UTC exactly one calendar month later", async () => {
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    await client.connect();
+    try {
+      await client.query("SET TIME ZONE 'Asia/Phnom_Penh'");
+      const t = await client.query(
+        `INSERT INTO tenants (name, subdomain, status, plan) VALUES ($1, $2, 'ACTIVE', 'chain') RETURNING id`,
+        [`Pnh null ${runId}`, `${prefix}pnh-null`]
+      );
+      const id = t.rows[0].id;
+
+      await paymentRoutes.extendPlan(client, 'chain', 1, id);
+
+      // No abs(interval) in PG: compare the stored naive UTC wall time against
+      // the expected naive UTC wall time with a +/-5s window. Both sides are
+      // `timestamp`, so the session TimeZone cannot shift the comparison.
+      const r = await client.query(
+        `SELECT plan_expires_at > ((now() AT TIME ZONE 'UTC') + make_interval(months => 1)) - interval '5 seconds'
+            AND plan_expires_at < ((now() AT TIME ZONE 'UTC') + make_interval(months => 1)) + interval '5 seconds' AS ok
+           FROM tenants WHERE id = $1`,
+        [id]
+      );
+      expect(r.rows[0].ok).toBe(true);
+    } finally {
+      await client.end();
+    }
+  });
+
+  test('mark-paid stores the session plan value in lowercase', async () => {
+    const t = await pool.query(
+      `INSERT INTO tenants (name, subdomain, status, plan) VALUES ($1, $2, 'ACTIVE', 'chain') RETURNING id`,
+      [`Case write ${runId}`, `${prefix}case-write`]
+    );
+    const id = t.rows[0].id;
+
+    await paymentRoutes.extendPlan(pool, 'SHOPHOUSE', 1, id);
+
+    const r = await pool.query(`SELECT plan FROM tenants WHERE id = $1`, [id]);
+    expect(r.rows[0].plan).toBe('shophouse');
   });
 });
