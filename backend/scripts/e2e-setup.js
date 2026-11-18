@@ -17,6 +17,7 @@ if (!process.env.DATABASE_URL) {
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { Client } = require('pg');
+const { TEST_DB_PORT, preflightTestDocker } = require('./_guard');
 
 const BACKEND = path.join(__dirname, '..');
 const ROOT = path.join(BACKEND, '..');
@@ -44,7 +45,21 @@ async function setup({ build = true } = {}) {
   if (await testDbReachable()) {
     console.log('e2e setup: test database already reachable, skipping docker compose');
   } else {
-    execFileSync('docker', ['compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait'], { cwd: ROOT, stdio: 'inherit' });
+    // Fail fast before compose: a stopped daemon or a reserved port must not
+    // cascade into rebuild/seed/build errors with a confusing root cause.
+    try {
+      await preflightTestDocker(TEST_DB_PORT);
+    } catch (e) {
+      console.error(`❌ ${e.message}`);
+      process.exit(1);
+    }
+    try {
+      execFileSync('docker', ['compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait'], { cwd: ROOT, stdio: 'inherit' });
+    } catch (e) {
+      console.error(`❌ docker compose up failed: ${(e.message || '').split(/\r?\n/)[0]}`);
+      console.error('   Start Docker Desktop and retry.');
+      process.exit(1);
+    }
   }
 
   console.log('e2e setup: rebuilding spms_test through the real runner...');

@@ -14,7 +14,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Client } = require('pg');
-const { TEST_DB_PORT, testDatabaseUrl } = require('./_guard.js');
+const { TEST_DB_PORT, testDatabaseUrl, preflightTestDocker } = require('./_guard.js');
 
 const STARTED = Date.now();
 const BACKEND = path.join(__dirname, '..');
@@ -75,9 +75,21 @@ async function ensureDatabase() {
     console.log(`  test database already reachable at ${TEST_DB_PORT}, skipping docker compose`);
     return;
   }
-  run('docker compose up', () => {
+  // Preflight before starting Docker: a stopped daemon or a Windows-reserved
+  // port must abort immediately, not cascade into 6 downstream failures.
+  try {
+    await preflightTestDocker(TEST_DB_PORT);
+  } catch (e) {
+    console.error(`❌ ${e.message}`);
+    process.exit(1);
+  }
+  try {
     execFileSync('docker', ['compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait'], { cwd: ROOT, stdio: 'inherit' });
-  });
+  } catch (e) {
+    console.error(`❌ docker compose up failed: ${(e.message || '').split(/\r?\n/)[0]}`);
+    console.error('   Start Docker Desktop and retry.');
+    process.exit(1);
+  }
 }
 
 async function main() {

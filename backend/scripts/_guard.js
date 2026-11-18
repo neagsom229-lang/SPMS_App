@@ -7,6 +7,8 @@
 // Fails closed: a DATABASE_URL/DIRECT_URL that is not the current mode's local
 // URL on that mode's port and name suffix stops the process before connecting.
 const { URL } = require('url');
+const { execFileSync } = require('child_process');
+const net = require('net');
 
 const DB_HOST = '127.0.0.1';
 
@@ -136,6 +138,35 @@ if (dbUrl) {
   }
 }
 
+// Preflight for local Docker test DB. Call only when the DB is NOT reachable —
+// a reachable DB (CI service or running container) already owns the port.
+// Errors carry a code so callers fail fast with a clear, Windows-friendly hint.
+async function assertPortBindable(port = TEST_DB_PORT) {
+  await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', (err) => {
+      const e = new Error('Port is reserved by Windows: run `netsh interface ipv4 show excludedportrange protocol=tcp`, or set TEST_DB_PORT');
+      e.code = 'PORT_UNAVAILABLE';
+      e.cause = err.message;
+      reject(e);
+    });
+    server.once('listening', () => server.close(resolve));
+    server.listen(port, DB_HOST);
+  });
+}
+
+async function preflightTestDocker(port = TEST_DB_PORT) {
+  try {
+    execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 15000 });
+  } catch (e) {
+    const err = new Error('Start Docker Desktop');
+    err.code = 'DOCKER_NOT_READY';
+    err.cause = (e.message || '').split(/\r?\n/)[0];
+    throw err;
+  }
+  await assertPortBindable(port);
+}
+
 module.exports = {
   DB_HOST,
   DEFAULT_TEST_DB_PORT,
@@ -164,4 +195,6 @@ module.exports = {
   parseDbUrl,
   isLocal,
   isLocalHost,
+  assertPortBindable,
+  preflightTestDocker,
 };
