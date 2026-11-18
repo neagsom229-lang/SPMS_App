@@ -2,17 +2,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw, Wrench,
-  Search, Filter, Download, Eye, CheckCircle, Clock,
+  Search, Download, Eye, CheckCircle, Clock,
   AlertCircle, Calendar, Info, Loader2, 
   ArrowUp, ArrowDown, Grid3x3, List,
-  User, Package, Phone, Mail, MapPin,
-  Award, Star, Zap, Activity, TrendingUp,
-  AlertTriangle, ChevronRight, ClipboardList,
-  Printer, Home, Briefcase, Users as UsersIcon,
-  Key, Sparkles, Gem, Crown, Target, BarChart3,
-  Rocket, Gift, Heart, Sun, Moon, Stars, 
-  Flower2, PartyPopper, Compass, Feather, 
-  Palette, Music, Coffee, Cloud, Wind
+  User, Package, Award, Star, Activity, TrendingUp,
+  AlertTriangle, ClipboardList,
+  Briefcase, Sparkles, Gem, Crown, Rocket,
+  Flower2, Compass
 } from 'lucide-react';
 import '../styles/warranty.css';
 import apiClient from '../api/client';

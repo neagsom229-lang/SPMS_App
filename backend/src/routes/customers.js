@@ -5,11 +5,6 @@ const { authenticate, getScope } = require('../middleware/auth');
 
 const router = express.Router();
 
-const getTenantId = (req, res) => {
-  const scope = getScope(req, res);
-  return scope ? scope.tenantId : null;
-};
-
 // ===== GET ALL CUSTOMERS =====
 router.get('/', authenticate, async (req, res) => {
   const scope = getScope(req, res);

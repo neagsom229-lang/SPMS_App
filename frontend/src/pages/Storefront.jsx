@@ -4,9 +4,8 @@ import { useParams, Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '../api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
-  ShoppingCart, Search, Globe, Phone, MapPin, Clock, CheckCircle, 
-  AlertTriangle, X, ChevronRight, ArrowLeft, Cpu, Laptop, Monitor, 
-  Headphones, MousePointer, ShieldCheck, Zap, Sparkles, Terminal, Filter, Layers 
+  ShoppingCart, Globe, Phone, MapPin, Clock, CheckCircle, 
+  AlertTriangle, X, ChevronRight, ArrowLeft, Cpu, ShieldCheck, Zap, Sparkles, Terminal, Filter 
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 

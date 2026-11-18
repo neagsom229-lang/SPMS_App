@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Search, Plus, Edit2, Trash2, Users as UsersIcon, 
-  X, Save, DollarSign, Phone, Mail, MapPin, User,
+  X, Save, DollarSign, Phone, Mail, MapPin,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
-  Filter, ArrowUp, ArrowDown, Grid3x3, List,
-  TrendingUp, TrendingDown, Award, Star, Clock,
-  Calendar, ChevronRight, Eye, Copy, Tag, Layers,
-  Box, MessageCircle, Heart, Shield, Zap,
-  Sparkles, Gift, Crown, AlertTriangle,
-  Image as ImageIcon, Upload, Camera
+  ArrowUp, ArrowDown, Grid3x3, List,
+  Clock,
+  AlertTriangle,
+  Image as ImageIcon, Upload
 } from 'lucide-react';
 import '../styles/customer.css';
 // ✅ Shared axios instance — attaches the Authorization header from
@@ -44,7 +42,7 @@ const Customers = () => {
   });
 
   // ===== IMAGE UPLOAD STATE =====
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false); // ✅ now a real lock, see handleImageSelect
@@ -552,12 +550,6 @@ const Customers = () => {
     const firstName = customer.FIRST_NAME || customer.first_name || '';
     const lastName = customer.LAST_NAME || customer.last_name || '';
     return `${firstName} ${lastName}`.trim() || 'Unknown';
-  };
-
-  const getInitials = (customer) => {
-    const firstName = customer.FIRST_NAME || customer.first_name || '';
-    const lastName = customer.LAST_NAME || customer.last_name || '';
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '?';
   };
 
   const getAvatarColor = (name) => {
@@ -1324,7 +1316,7 @@ const Customers = () => {
                     disabled={submitting}
                   />
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                    Customer's current balance (default: 0.00)
+                    Customer&apos;s current balance (default: 0.00)
                   </p>
                 </div>
 

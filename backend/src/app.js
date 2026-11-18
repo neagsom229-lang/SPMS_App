@@ -61,7 +61,6 @@ const {
   apiLimiter,
 } = require("./middleware/rateLimit");
 const { authenticate, getScope, requireSuperAdmin } = require("./middleware/auth");
-const { logActivity, activityLoggerMiddleware } = require("./middleware/activityLogger");
 
 // ============================================
 // CHECK ENVIRONMENT
@@ -165,15 +164,6 @@ app.get("/health", async (req, res) => {
     res.status(200).json({ status: "healthy", db: "connected", timestamp: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ status: "unhealthy", db: "disconnected", error: err.message, timestamp: new Date().toISOString() });
-  }
-});
-
-app.get("/api/db-test", authenticate, requireSuperAdmin, async (req, res) => {
-  try {
-    const result = await db.query("SELECT NOW()");
-    res.json({ success: true, time: result.rows[0].now });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 

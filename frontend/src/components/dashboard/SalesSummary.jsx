@@ -11,13 +11,10 @@ import {
   ShoppingCart,
   Package,
   BarChart3,
-  PieChart as PieChartIcon,
   AlertTriangle,
   CheckCircle,
   RefreshCw,
   FileSpreadsheet,
-  ExternalLink,
-  Clock,
   ArrowRight,
   ShieldAlert,
   Layers,
@@ -34,12 +31,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  PieChart,
-  Pie,
-  Cell
 } from "recharts";
-
-const CHART_COLORS = ["#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444", "#14b8a6"];
 
 const formatCurrency = (val) => {
   const num = Number.isFinite(Number(val)) ? Number(val) : 0;

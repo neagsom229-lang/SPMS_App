@@ -18,11 +18,11 @@ import apiClient from '../api/client';
 import { 
   Search, Plus, Edit2, Trash2, Truck, X, Save, 
   Phone, Mail, MapPin, User, Building2, RefreshCw,
-  Filter, ArrowUp, ArrowDown, Grid3x3, List,
+  ArrowUp, ArrowDown, Grid3x3, List,
   Clock, CheckCircle, AlertCircle,
-  Eye, Globe, Shield,
+  Eye, Globe,
   Download, AlertTriangle,
-  ClipboardList, Loader2, Star, Award
+  ClipboardList, Loader2
 } from 'lucide-react';
 
 // ============================================

@@ -13,13 +13,10 @@ const renewalLocked = (sub, planId) =>
 
 // ✅ CONFIRMED WORKING ICONS
 import {
-  ArrowRight, Star, Users, Shield, ChevronRight, Play, BarChart3,
-  Truck, Boxes, Receipt, Landmark, Quote, Menu, X, LogIn, UserPlus,
+  ArrowRight, Star, Users, Shield, ChevronRight, BarChart3,
+  Truck, Boxes, Receipt, Quote, Menu, X, LogIn, UserPlus,
   LayoutDashboard, LogOut, ChevronDown, Clock, RefreshCw, CheckCircle,
-  AlertCircle, TrendingUp, Package, Warehouse, Award, Heart, Zap,
-  Coffee, BookOpen, Target, Compass, Sparkles, Mail, Phone, MapPin,
-  Calendar, Globe, Send, MessageCircle, Headphones, LifeBuoy, Lightbulb,
-  ThumbsUp, ThumbsDown, Copy, ExternalLink, Bot, Search, Cpu, Laptop, Monitor
+  Zap, Sparkles, Send, Headphones, Bot, Cpu, Laptop, Monitor
 } from "lucide-react";
 
 // ============================================================
@@ -30,13 +27,6 @@ const TwitterIcon = ({ className, ...props }) => (
   <svg className={className} {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 4l11.733 16h4.267l-11.733 -16z" />
     <path d="M4 20l6.768 -6.768m2.46 -2.46l6.772 -6.772" />
-  </svg>
-);
-
-const YoutubeIcon = ({ className, ...props }) => (
-  <svg className={className} {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
-    <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
   </svg>
 );
 
@@ -880,7 +870,7 @@ const Landing = () => {
 
                 <div className="kf-dash-card kf-dash-card-incoming">
                   <span className="kf-dash-dot kf-dash-dot-green" aria-hidden="true" />
-                  <div className="kf-dash-card-label">TODAY'S SALES</div>
+                  <div className="kf-dash-card-label">TODAY&apos;S SALES</div>
                   <div className="kf-dash-card-value">${dashboardStats.todaySales.toFixed(2)} <span className="kf-dash-card-sub">· {dashboardStats.todayOrders} rigs</span></div>
                 </div>
 

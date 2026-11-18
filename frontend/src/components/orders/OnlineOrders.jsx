@@ -3,20 +3,15 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
 import {
-  Package,
   Phone,
   MapPin,
   Clock,
-  CheckCircle,
-  XCircle,
   Printer,
   RefreshCw,
   AlertCircle,
   ShoppingBag,
   Truck,
   Store,
-  Check,
-  Ban,
   ArrowRight
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';

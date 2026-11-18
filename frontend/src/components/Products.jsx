@@ -1036,7 +1036,7 @@ const Products = () => {
                     <div className="mb-3 p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-center text-gray-400 dark:text-gray-500">
                       <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-30" />
                       <p className="text-sm">No image uploaded</p>
-                      <p className="text-xs">Click "Upload Image" to add one</p>
+                      <p className="text-xs">Click &quot;Upload Image&quot; to add one</p>
                     </div>
                   )}
 

@@ -4,7 +4,7 @@ import {
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw,
   User, Users as UsersIcon, CheckCircle, AlertCircle,
   Clock, Crown, Briefcase, Eye, Lock, Key, Phone, Mail, Calendar,
-  UserCheck, Loader2, AlertTriangle, Search, Filter, 
+  UserCheck, Loader2, AlertTriangle, 
   ArrowUp, ArrowDown, Grid3x3, List
 } from 'lucide-react';
 import '../styles/users.css'

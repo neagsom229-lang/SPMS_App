@@ -3,14 +3,8 @@ const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
 const { parsePaging } = require('../utils/paging');
-const rolePolicy = require('../middleware/rolePolicy');
 
 const router = express.Router();
-
-const getTenantId = (req, res) => {
-  const scope = getScope(req, res);
-  return scope ? scope.tenantId : null;
-};
 
 // ===== GET STOCK =====
 router.get('/', authenticate, async (req, res) => {

@@ -2,12 +2,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { 
-  Activity, Search, RefreshCw, Filter, X, 
-  Clock, User, Eye, Trash2, Download, 
-  AlertCircle, CheckCircle, Loader2,
-  Calendar, ChevronRight, ArrowUp, ArrowDown,
-  Grid3x3, List, ClipboardList, Shield, Zap,
-  Sparkles, Award, Star, Gift, Heart,
+  Activity, Search, RefreshCw, X, 
+  Clock, Eye, Download, 
+  AlertCircle, CheckCircle, Grid3x3, List, ClipboardList, Zap,
   AlertTriangle, Key
 } from 'lucide-react';
 import '../styles/activitylog.css';
@@ -55,8 +52,8 @@ const ActivityLog = () => {
   const [filterAction, setFilterAction] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
   const [filterTable, setFilterTable] = useState('all');
-  const [sortBy, setSortBy] = useState('date');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortBy] = useState('date');
+  const [sortOrder] = useState('desc');
   const [viewMode, setViewMode] = useState('list');
   const [selectedLogs, setSelectedLogs] = useState([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -484,12 +481,6 @@ const ActivityLog = () => {
     });
     return Array.from(tables).sort();
   }, [logs]);
-
-  // ===== GET USER NAME =====
-  const getUserName = useCallback((userId) => {
-    const user = users.find(u => String(u.user_id) === String(userId));
-    return user?.username || user?.fullname || `User ${userId}`;
-  }, [users]);
 
   // ===== LOADING =====
   if (loading) {

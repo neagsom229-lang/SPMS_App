@@ -1,6 +1,5 @@
 // frontend/src/pages/SuperAdmin/Businesses.jsx
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import apiClient from '../../api/client';
 import { toast } from 'react-hot-toast';
 import { 
@@ -9,10 +8,9 @@ import {
 } from 'lucide-react';
 
 const Businesses = () => {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [tenants, setTenants] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [search, setSearch] = useState('');
   const [pendingSessions, setPendingSessions] = useState([]);
   const [pendingLoading, setPendingLoading] = useState(false);

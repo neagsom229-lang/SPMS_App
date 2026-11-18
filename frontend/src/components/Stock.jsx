@@ -6,7 +6,6 @@ import {
   Search, RefreshCw, AlertCircle, CheckCircle, Package, Clock,
   X, Download, Eye, Loader2, Database, ArrowUp, ArrowDown,
   Grid3x3, List, AlertTriangle, Layers, DollarSign, Edit2, Save,
-  Trash2, Plus, Filter, Info
 } from "lucide-react";
 import '../styles/stock.css';
 
@@ -108,7 +107,6 @@ const Stock = () => {
   const [sortBy, setSortBy] = useState("name");
   const [sortOrder, setSortOrder] = useState("asc");
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [showDuplicateWarning, setShowDuplicateWarning] = useState(true);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -147,7 +145,6 @@ const Stock = () => {
     isLoading: loading,
     isFetching: isRefreshing,
     refetch,
-    error: fetchError,
   } = useQuery({
     queryKey: ['stock'],
     queryFn: async () => {
@@ -202,11 +199,6 @@ const Stock = () => {
       __duplicateCount: counts.get(k) || 1,
     }));
   }, [rawStock]);
-
-  const duplicateProductCount = useMemo(
-    () => dedupedStock.filter((item) => item.__duplicateCount > 1).length,
-    [dedupedStock]
-  );
 
   // ============================================================
   // MUTATION: Update stock - FIXED
@@ -437,9 +429,6 @@ const Stock = () => {
     outOfStock: <AlertCircle className="w-5 h-5 text-red-500" />,
     totalValue: <DollarSign className="w-5 h-5 text-purple-500" />,
   }[type] || <Package className="w-5 h-5 text-indigo-500" />), []);
-
-  // ===== SQL FIX HELPER =====
-  const sqlFix = `ALTER TABLE tbl_stock ADD CONSTRAINT stock_productid_unique UNIQUE (productid);`;
 
   // ===== LOADING =====
   if (loading) {

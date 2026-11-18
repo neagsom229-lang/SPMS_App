@@ -4,9 +4,10 @@
 //   1. local test Postgres up (tmpfs container, 127.0.0.1)
 //   2. jest --runInBand (globalSetup builds the DB through the real runner)
 //   3. test-name gate against HEAD, per file
-//   4. frontend production build, with every chunk size printed
-//   5. npm audit --omit=dev --audit-level=high
-//   6. secret scan (gitleaks git history; fails if gitleaks is not installed)
+//   4. backend + frontend ESLint (quality gate for the lean cleanup)
+//   5. frontend production build, with every chunk size printed
+//   6. npm audit --omit=dev --audit-level=high
+//   7. secret scan (gitleaks git history; fails if gitleaks is not installed)
 // Any failure exits 1.
 const { execFileSync, execSync } = require('child_process');
 const fs = require('fs');
@@ -46,7 +47,7 @@ function run(name, fn) {
 console.log('=== VERIFY PIPELINE STARTING ===');
 
 // 1. test database -----------------------------------------------------------
-step('1/6 test database');
+step('1/7 test database');
 // A CI job may already provide the test database (service container). Probe it
 // first so verify does not fight an existing server for the port; otherwise
 // bring up the disposable local container.
@@ -83,7 +84,7 @@ async function main() {
 await ensureDatabase();
 
 // 2. jest --------------------------------------------------------------------
-step('2/6 jest --runInBand');
+step('2/7 jest --runInBand');
 const outFile = path.join(os.tmpdir(), `spms-verify-${process.pid}.json`);
 let jestData = null;
 run('jest', () => {
@@ -108,7 +109,7 @@ if (!jestData) {
 }
 
 // 3. test-name gate vs HEAD, per file ---------------------------------------
-step('3/6 test-name gate (HEAD)');
+step('3/7 test-name gate (HEAD)');
 if (jestData) {
   const namesCheck = require('./names-diff').checkAgainstCommitted(jestData);
   if (!namesCheck.ok) {
@@ -161,8 +162,21 @@ if (jestData) {
   console.log(`wrote ${path.relative(ROOT, proposedPath)} (${actual.length} names); owner runs: npm run names:accept`);
 }
 
-// 4. frontend build ----------------------------------------------------------
-step('4/6 frontend build');
+// 4. lint --------------------------------------------------------------------
+step('4/7 lint (backend + frontend)');
+for (const [label, dir] of [['backend', BACKEND], ['frontend', FRONTEND]]) {
+  run(`lint (${label})`, () => {
+    execFileSync('npm', ['run', 'lint'], {
+      cwd: dir,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    console.log(`  ${label}: 0 lint errors`);
+  });
+}
+
+// 5. frontend build ----------------------------------------------------------
+step('5/7 frontend build');
 const built = run('frontend build', () => {
   execFileSync('npm', ['run', 'build'], { cwd: FRONTEND, stdio: 'inherit', shell: process.platform === 'win32' });
   return true;
@@ -179,8 +193,8 @@ if (built) {
   if (main) console.log(`main JS chunk: ${main.f} ${main.kb.toFixed(1)} kB`);
 }
 
-// 5. npm audit ---------------------------------------------------------------
-step('5/6 npm audit (omit=dev, high)');
+// 6. npm audit ---------------------------------------------------------------
+step('6/7 npm audit (omit=dev, high)');
 for (const dir of [ROOT, BACKEND, FRONTEND]) {
   const label = path.relative(ROOT, dir) || '.';
   run(`npm audit (${label})`, () => {
@@ -194,8 +208,8 @@ for (const dir of [ROOT, BACKEND, FRONTEND]) {
   });
 }
 
-// 6. secret scan -------------------------------------------------------------
-step('6/6 secret scan');
+// 7. secret scan -------------------------------------------------------------
+step('7/7 secret scan');
 const PATTERNS = [
   ['private key block', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/],
   ['aws access key id', /AKIA[0-9A-Z]{16}/],

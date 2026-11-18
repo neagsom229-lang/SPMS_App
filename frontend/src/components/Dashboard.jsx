@@ -1,19 +1,15 @@
 // frontend/src/components/Dashboard.jsx - TechFlow Dark UI Edition
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import apiClient from "../api/client";
-import SalesSummary from "./dashboard/SalesSummary";
 import { 
-  Users, Package, ShoppingCart, DollarSign, TrendingUp, Plus, 
-  ClipboardList, Clock, ArrowRight, BarChart3, PieChart, Bell, Eye, 
-  X, Sun, Moon, Sparkles, Activity, Award, Target, BarChart as BarChartIcon, 
-  AlertTriangle, CheckCircle, Rocket, RefreshCw, Zap, WifiOff, User, 
-  Settings, HelpCircle, LogOut, Cpu, Laptop, Monitor, Headphones 
+  Users, Package, ShoppingCart, DollarSign, 
+  Clock, ArrowRight, BarChart3, PieChart, CheckCircle, Rocket, RefreshCw, Activity, Cpu, Sparkles 
 } from "lucide-react";
 import { toast } from "react-hot-toast";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 const CHART_COLORS = ["#06b6d4", "#6366f1", "#8b5cf6", "#ec4899", "#10b981", "#3b82f6", "#f59e0b"];
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -145,35 +141,10 @@ const formatCurrency = (value) => {
   }).format(num);
 };
 
-const formatCurrencyCompact = (value) => {
-  const n = Number.isFinite(Number(value)) ? Number(value) : 0;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: n >= 1000 ? 0 : 2,
-    maximumFractionDigits: n >= 1000 ? 0 : 2,
-  }).format(n);
-};
-
 const formatDate = (value) => {
   if (!value) return "N/A";
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? "N/A" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-};
-
-const getInitials = (name) => {
-  if (!name) return "TF";
-  const parts = name.trim().split(" ").filter(Boolean);
-  if (parts.length === 0) return "TF";
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-};
-
-const pickId = (record, keys, fallback) => {
-  for (const key of keys) {
-    if (record?.[key] !== undefined && record[key] !== null) return record[key];
-  }
-  return fallback;
 };
 
 const findField = (obj, aliases) => {
@@ -240,7 +211,7 @@ const buildMonthlySeries = (revenueByMonth = []) => {
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 

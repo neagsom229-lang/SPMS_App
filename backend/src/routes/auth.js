@@ -17,7 +17,7 @@ if (!JWT_SECRET) {
 // ============================================
 router.put('/profile', authenticate, async (req, res) => {
   const userId = req.user?.userId;
-  const { fullname, name, email, phone } = req.body;
+  const { fullname, name, email } = req.body;
   const targetName = fullname || name;
   try {
     const result = await db.query(

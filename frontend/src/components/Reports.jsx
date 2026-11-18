@@ -3,13 +3,9 @@ import {
   ClipboardList, Download, Printer, RefreshCw, 
   AlertCircle, CheckCircle, Loader2, Database,
   TrendingUp, Package, Users, ShoppingBag,
-  Calendar, Filter, ChevronDown, X, Eye,
-  Clock, Award, Star, Zap, Activity, 
-  BarChart3, PieChart, LineChart as LineChartIcon,
-  ArrowUp, ArrowDown, Grid3x3, List,
-  Plus, Edit2, Trash2, Truck, Phone, Mail,
-  MapPin, User, Building2, Globe, Shield,
-  Search, Save, ChevronRight
+  Calendar, X, Eye,
+  Clock, Award, ArrowUp, ArrowDown, List,
+  Truck, Search, ChevronRight
 } from 'lucide-react';
 import '../styles/reports.css';
 import apiClient from '../api/client';

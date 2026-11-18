@@ -1,15 +1,13 @@
 // frontend/src/pages/SuperAdmin/SystemUsers.jsx
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import apiClient from '../../api/client';
 import { toast } from 'react-hot-toast';
 import { 
-  Users, Plus, Search, Edit, Trash2,
+  Plus, Search, Edit, Trash2,
   RefreshCw, X, Shield, UserCog, User
 } from 'lucide-react';
 
 const SystemUsers = () => {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [tenants, setTenants] = useState([]);

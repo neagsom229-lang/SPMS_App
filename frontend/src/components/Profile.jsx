@@ -3,14 +3,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
-  User, Mail, Phone, MapPin, Calendar, Edit2, Save,
-  X, Camera, UserCircle, Shield, Clock, CheckCircle,
-  AlertCircle, Loader2, Key, Lock, Unlock,
-  Building2, Globe, Award, Star, TrendingUp,
+  Calendar, Edit2, Save,
+  X, Camera, UserCircle, Shield, Clock, CheckCircle, Sun, Moon,
+  AlertCircle, Loader2, Key, Lock, Award,
   ShoppingCart, DollarSign, Users, Activity,
-  Sparkles, Zap, Heart, Briefcase, Upload,
-  Image as ImageIcon, Trash2, Settings, LogOut,
-  HelpCircle, Bell, Moon, Sun, Monitor
+  Trash2, Settings, LogOut, HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/profile.css';
@@ -29,7 +26,7 @@ const Profile = () => {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('success');
   const [avatarColor, setAvatarColor] = useState('bg-indigo-500');
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [, setShowSuccess] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(

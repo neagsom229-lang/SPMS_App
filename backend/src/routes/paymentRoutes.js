@@ -1,7 +1,7 @@
 // backend/src/routes/paymentRoutes.js
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db');
+const db = require('../config/postgres');
 const { authenticate, requireTenant, requireSuperAdmin } = require('../middleware/auth');
 const { BakongKHQR, IndividualInfo, khqrData } = require('bakong-khqr');
 const QRCode = require('qrcode');

@@ -11,59 +11,22 @@ import {
   ClipboardList, 
   Truck, 
   LogOut,
-  Moon,
-  Sun,
   Shield,
   Clock,
   TrendingUp,
-  ChevronLeft,
   ChevronRight,
-  Bell,
-  Search,
   User,
   Settings,
-  HelpCircle,
   Menu,
   X,
-  ChevronDown,
-  AlertTriangle,
-  DollarSign,
   UserCircle,
-  CreditCard,
-  Gift,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
   Award,
-  Star,
-  Heart,
   Zap,
-  Coffee,
-  BookOpen,
-  Target,
-  Compass,
   Sparkles,
-  Filter,
-  Grid,
-  List,
-  Plus,
-  Edit,
-  Trash,
-  Check,
-  AlertCircle,
-  Info,
   RefreshCw,
-  Download,
-  Upload,
-  Printer,
-  Share2,
-  Link2,
   Globe,
-  Send,
   Building2
 } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
@@ -71,7 +34,6 @@ import apiClient from '../api/client';
 const Layout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { darkMode, toggleDarkMode } = useTheme();
   const { user, logout, tenant, isSuperAdmin } = useAuth();
   const { data: onlineCounts } = useQuery({
     queryKey: ['online-orders-count'],
@@ -85,26 +47,15 @@ const Layout = ({ children }) => {
   
   // ===== STATE =====
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchQuery] = useState('');
+  const [, setSearchResults] = useState([]);
   const [avatarPreview, setAvatarPreview] = useState(null);
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Welcome to TechFlow!', time: 'Just now', read: false, type: 'info' },
-  ]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [greeting, setGreeting] = useState('Good morning');
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [searchHistory, setSearchHistory] = useState([]);
-  const [showSearchHistory, setShowSearchHistory] = useState(false);
-  
+  const [, setShowSearchResults] = useState(false);
+  const [, setIsOnline] = useState(navigator.onLine);
+
   const headerRef = useRef(null);
-  const searchInputRef = useRef(null);
 
   // ===== GET MENU ITEMS BASED ON ROLE =====
   const getMenuItems = useCallback(() => {
@@ -210,33 +161,9 @@ const Layout = ({ children }) => {
     return () => clearTimeout(timer);
   }, [searchQuery, performSearch]);
 
-  const addToSearchHistory = useCallback((query) => {
-    if (!query.trim()) return;
-    setSearchHistory(prev => [query, ...prev.filter(i => i !== query)].slice(0, 10));
-  }, []);
-
-  const handleSearchSubmit = useCallback((e) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      addToSearchHistory(searchQuery);
-      if (searchResults.length > 0) {
-        navigate(searchResults[0].path);
-        setSearchQuery('');
-        setShowSearchResults(false);
-        setShowSearchHistory(false);
-        toast.success(`🔍 Navigating to ${searchResults[0].label}`);
-      } else {
-        toast(`No results found for "${searchQuery}"`, { icon: 'ℹ️' });
-      }
-    }
-  }, [searchQuery, searchResults, navigate, addToSearchHistory]);
-
-  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
-
   const userName = user?.fullname || user?.username || user?.name || 'Admin';
   const userRole = user?.role || user?.role_name || 'Admin';
   const userInitial = userName.charAt(0).toUpperCase();
-  const userEmail = user?.email || 'admin@techflow.com';
   const userAvatar = user?.avatar || avatarPreview;
   const tenantName = tenant?.name || user?.tenant?.name || 'TechFlow Electronics';
   const subdomain = tenant?.subdomain || user?.tenant?.subdomain || 'demo-store';

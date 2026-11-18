@@ -28,8 +28,6 @@ import {
   AlertTriangle,
   Clock,
   DollarSign,
-  ArrowUp,
-  ArrowDown,
   Phone,
   Mail,
   MapPin,
@@ -1567,7 +1565,7 @@ const Orders = () => {
                   <Package className="orders-empty-icon" />
                   <p className="orders-empty-title">No items added yet</p>
                   <p className="orders-empty-text">
-                    Search for products and click "Add Item" to start building
+                    Search for products and click &quot;Add Item&quot; to start building
                     your order
                   </p>
                   <button

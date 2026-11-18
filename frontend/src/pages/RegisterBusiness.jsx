@@ -1,7 +1,6 @@
 // frontend/src/pages/RegisterBusiness.jsx
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../api/baseUrl';
 import { toast } from 'react-hot-toast';
 import { 
@@ -12,7 +11,6 @@ import {
 
 const RegisterBusiness = () => {
   const navigate = useNavigate();
-  const { register } = useAuth();
   
   const [formData, setFormData] = useState({
     businessName: '',
@@ -28,7 +26,6 @@ const RegisterBusiness = () => {
   const [loading, setLoading] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
   const [agreedTerms, setAgreedTerms] = useState(false);
-  const [step, setStep] = useState(1);
   const [errors, setErrors] = useState({});
 
   // ===== GENERATE SUBDOMAIN =====

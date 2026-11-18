@@ -2,16 +2,19 @@
 
 ## Getting Started
 1. Clone repository
-2. Install dependencies
-3. Configure .env
-4. Run migrations
-5. Start server
+2. Run `npm run install:all`
+3. Configure the environment (see root `README.md`; never commit `.env`)
+4. Run `npm run dev` (local Docker dev DB, migrations, demo seed, both servers)
+
+## Demo login (local seed only — not a production credential)
+The seed in `backend/scripts/seed-postgres.js` creates superadmin /
+`SuperAdminPassword123!` (or the value of `ADMIN_SECRET`). Change it before any
+real deployment. These values are illustrative placeholders; `admin` / `admin123`
+in older notes was stale and is not accepted by the API.
 
 ## API Documentation
 ### Authentication
 POST /api/auth/login
-- Username: admin
-- Password: admin123
 
 ### Products
 GET /api/products - Get all products

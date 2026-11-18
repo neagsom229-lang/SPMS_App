@@ -154,11 +154,12 @@ router.get('/sales-summary', authenticate, async (req, res) => {
   }
 
   const isCustom = range === 'custom';
-  // Date bound-param indices start after tenantId ($1) and revenueStatuses ($2)
+  // Each query below binds only its own window after tenantId ($1) and
+  // revenueStatuses ($2), so both the current and previous windows use $3/$4.
   const dCurr1 = isCustom ? 3 : null;
   const dCurr2 = isCustom ? 4 : null;
-  const dPrev1 = isCustom ? 5 : null;
-  const dPrev2 = isCustom ? 6 : null;
+  const dPrev1 = isCustom ? 3 : null;
+  const dPrev2 = isCustom ? 4 : null;
 
   // Date condition fragments: bound params for custom range, SQL expressions otherwise.
   // Every comparison against o.created_at (naive UTC wall `timestamp`) stays
