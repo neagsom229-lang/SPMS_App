@@ -267,8 +267,10 @@ const Dashboard = () => {
     retry: 1,
   });
 
-  const statsRaw = statsQuery.data || {};
-  const analytics = analyticsQuery.data || {};
+  // `x.data || {}` creates a fresh object on every render when data is absent,
+  // which would invalidate the dependent useMemo callbacks each time.
+  const statsRaw = useMemo(() => statsQuery.data || {}, [statsQuery.data]);
+  const analytics = useMemo(() => analyticsQuery.data || {}, [analyticsQuery.data]);
   const recentOrders = ordersQuery.data || [];
 
   const chartData = useMemo(

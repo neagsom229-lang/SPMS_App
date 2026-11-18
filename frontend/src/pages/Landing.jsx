@@ -1,5 +1,5 @@
 // frontend/src/pages/Landing.jsx - Refactored for 3D Electronics Storefront & TechFlow
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
@@ -205,7 +205,7 @@ const Landing = () => {
   // ─── CONSTANTS ───
   const storeSlug = import.meta.env.VITE_DEFAULT_STORE_SLUG || 'demo-store';
 
-  const NAV_LINKS = [
+  const NAV_LINKS = useMemo(() => [
     { id: 'home', label: 'Home' },
     { id: 'storefront', label: 'Storefront', path: `/shop/${storeSlug}` },
     { id: 'features', label: 'Features' },
@@ -213,7 +213,7 @@ const Landing = () => {
     { id: 'testimonials', label: 'Testimonials' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'faq', label: 'FAQ' },
-  ];
+  ], [storeSlug]);
 
   const FEATURES = [
     { icon: Boxes, title: 'Smart Inventory Management', desc: 'Live stock counts across every branch, with low-stock alerts before you run out at the counter.', tag: 'Real-time sync', color: 'from-cyan-500 to-teal-500' },
@@ -328,7 +328,7 @@ const Landing = () => {
       if (el) sectionObserver.observe(el);
     });
     return () => sectionObserver.disconnect();
-  }, []);
+  }, [NAV_LINKS]);
 
   // ─── REVEAL OBSERVER ───
   useEffect(() => {

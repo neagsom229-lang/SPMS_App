@@ -1,5 +1,5 @@
 // frontend/src/pages/Storefront.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '../api/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -186,16 +186,7 @@ export default function Storefront() {
     localStorage.setItem(`cart_${storeSlug}`, JSON.stringify(cart));
   }, [cart, storeSlug]);
 
-  useEffect(() => {
-    fetchStoreData();
-  }, [storeSlug]);
-
-  useEffect(() => {
-    fetchProducts();
-    setVisibleCount(12); // Reset pagination on filter change
-  }, [storeSlug, selectedCategory, searchQuery, sortBy]);
-
-  const fetchStoreData = async () => {
+  const fetchStoreData = useCallback(async () => {
     try {
       const [storeRes, catRes] = await Promise.all([
         apiClient.get(`/public/store/${storeSlug}`),
@@ -208,9 +199,9 @@ export default function Storefront() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [storeSlug]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     try {
       const params = {};
       if (selectedCategory) params.category = selectedCategory;
@@ -222,7 +213,16 @@ export default function Storefront() {
     } catch (err) {
       console.error('Failed to fetch menu products:', err);
     }
-  };
+  }, [storeSlug, selectedCategory, searchQuery, sortBy]);
+
+  useEffect(() => {
+    fetchStoreData();
+  }, [fetchStoreData]);
+
+  useEffect(() => {
+    fetchProducts();
+    setVisibleCount(12); // Reset pagination on filter change
+  }, [fetchProducts]);
 
   // Client-side Price Range Filtering on fetched products
   const filteredProducts = useMemo(() => {

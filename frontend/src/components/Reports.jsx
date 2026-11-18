@@ -41,6 +41,55 @@ const extractArrayData = (responseData, extraKeys = []) => {
 // ============================================
 // MAIN REPORTS COMPONENT
 // ============================================
+// Module-level: a static lookup table, stable across renders.
+const reportOptions = [
+  { 
+    value: 'customers', 
+    label: '👥 Customer List',
+    description: 'View all customers with contact details',
+    icon: Users,
+    color: 'from-blue-500 to-cyan-500',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    endpoint: '/customers'
+  },
+  { 
+    value: 'products', 
+    label: '📦 Product List',
+    description: 'View all products with pricing and stock',
+    icon: Package,
+    color: 'from-emerald-500 to-green-500',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+    endpoint: '/products'
+  },
+  { 
+    value: 'orders', 
+    label: '🛒 Order Summary',
+    description: 'View all orders with status and amounts',
+    icon: ShoppingBag,
+    color: 'from-purple-500 to-pink-500',
+    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+    endpoint: '/orders'
+  },
+  { 
+    value: 'stock', 
+    label: '📊 Stock Report',
+    description: 'View current stock levels and alerts',
+    icon: TrendingUp,
+    color: 'from-amber-500 to-orange-500',
+    bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+    endpoint: '/stock'
+  },
+  { 
+    value: 'suppliers', 
+    label: '🚚 Supplier List',
+    description: 'View all suppliers with contact information',
+    icon: Truck,
+    color: 'from-indigo-500 to-purple-500',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+    endpoint: '/suppliers'
+  }
+];
+
 const Reports = () => {
   // ===== STATE =====
   const [reportType, setReportType] = useState('');
@@ -72,55 +121,6 @@ const Reports = () => {
   const isMounted = useRef(true);
   const messageTimeout = useRef(null);
 
-  // ===== REPORT OPTIONS =====
-  const reportOptions = [
-    { 
-      value: 'customers', 
-      label: '👥 Customer List',
-      description: 'View all customers with contact details',
-      icon: Users,
-      color: 'from-blue-500 to-cyan-500',
-      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-      endpoint: '/customers'
-    },
-    { 
-      value: 'products', 
-      label: '📦 Product List',
-      description: 'View all products with pricing and stock',
-      icon: Package,
-      color: 'from-emerald-500 to-green-500',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
-      endpoint: '/products'
-    },
-    { 
-      value: 'orders', 
-      label: '🛒 Order Summary',
-      description: 'View all orders with status and amounts',
-      icon: ShoppingBag,
-      color: 'from-purple-500 to-pink-500',
-      bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-      endpoint: '/orders'
-    },
-    { 
-      value: 'stock', 
-      label: '📊 Stock Report',
-      description: 'View current stock levels and alerts',
-      icon: TrendingUp,
-      color: 'from-amber-500 to-orange-500',
-      bgColor: 'bg-amber-50 dark:bg-amber-900/20',
-      endpoint: '/stock'
-    },
-    { 
-      value: 'suppliers', 
-      label: '🚚 Supplier List',
-      description: 'View all suppliers with contact information',
-      icon: Truck,
-      color: 'from-indigo-500 to-purple-500',
-      bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
-      endpoint: '/suppliers'
-    }
-  ];
-
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {
     setError(type === 'error' ? text : '');
@@ -136,7 +136,7 @@ const Reports = () => {
   const getReportEndpoint = useCallback((type) => {
     const option = reportOptions.find(r => r.value === type);
     return option?.endpoint || `/${type}`;
-  }, [reportOptions]);
+  }, []);
 
   // ===== NORMALIZE DATA BASED ON REPORT TYPE =====
   const normalizeReportData = useCallback((type, rawData) => {
@@ -322,7 +322,7 @@ const Reports = () => {
         setIsGenerating(false);
       }
     }
-  }, [reportType, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage, reportOptions]);
+  }, [reportType, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage]);
 
   // ===== INITIAL MOUNT / CLEANUP =====
   useEffect(() => {
@@ -516,17 +516,17 @@ const Reports = () => {
   // ===== GET REPORT LABEL =====
   const getReportLabel = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.label || 'Report';
-  }, [reportType, reportOptions]);
+  }, [reportType]);
 
   // ===== GET REPORT COLOR =====
   const getReportColor = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.color || 'from-indigo-500 to-purple-500';
-  }, [reportType, reportOptions]);
+  }, [reportType]);
 
   // ===== GET REPORT ICON =====
   const getReportIcon = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.icon || ClipboardList;
-  }, [reportType, reportOptions]);
+  }, [reportType]);
 
   // ===== GET STAT ICON =====
   const getStatIcon = useCallback((type) => {

@@ -325,7 +325,7 @@ const Warranty = () => {
     showMessage('❌ Failed to load warranties from server', 'error');
   }
 }
-  }, [extractData, showMessage]);
+  }, [extractData, showMessage, calculateWarrantyStats]);
 
   // ===== FETCH SERVICES =====
   const fetchServices = useCallback(async () => {
@@ -346,7 +346,7 @@ const Warranty = () => {
     showMessage('❌ Failed to load services from server', 'error');
   }
 }
-  }, [extractData, showMessage]);
+  }, [extractData, showMessage, calculateServiceStats]);
 
   // ===== LOAD ALL DATA =====
   const loadData = useCallback(async () => {

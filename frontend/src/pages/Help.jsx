@@ -93,7 +93,7 @@ const Help = () => {
   const goToPage = (path) => navigate(path);
 
   // ===== FAQ DATA =====
-  const faqs = [
+  const faqs = useMemo(() => [
     {
       id: 'getting-started',
       category: 'getting-started',
@@ -226,7 +226,7 @@ const Help = () => {
         }
       ]
     }
-  ];
+  ], []);
 
   // ===== VIDEO TUTORIALS =====
   const tutorials = [
@@ -325,7 +325,7 @@ const Help = () => {
       if (activeCategory === 'all') return true;
       return faq.category === activeCategory;
     });
-  }, [activeCategory]);
+  }, [activeCategory, faqs]);
 
   const searchedFaqs = useMemo(() => {
     return filteredFaqs.filter(faq => {

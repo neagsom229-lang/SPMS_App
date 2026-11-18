@@ -1,5 +1,5 @@
 // frontend/src/pages/SuperAdmin/Businesses.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import apiClient from '../../api/client';
 import { toast } from 'react-hot-toast';
 import { 
@@ -26,12 +26,7 @@ const Businesses = () => {
     plan: 'free'
   });
 
-  useEffect(() => {
-    fetchTenants();
-    fetchPendingSessions();
-  }, [search]);
-
-  const fetchTenants = async () => {
+  const fetchTenants = useCallback(async () => {
     try {
       setLoading(true);
       const response = await apiClient.get('/tenants', {
@@ -45,9 +40,9 @@ const Businesses = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [search]);
 
-  const fetchPendingSessions = async () => {
+  const fetchPendingSessions = useCallback(async () => {
     try {
       setPendingLoading(true);
       const res = await apiClient.get('/payment/admin/sessions', { params: { status: 'PENDING' } });
@@ -57,7 +52,12 @@ const Businesses = () => {
     } finally {
       setPendingLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchTenants();
+    fetchPendingSessions();
+  }, [fetchTenants, fetchPendingSessions]);
 
   const markSessionPaid = async (sessionId) => {
     const reason = window.prompt('Reason for manual mark-paid:');

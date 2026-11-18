@@ -16,6 +16,20 @@ import apiClient from '../api/client';
 // ============================================
 // PROFILE COMPONENT
 // ============================================
+// Module-level: stable across renders so callbacks don't need it as a dependency.
+const avatarColors = [
+  'bg-gradient-to-br from-red-500 to-rose-500',
+  'bg-gradient-to-br from-orange-500 to-amber-500',
+  'bg-gradient-to-br from-yellow-500 to-amber-500',
+  'bg-gradient-to-br from-green-500 to-emerald-500',
+  'bg-gradient-to-br from-teal-500 to-cyan-500',
+  'bg-gradient-to-br from-blue-500 to-indigo-500',
+  'bg-gradient-to-br from-indigo-500 to-purple-500',
+  'bg-gradient-to-br from-purple-500 to-pink-500',
+  'bg-gradient-to-br from-pink-500 to-rose-500',
+  'bg-gradient-to-br from-rose-500 to-red-500'
+];
+
 const Profile = () => {
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuth();
@@ -93,20 +107,6 @@ const Profile = () => {
   const fileInputRef = useRef(null);
   const messageTimeout = useRef(null);
   const isMounted = useRef(true);
-
-  // ===== AVATAR COLORS =====
-  const avatarColors = [
-    'bg-gradient-to-br from-red-500 to-rose-500',
-    'bg-gradient-to-br from-orange-500 to-amber-500',
-    'bg-gradient-to-br from-yellow-500 to-amber-500',
-    'bg-gradient-to-br from-green-500 to-emerald-500',
-    'bg-gradient-to-br from-teal-500 to-cyan-500',
-    'bg-gradient-to-br from-blue-500 to-indigo-500',
-    'bg-gradient-to-br from-indigo-500 to-purple-500',
-    'bg-gradient-to-br from-purple-500 to-pink-500',
-    'bg-gradient-to-br from-pink-500 to-rose-500',
-    'bg-gradient-to-br from-rose-500 to-red-500'
-  ];
 
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {

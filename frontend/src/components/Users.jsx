@@ -90,7 +90,7 @@ const Users = () => {
         setLoading(false);
       }
     }
-  }, [searchTerm]);
+  }, [searchTerm, calculateStats, showMessage]);
 
   // ===== CALCULATE STATS =====
   const calculateStats = useCallback((data) => {

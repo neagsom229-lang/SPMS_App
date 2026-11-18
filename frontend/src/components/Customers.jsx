@@ -319,7 +319,7 @@ const Customers = () => {
     setImagePreview(null);
     setSelectedImage(null);
     setShowModal(true);
-  }, []);
+  }, [resetForm]);
 
   // ============================================
   // ✅ FIXED: HANDLE SUBMIT
