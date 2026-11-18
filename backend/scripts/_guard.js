@@ -18,7 +18,7 @@ const TEST_DB_NAME = 'spms_test';
 const TEST_TEMPLATE_NAME = 'spms_template';
 const TEST_DB_CONTAINER = 'spms_test_db';
 
-const DEFAULT_DEV_DB_PORT = 55433;
+const DEFAULT_DEV_DB_PORT = 15433;
 const DEV_DB_PORT = Number(process.env.DEV_DB_PORT || DEFAULT_DEV_DB_PORT);
 const DEV_DB_NAME = 'spms_dev';
 const DEV_DB_CONTAINER = 'spms_dev_db';

@@ -50,7 +50,7 @@ Every file, what runs it, and whether it stays.
 
 - The test database is disposable. `docker compose -f docker-compose.test.yml up -d`, then
   `npm run verify` rebuilds `spms_test` from `database/baseline.sql` + `database/migrations/015-027`.
-- The dev database is `spms_dev` in `docker-compose.dev.yml` on port 55433 with a named volume.
+- The dev database is `spms_dev` in `docker-compose.dev.yml` on port 15433 (DEV_DB_PORT) with a named volume.
   `npm run dev` starts it, runs the real migration runner, seeds a demo shop.
 - `database/baseline.sql` is generated, never hand-edited. Regenerate it with
   `node backend/scripts/make-baseline.js` (local Docker only, refuses any non-test URL).

@@ -8,7 +8,7 @@ Requirements: Node 20+, npm, Docker (for the disposable test/dev databases).
 
 ```bash
 npm run install:all   # install root, backend and frontend dependencies
-npm run dev           # local dev DB (Docker, 127.0.0.1:55433), migrations, demo seed, backend + frontend
+npm run dev           # local dev DB (Docker, 127.0.0.1:15433), migrations, demo seed, backend + frontend
 ```
 
 `npm run dev` works with **no `backend/.env` present** — test/dev-only defaults are
