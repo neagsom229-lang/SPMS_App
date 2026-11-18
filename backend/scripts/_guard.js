@@ -10,7 +10,7 @@ const { URL } = require('url');
 
 const DB_HOST = '127.0.0.1';
 
-const DEFAULT_TEST_DB_PORT = 55432;
+const DEFAULT_TEST_DB_PORT = 15432;
 const TEST_DB_PORT = Number(process.env.TEST_DB_PORT || DEFAULT_TEST_DB_PORT);
 const TEST_DB_NAME = 'spms_test';
 const TEST_TEMPLATE_NAME = 'spms_template';

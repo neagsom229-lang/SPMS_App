@@ -25,7 +25,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
         ports:
-          - 127.0.0.1:55432:5432
+          - 127.0.0.1:15432:5432
         options: >-
           --tmpfs /var/lib/postgresql/data
           --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres"
@@ -34,8 +34,8 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:55432/spms_test
-      TEST_DB_PORT: '55432'
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:15432/spms_test
+      TEST_DB_PORT: '15432'
       CI: 'true'
 
     steps:

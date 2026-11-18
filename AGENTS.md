@@ -1,5 +1,5 @@
 # SPMS_App rules (read first, every session)
-- Database: Postgres in Docker only (docker-compose.test.yml). The port comes from TEST_DB_PORT in backend/scripts/_guard.js (default 55432). Never connect to or write to the live Supabase DB. Never run supabase commands with --linked, --db-url or --remote.
+- Database: Postgres in Docker only (docker-compose.test.yml). The port comes from TEST_DB_PORT in backend/scripts/_guard.js (default 15432). Never connect to or write to the live Supabase DB. Never run supabase commands with --linked, --db-url or --remote.
 - Never edit a migration that may be applied to production. Treat 015-026 as possibly applied until the owner confirms; changes go in a NEW additive, idempotent migration.
 - Never read, print or edit .env.
 - `database/baseline.sql` is generated ONLY by `node backend/scripts/make-baseline.js` (local scratch DB, guard-protected); never hand-edit it. You may run that command.

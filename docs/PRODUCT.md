@@ -259,7 +259,7 @@ Ask these before Phase 1 is final: Q4 alone kills or keeps ~1,500 lines, Q5 pric
     offline copy (sizes and `git log` are in the Phase 5 report). The untracked logs are untouched.
 
 **Port:** `AGENTS.md` now matches `docker-compose.test.yml`: the host port comes from
-`TEST_DB_PORT` in `backend/scripts/_guard.js` (default 55432). Nothing else to decide.
+`TEST_DB_PORT` in `backend/scripts/_guard.js` (default 15432). Nothing else to decide.
 
 ---
 

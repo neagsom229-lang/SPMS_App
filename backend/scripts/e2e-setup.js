@@ -1,7 +1,7 @@
 // backend/scripts/e2e-setup.js
 //
 // Everything the Playwright golden path needs before a browser opens:
-//   1. the disposable test Postgres container (127.0.0.1:55432, tmpfs)
+//   1. the disposable test Postgres container (127.0.0.1:$TEST_DB_PORT, tmpfs)
 //   2. spms_test rebuilt through the real migration runner
 //   3. the demo shop seeded (admin/staff, 20 products, 10 sales)
 //   4. the frontend built with VITE_API_URL pointing at the e2e backend
