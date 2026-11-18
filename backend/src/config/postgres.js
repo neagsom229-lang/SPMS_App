@@ -54,7 +54,13 @@ if (!isLocalHost && !isRender && !allowRemote) {
 }
 
 const isSupabase = dbHost ? (dbHost.includes('supabase.com') || dbHost.includes('supabase.co')) : false;
-const isNeon = dbHost ? (dbHost.includes('neon.tech') || process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production') : false;
+// Production defaults to TLS (cloud DBs require it). DB_SSL=false is an
+// explicit opt-out for local production-like smoke tests against a test DB.
+const isNeon = dbHost ? (
+  dbHost.includes('neon.tech') ||
+  process.env.DB_SSL === 'true' ||
+  (process.env.NODE_ENV === 'production' && process.env.DB_SSL !== 'false')
+) : false;
 const isCloud = isSupabase || isNeon;
 
 const pool = new Pool({

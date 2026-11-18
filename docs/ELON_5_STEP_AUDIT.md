@@ -197,9 +197,14 @@ Result: `npm run lint` exits 0 with no warnings at all.
 
 ## Remaining risks / notes
 
-1. **Dev-only audit advisories (LOW).** Plain `npm audit` (no `--omit=dev`) reports
-   2 advisories in the frontend dev toolchain. The verify gate audits production
-   dependencies only, as designed. Track in Dependabot.
+1. **Moderate audit advisories (LOW, below the high-severity gate).** After the
+   final pass, `npm audit --omit=dev` in **backend** reports 4 moderate advisories:
+   `qs` (GHSA-4mjr-xmp4-gh2g, GHSA-6pq8-jhm2-2vcw, via express; fixable with
+   `npm audit fix`) and `uuid` (GHSA-w5hq-g745-h8pq, via exceljs; needs a breaking
+   exceljs downgrade). Frontend plain `npm audit` reports 2 dev-only advisories.
+   `npm audit --omit=dev --audit-level=high` exits 0 for all three workspaces, so
+   the verify gate is green. Track in Dependabot; do not change behaviour for a
+   below-threshold advisory.
 2. **Tailwind v4 CSS output grew** (`index-*.css` 106 kB → 155 kB raw, 20 kB gzip)
    due to the v4 engine. Functionally fine; revisit if payload becomes a concern.
 3. **Larger lazy chart chunk** (423.8 kB / 115 kB gzip) remains; it is isolated to
@@ -211,6 +216,151 @@ Result: `npm run lint` exits 0 with no warnings at all.
    re-run. No code change is needed.
 6. **Owner controls commits/tags/pushes.** Each task above is one small commit;
    no tag, push or branch switch was performed.
+7. **Pre-existing API errors (not regressions).** `/api/activity-logs` returns 500
+   and `/api/online-orders` returns 403 in both the pre-upgrade worktree and the
+   current build. They are outside this pass's scope and were not changed.
+8. **Two bare `eslint-disable-next-line react-hooks/exhaustive-deps` directives**
+   exist in `Analytics.jsx:466` and `Reports.jsx:348` with empty justification.
+   They pre-date the baseline commit and are not introduced by this work; ESLint's
+   JSON reports `suppressedMessages` but `warningCount: 0`. They can be replaced
+   with justified fixes in a future pass.
+
+---
+
+## Final proof pass (this run)
+
+### LINT — raw
+
+```
+backend:  npm notice run eslint src --ext .js          BACKEND_LINT_EXIT=0
+frontend: npm notice run eslint src --ext js,jsx       FRONTEND_LINT_EXIT=0
+ESLint JSON (both): errorCount:0, fatalErrorCount:0, warningCount:0
+```
+Two pre-existing bare suppressions are reported in `suppressedMessages` only.
+
+### TEST INTEGRITY — raw
+
+`git diff ccd1b65..HEAD -- backend/tests e2e` contains **only**:
+- `backend/tests/expected-names.txt`: 19 added names, 0 removed (via `names:accept`)
+- `e2e/super-admin-panel.spec.js`: the helper fix below
+
+```
+git grep -nE "\.skip\b|\.only\b|\bxit\(|\bxdescribe\b|fixme|waitForTimeout" \
+  -- backend/tests e2e     -> GIT_GREP_EXIT=1  (no matches)
+```
+
+The e2e helper fix (deterministic — no fixed sleep):
+
+```js
+await page.getByRole('button', { name: 'Sign In' }).click();
+// The login POST is async. Wait until the SPA has actually stored the session…
+await page.waitForFunction(() => !!localStorage.getItem('token') && !!localStorage.getItem('user'));
+await expect(page).not.toHaveURL(/\/login$/);
+```
+
+Assertions removed or loosened since the baseline: **none**. The only changed
+assertion was made *more precise* (scoped from a strict-mode-violating
+`getByRole('heading', {name:'Businesses'})` to
+`getByRole('main').getByRole('heading', {name:'Businesses'})`). Test names were
+only added; no test was deleted, skipped, focused or weakened.
+
+### TAILWIND v4 VISUAL QA — raw
+
+Worktree: `git worktree add .../spms-prev4 992fa91` (branch untouched). Built both
+tree's frontends and served them on 4174 (before: Tailwind v3 / Router v6) and
+4173 (after: Tailwind v4 / Router v7) against the same test DB. Drove 11 routes ×
+2 viewports (1440×900, 390×844) × 2 themes (light/dark) = 88 screenshots.
+
+```
+first capture:  { "screenshots": 88, "errors": [ /users ×4 ReferenceError: Cannot access 'ue' before initialization ] }
+after fixes:    { "screenshots": 88, "errors": [] }
+```
+
+Findings and fixes:
+1. **3 real TDZ crashes introduced by the earlier hook-deps work** — `/users`,
+   `/customers`, `/warranty` — caused by referencing `calculateStats`/`showMessage`,
+   `resetForm`, and `calculateWarrantyStats`/`calculateServiceStats` in dependency
+   arrays before their `const` declarations. Fixed by moving the declarations above
+   their consumers (commit `64a0cc8`). All route crashes gone.
+2. **Tailwind v4 type-scale change** — `text-xs` 0.75rem → 0.875rem, causing a
+   single-line mobile subtitle to wrap. Pinned the v3 scale via `@theme` tokens in
+   `index.css` and `theme.fontSize` in `tailwind.config.js`.
+3. **v4 layer-order pitfall** — unlayered `p { font-size: .875rem }` in the mobile
+   media query overrode layered `.text-xs`. Wrapped the media block in `@layer base`
+   so utilities win again. Verified before/after on `/settings` mobile:
+   `4174 {"fontSize":"10.5px","height":14}` / `4173 {"fontSize":"10.5px","height":14}`.
+4. **Benign representational diffs only** after the fixes: `rgb→oklch` colors,
+   `rounded-full` 9999px→infinity, and extra transparent ring layers in shadows.
+   Screenshots inspected (landing, dashboard, login mobile, super-admin, analytics,
+   settings mobile) — visually identical. Custom radii 8→10px/16→18px now reflect
+   the config that the corrupted v3 file never loaded.
+5. Pre-existing `/activity` 500 and `/online-orders` 403 occur in both builds.
+
+### AUDIT DECISION — raw
+
+```
+frontend/package.json: no "overrides"; tailwindcss ^4.3.5 and
+@tailwindcss/postcss ^4.3.5 are in devDependencies (build-time only).
+```
+An `overrides` picomatch pin on Tailwind v3 was **not** tried: picomatch 4.0.7 is
+the newest published version and is still in the vulnerable range
+(GHSA-fc5q-39xc-vjpf), so there is no safe version to pin to. Tailwind is used only
+by `vite build`, so `devDependencies` is correct; no manifest change was needed.
+
+### STEP 5 AUTOMATE — inventory
+
+Present: `.github/workflows/ci.yml` (verify on push/PR, Postgres service, gitleaks),
+`.github/workflows/nightly.yml` (verify:full incl. Playwright), `/health` route with
+DB probe (`app.js:161`), migrations via jest globalSetup (`buildTestDatabase`) plus
+`docs/OPERATIONS.md`, winston+morgan logging with `unhandledRejection`/
+`uncaughtException` handlers (`app.js:40-43`, `utils/logger.js`). Missing: nothing
+material for this pass, so **no workflow or deploy-config file was changed**.
+
+### PRODUCTION-LIKE SMOKE — raw
+
+Backend started with `NODE_ENV=production` against the **test** DB (SSL opt-out
+`DB_SSL=false` added because production otherwise forces TLS against a local DB):
+
+```
+health:    {"status":200,"body":{"status":"healthy","db":"connected",...}}
+login:     {"status":200,"hasToken":true,"user":"demo_admin"}
+crud:      LOGIN 200 true / CRUD 200 KEYS [ 'products', 'pagination' ] PRODUCTS 3
+corsAllowed:      access-control-allow-origin = http://127.0.0.1:4173
+corsDisallowed:   access-control-allow-origin = null (evil.example -> 500 CORS blocked)
+helmet:    x-content-type-options=nosniff, x-frame-options=SAMEORIGIN,
+           referrer-policy=no-referrer, x-dns-prefetch-control=off,
+           strict-transport-security=max-age=15552000; includeSubDomains,
+           content-security-policy present
+rateLimit: attempt 11 -> 429, ratelimit-policy=10;w=900, retry-after=900
+seed:      only demo_* / superadmin accounts; guard refuses non-127.0.0.1 DBs;
+           no admin/admin123 literal in seed code
+```
+
+### FINAL GATES — raw
+
+`npm run verify` → `VERIFY_EXIT=0`:
+```
+Test Suites: 21 passed, 21 total
+Tests:       200 passed, 200 total
+committed: 200 names / actual: 200 names ; added (none) ; removed (none)
+  backend: 0 lint errors
+  frontend: 0 lint errors
+  .: no high/critical advisories in production dependencies
+  backend: no high/critical advisories in production dependencies
+  frontend: no high/critical advisories in production dependencies
+no leaks found
+✅ ALL VERIFICATION CHECKS PASSED (110.1s)
+```
+
+`npm run test:e2e` → `E2E_EXIT=0`:
+```
+✓ 1 golden path: product -> stock -> sale -> order -> dashboard (5.3s)
+✓ 2 fresh tenant dashboard shows the empty state (5.3s)
+✓ 3 forced password change: blocked until a new password is set (8.4s)
+✓ 4 super admin marks a pending session paid and the tenant plan is applied (5.1s)
+✓ 5 tenant admin and staff can reach neither the panel nor its API (6.6s)
+5 passed (1.2m)
+```
 
 ---
 
