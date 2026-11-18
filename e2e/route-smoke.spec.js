@@ -28,20 +28,7 @@ const SUPERADMIN_ROUTES = [
 
 // Documented exceptions. Keep this list empty unless a failure is understood
 // and explained here; an unexplained entry is a test weakening.
-const ALLOWLIST = [
-  {
-    route: '/activity',
-    apiPath: '/api/activity-logs',
-    statuses: [500],
-    reason: 'Activity-log query fails on the seeded test DB; see audit doc (KNOWN BUGS).',
-  },
-  {
-    route: '/online-orders',
-    apiPath: '/api/orders/online/count',
-    statuses: [403],
-    reason: 'Online-orders count endpoint refuses the seeded admin session; see audit doc (KNOWN BUGS).',
-  },
-];
+const ALLOWLIST = [];
 
 function apiPathOf(url) {
   try {
