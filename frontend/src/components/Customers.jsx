@@ -313,6 +313,25 @@ const Customers = () => {
     setShowModal(true);
   }, []);
 
+  // ============================================
+  // RESET FORM
+  // Declared before openAddModal: its dependency array is evaluated during
+  // render, so this must already be initialized (otherwise TDZ ReferenceError).
+  // ============================================
+  const resetForm = useCallback(() => {
+    setFormData({ 
+      FIRST_NAME: '', 
+      LAST_NAME: '', 
+      PHONE: '', 
+      E_MAIL: '', 
+      ADDRESS: '', 
+      BALANCE: '',
+      STATUS: 'Active',
+      IMAGE_URL: ''
+    });
+    imageUrlRef.current = '';
+  }, []);
+
   const openAddModal = useCallback(() => {
     setEditingCustomer(null);
     resetForm();
@@ -402,23 +421,6 @@ const Customers = () => {
       setSubmitting(false);
     }
   };
-
-  // ============================================
-  // RESET FORM
-  // ============================================
-  const resetForm = useCallback(() => {
-    setFormData({ 
-      FIRST_NAME: '', 
-      LAST_NAME: '', 
-      PHONE: '', 
-      E_MAIL: '', 
-      ADDRESS: '', 
-      BALANCE: '',
-      STATUS: 'Active',
-      IMAGE_URL: ''
-    });
-    imageUrlRef.current = '';
-  }, []);
 
   // ============================================
   // HANDLE DELETE

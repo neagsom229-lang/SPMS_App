@@ -306,6 +306,37 @@ const Warranty = () => {
 }
   }, [showMessage]);
 
+  // ===== CALCULATE STATS =====
+  // Declared before the fetch callbacks: their dependency arrays are evaluated
+  // during render, so these must already be initialized (TDZ otherwise).
+  const calculateWarrantyStats = useCallback((data) => {
+    const now = new Date();
+    const thirtyDaysFromNow = new Date(now);
+    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+
+    const stats = {
+      total: data.length,
+      active: data.filter(w => w.status === 'Active').length,
+      expiring: data.filter(w => {
+        if (w.status !== 'Active') return false;
+        const endDate = new Date(w.warrantyenddate);
+        return endDate <= thirtyDaysFromNow && endDate > now;
+      }).length,
+      expired: data.filter(w => w.status === 'Expired').length
+    };
+    setWarrantyStats(stats);
+  }, []);
+
+  const calculateServiceStats = useCallback((data) => {
+    const stats = {
+      total: data.length,
+      pending: data.filter(s => s.status === 'Pending').length,
+      inProgress: data.filter(s => s.status === 'In Progress').length,
+      completed: data.filter(s => s.status === 'Completed').length
+    };
+    setServiceStats(stats);
+  }, []);
+
   // ===== FETCH WARRANTIES =====
   const fetchWarranties = useCallback(async () => {
     try {
@@ -359,35 +390,6 @@ const Warranty = () => {
     setLoading(false);
     setIsRefreshing(false);
   }, [fetchCustomersAndProducts, fetchWarranties, fetchServices]);
-
-  // ===== CALCULATE STATS =====
-  const calculateWarrantyStats = useCallback((data) => {
-    const now = new Date();
-    const thirtyDaysFromNow = new Date(now);
-    thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
-
-    const stats = {
-      total: data.length,
-      active: data.filter(w => w.status === 'Active').length,
-      expiring: data.filter(w => {
-        if (w.status !== 'Active') return false;
-        const endDate = new Date(w.warrantyenddate);
-        return endDate <= thirtyDaysFromNow && endDate > now;
-      }).length,
-      expired: data.filter(w => w.status === 'Expired').length
-    };
-    setWarrantyStats(stats);
-  }, []);
-
-  const calculateServiceStats = useCallback((data) => {
-    const stats = {
-      total: data.length,
-      pending: data.filter(s => s.status === 'Pending').length,
-      inProgress: data.filter(s => s.status === 'In Progress').length,
-      completed: data.filter(s => s.status === 'Completed').length
-    };
-    setServiceStats(stats);
-  }, []);
 
   // ===== INITIAL LOAD =====
   useEffect(() => {

@@ -56,6 +56,35 @@ const Users = () => {
   const searchTimeout = useRef(null);
   const submitTimeoutRef = useRef(null);
 
+  // ===== CALCULATE STATS =====
+  // Declared before fetchUsers: the dependency array below is evaluated during
+  // render, so these must already be initialized (otherwise TDZ ReferenceError).
+  const calculateStats = useCallback((data) => {
+    const stats = {
+      total: data.length,
+      active: data.filter(u => (u.status || 'ACTIVE').toUpperCase() === 'ACTIVE').length,
+      admins: data.filter(u => {
+        const role = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
+        return role === 'Admin';
+      }).length,
+      cashiers: data.filter(u => {
+        const role = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
+        return role === 'Cashier';
+      }).length
+    };
+    setUserStats(stats);
+  }, []);
+
+  // ===== SHOW MESSAGE =====
+  const showMessage = useCallback((text, type = 'success') => {
+    setMessage(text);
+    setMessageType(type);
+    if (submitTimeoutRef.current) {
+      clearTimeout(submitTimeoutRef.current);
+    }
+    submitTimeoutRef.current = setTimeout(() => setMessage(''), 5000);
+  }, []);
+
   // ===== FETCH USERS (REAL DATA ONLY - NO MOCK FALLBACK) =====
   const fetchUsers = useCallback(async () => {
     if (!isMounted.current) return;
@@ -91,33 +120,6 @@ const Users = () => {
       }
     }
   }, [searchTerm, calculateStats, showMessage]);
-
-  // ===== CALCULATE STATS =====
-  const calculateStats = useCallback((data) => {
-    const stats = {
-      total: data.length,
-      active: data.filter(u => (u.status || 'ACTIVE').toUpperCase() === 'ACTIVE').length,
-      admins: data.filter(u => {
-        const role = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
-        return role === 'Admin';
-      }).length,
-      cashiers: data.filter(u => {
-        const role = u.role || (u.role_id === 1 ? 'Admin' : u.role_id === 2 ? 'Cashier' : 'Viewer');
-        return role === 'Cashier';
-      }).length
-    };
-    setUserStats(stats);
-  }, []);
-
-  // ===== SHOW MESSAGE =====
-  const showMessage = useCallback((text, type = 'success') => {
-    setMessage(text);
-    setMessageType(type);
-    if (submitTimeoutRef.current) {
-      clearTimeout(submitTimeoutRef.current);
-    }
-    submitTimeoutRef.current = setTimeout(() => setMessage(''), 5000);
-  }, []);
 
   // ===== INITIAL LOAD =====
   useEffect(() => {

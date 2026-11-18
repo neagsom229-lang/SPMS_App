@@ -2,6 +2,39 @@
 @config "../tailwind.config.js";
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Tailwind v4 ships a larger default type scale (text-xs 0.875rem vs 0.75rem
+   in v3). Pin the original tokens so the v4 migration is visually identical. */
+@theme {
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 1;
+  --text-6xl: 3.75rem;
+  --text-6xl--line-height: 1;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 1;
+  --text-8xl: 6rem;
+  --text-8xl--line-height: 1;
+  --text-9xl: 8rem;
+  --text-9xl--line-height: 1;
+}
+
 /* ==========================================================
    Base Styles
    ========================================================== */
@@ -382,16 +415,20 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Mobile font sizes */
-@media (max-width: 640px) {
-  html {
-    font-size: 14px;
+/* Mobile font sizes. Kept in @layer base so Tailwind utilities (e.g. text-xs)
+   still win — v4 utilities are layered, and unlayered element selectors would
+   otherwise override them regardless of specificity. */
+@layer base {
+  @media (max-width: 640px) {
+    html {
+      font-size: 14px;
+    }
+    
+    h1 { font-size: 1.25rem; }
+    h2 { font-size: 1.125rem; }
+    h3 { font-size: 1rem; }
+    p { font-size: 0.875rem; }
   }
-  
-  h1 { font-size: 1.25rem; }
-  h2 { font-size: 1.125rem; }
-  h3 { font-size: 1rem; }
-  p { font-size: 0.875rem; }
 }
 
 /* Fix for mobile modals */
