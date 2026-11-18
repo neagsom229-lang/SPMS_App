@@ -216,9 +216,15 @@ Result: `npm run lint` exits 0 with no warnings at all.
    re-run. No code change is needed.
 6. **Owner controls commits/tags/pushes.** Each task above is one small commit;
    no tag, push or branch switch was performed.
-7. **Pre-existing API errors (not regressions).** `/api/activity-logs` returns 500
-   and `/api/online-orders` returns 403 in both the pre-upgrade worktree and the
-   current build. They are outside this pass's scope and were not changed.
+7. **`/api/online-orders` 403 is expected for a super-admin token.** The handler
+   (`orders.js:166-171`) intentionally returns `403 Tenant context required` when
+   there is no tenant; a real super-admin is redirected away from `/online-orders`
+   by `SuperAdminRoute`. With a tenant session it returns 200 (verified by the
+   route smoke test). Documented in the hardening pass below; no allowlist entry.
+8. **`deploy-db.ps1:39` still hardcodes `55432`** — it is a deploy script, which
+   the hardening rules say not to touch. The one other `55432` is a historical
+   raw-output quote in this document, which must not be edited. All *test*
+   infrastructure now uses `TEST_DB_PORT` (default 15432).
 8. **Two bare `eslint-disable-next-line react-hooks/exhaustive-deps` directives**
    exist in `Analytics.jsx:466` and `Reports.jsx:348` with empty justification.
    They pre-date the baseline commit and are not introduced by this work; ESLint's
@@ -415,3 +421,154 @@ no leaks found
 
   5 passed (1.2m)
 ```
+
+---
+
+## Hardening pass (this run)
+
+### 1. TEST DB PORT — single source
+
+`DEFAULT_TEST_DB_PORT = 15432` in `backend/scripts/_guard.js` is the only default.
+`TEST_DB_PORT` overrides it everywhere: `docker-compose.test.yml` uses
+`${TEST_DB_PORT:-15432}`, CI workflows use `TEST_DB_PORT: '15432'` with a matching
+`DATABASE_URL`, `.env.example` documents `TEST_DB_PORT=15432`, and jest globalSetup /
+Playwright webServer / verify derive the URL from `testDatabaseUrl()` (guard).
+Commits: `6520d33`.
+
+Remaining `55432` occurrences: `backend/scripts/deploy-db.ps1:39` (deploy script —
+left untouched per rule) and a historical raw-output quote in this document.
+
+### 2. PREFLIGHT — raw
+
+Shared `preflightTestDocker()` in `_guard.js` checks `docker info`, then that the
+test port can be bound on 127.0.0.1. Both `verify.js` and `e2e-setup.js` call it
+only when the DB is unreachable, and exit 1 immediately on failure:
+
+```
+verify.js (Docker hidden from PATH, TEST_DB_PORT=15999):
+=== 1/7 test database ===
+❌ Start Docker Desktop
+VERIFY_EXIT=1                      (no further stages ran)
+
+e2e-setup.js (same conditions):
+e2e setup: checking the test postgres container...
+❌ Start Docker Desktop
+E2E_SETUP_EXIT=1
+
+port already held by another process:
+❌ Port is reserved by Windows: run `netsh interface ipv4 show excludedportrange protocol=tcp`, or set TEST_DB_PORT
+```
+
+Commit: `c2b3bbb`.
+
+### 3. ROUTE SMOKE TEST — raw
+
+`e2e/route-smoke.spec.js` logs in (admin / super-admin) and visits all concrete
+frontend routes — public, tenant (dashboard, products, stock, suppliers, users,
+customers, warranty, analytics, reports, pricing, settings, activity,
+online-orders, …) and super-admin pages. It fails on any console error, pageerror,
+or failed (4xx/5xx) API response. The documented `ALLOWLIST` is **empty** —
+finding an unexplained failure adds an entry only with a written reason. Run:
+
+```
+✘ 1 initial: /activity: console: ❌ Error fetching activity logs: AxiosError ... 500
+   server log: ReferenceError: parsePaging is not defined at app.js:176
+✓ after fix: 3 passed  (public / tenant / super-admin)
+```
+
+Commits: `84ca909` (test), `c77bdb1` (bug fix + allowlist cleared).
+
+### 4. KNOWN BUGS — root causes
+
+- **`/activity` 500 — real bug, fixed.** `app.js:176` called `parsePaging(req, …)`
+  but `app.js` never imported it (every other route imports it from
+  `utils/paging.js`). Added `const { parsePaging } = require("./utils/paging");`.
+  After the fix: `GET /api/activity-logs?limit=200 HTTP/1.1 200 2` in the server
+  log and no console errors in the route smoke test.
+- **`/online-orders` 403 — expected, not a bug.** `orders.js:166-171` returns
+  `403 Tenant context required` for a token with no tenant (super admin). The
+  earlier 403 came from my diagnostic probe using a super-admin token; a real
+  super-admin is redirected away from that route by `SuperAdminRoute`, and the
+  route smoke test with a tenant admin gets 200/304. No code change, no allowlist.
+
+### 5. SAFETY CHECK — DB_SSL
+
+`backend/src/config/postgres.js:56-69`:
+
+```js
+const isSupabase = dbHost ? (dbHost.includes('supabase.com') || dbHost.includes('supabase.co')) : false;
+// Production defaults to TLS (cloud DBs require it). DB_SSL=false is an
+// explicit opt-out for local production-like smoke tests against a test DB.
+const isNeon = dbHost ? (
+  dbHost.includes('neon.tech') ||
+  process.env.DB_SSL === 'true' ||
+  (process.env.NODE_ENV === 'production' && process.env.DB_SSL !== 'false')
+) : false;
+const isCloud = isSupabase || isNeon;
+const pool = new Pool({ connectionString, ssl: isCloud ? { rejectUnauthorized: false } : false, ... });
+```
+
+Runtime proof (only the resolved ssl option printed, never the connection string):
+
+```
+{"NODE_ENV":"production","DB_SSL":"(unset)","ssl":{"rejectUnauthorized":false}}
+{"NODE_ENV":"production","DB_SSL":"false","ssl":false}
+{"NODE_ENV":"development","DB_SSL":"(unset)","ssl":false}
+{"NODE_ENV":"development","DB_SSL":"true","ssl":{"rejectUnauthorized":false}}
+```
+
+Production defaults to TLS; `DB_SSL=false` is the only thing that disables it and
+must be set explicitly. No code change needed.
+
+### 6. FINAL GATES — clean start — raw
+
+Test container was removed first (`docker compose down` → `Container spms_test_db
+Removed`), then:
+
+`npm run verify` — `VERIFY_EXIT=0`:
+```
+=== 1/7 test database ===
+ Container spms_test_db Creating / Created / Starting / Started / Waiting / Healthy
+=== 2/7 jest --runInBand ===
+Test Suites: 21 passed, 21 total
+Tests:       200 passed, 200 total
+=== 3/7 test-name gate (HEAD) ===
+committed: 200 names / actual: 200 names
+-- removed (in committed, missing now) --   (none)
+-- added (not in committed) --              (none)
+=== 4/7 lint (backend + frontend) ===
+  backend: 0 lint errors
+  frontend: 0 lint errors
+=== 5/7 frontend build ===
+✓ built in 8.63s
+=== 6/7 npm audit (omit=dev, high) ===
+  .: no high/critical advisories in production dependencies
+  backend: no high/critical advisories in production dependencies
+  frontend: no high/critical advisories in production dependencies
+=== 7/7 secret scan ===
+no leaks found
+✅ ALL VERIFICATION CHECKS PASSED (58.2s)
+```
+
+`npm run test:e2e` — `E2E_EXIT=0`:
+```
+✓ 1 golden path: product -> stock -> sale -> order -> dashboard (5.3s)
+✓ 2 fresh tenant dashboard shows the empty state (5.3s)
+✓ 3 forced password change: blocked until a new password is set (8.4s)
+✓ 4 super admin marks a pending session paid and the tenant plan is applied (2.9s)
+✓ 5 tenant admin and staff can reach neither the panel nor its API (6.6s)
+✓ 6 route smoke — tenant routes (23.7s)
+✓ 7 route smoke — super-admin routes (5.8s)
+8 passed (1.2m)
+```
+
+### Hardening scorecard
+
+| Item | Result |
+| --- | --- |
+| 1 — single TEST_DB_PORT (default 15432) | done; deploy script deliberately untouched |
+| 2 — preflight Docker + port, fail fast | done; both messages verified |
+| 3 — route smoke test, empty allowlist | done; 3 specs pass |
+| 4 — known bugs | `/activity` fixed; `/online-orders` 403 expected |
+| 5 — DB_SSL safety | confirmed production defaults to TLS |
+| 6 — final gates | verify exit 0; e2e 8/8 |
