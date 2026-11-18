@@ -1,6 +1,7 @@
 // backend/src/config/postgres.js
 const { Pool, types } = require('pg');
 const dns = require('dns');
+const fs = require('fs');
 const path = require('path');
 
 if (process.env.NODE_ENV === 'test') {
@@ -53,9 +54,11 @@ if (!isLocalHost && !isRender && !allowRemote) {
   process.exit(1);
 }
 
+// Supabase pooler hosts (*.pooler.supabase.com / *.supabase.co) are detected
+// here and always get TLS with certificate verification.
 const isSupabase = dbHost ? (dbHost.includes('supabase.com') || dbHost.includes('supabase.co')) : false;
 // Production defaults to TLS (cloud DBs require it). DB_SSL=false is an
-// explicit opt-out for local production-like smoke tests against a test DB.
+// explicit opt-out for local production-like smoke tests against a local DB.
 const isNeon = dbHost ? (
   dbHost.includes('neon.tech') ||
   process.env.DB_SSL === 'true' ||
@@ -63,9 +66,33 @@ const isNeon = dbHost ? (
 ) : false;
 const isCloud = isSupabase || isNeon;
 
+// Optional CA for hosts whose chain is not in Node's default root store.
+// DB_SSL_CA may be PEM text or a path to a PEM file (e.g. the Supabase CA).
+// Verification is NEVER disabled: rejectUnauthorized stays true in all cases.
+function resolveSslCa() {
+  const value = process.env.DB_SSL_CA;
+  if (!value || !value.trim()) return undefined;
+  const trimmed = value.trim();
+  if (/-----BEGIN CERTIFICATE-----/.test(trimmed)) {
+    return trimmed.replace(/\\n/g, '\n');
+  }
+  try {
+    return fs.readFileSync(trimmed, 'utf8');
+  } catch (e) {
+    console.error(`❌ DB_SSL_CA could not be read as a file: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+function sslOptions() {
+  if (!isCloud) return false;
+  const ca = resolveSslCa();
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
+}
+
 const pool = new Pool({
   connectionString,
-  ssl: isCloud ? { rejectUnauthorized: true } : false,
+  ssl: sslOptions(),
   max: 10,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 8000,

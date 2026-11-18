@@ -33,11 +33,22 @@ optional `VITE_SENTRY_DSN`.
 
 ### DB_SSL must be unset on Render
 
-Do **not** set `DB_SSL`. `backend/src/config/postgres.js` already treats production
-as TLS with `rejectUnauthorized: true`. Setting `DB_SSL=false` disables certificate
-verification; it exists only for local production-like smoke tests against the
-loopback test DB. If the host needs a private/custom CA, add the CA bundle with
-`NODE_EXTRA_CA_CERTS` — never weaken `rejectUnauthorized`.
+Do **not** set `DB_SSL`. `backend/src/config/postgres.js` detects Supabase pooler
+hosts (`*.pooler.supabase.com`, `*.supabase.co`) and always connects with TLS and
+`rejectUnauthorized: true`. Setting `DB_SSL=false` disables certificate
+verification; it exists only for local production-like smoke tests against a
+loopback DB. Never weaken `rejectUnauthorized`.
+
+### Optional DB_SSL_CA (Supabase CA)
+
+Production uses Supabase, whose standard certificate chain is publicly trusted, so
+no CA variable is normally needed. If the deploy environment uses a private CA (or
+a TLS-inspecting proxy), supply the CA with `DB_SSL_CA` — either the PEM text or a
+path to a PEM file. `postgres.js` adds it as `ssl.ca` while keeping
+`rejectUnauthorized: true`; it never downgrades verification. An unreadable file
+path fails startup rather than silently skipping verification.
+
+`NODE_EXTRA_CA_CERTS` remains a valid alternative for a system-wide CA bundle.
 
 ## 2. Migrations and seed
 
