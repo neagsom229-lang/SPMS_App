@@ -80,16 +80,14 @@ app.use(helmet());
 
 // ============================================
 // DEBUG LOGGING (DEV ONLY)
+// Never logs headers or tokens: only the method and the path (no query string,
+// which may carry tokens). Disabled entirely when NODE_ENV=production.
 // ============================================
 if (!isProd) {
   app.use((req, res, next) => {
     console.log("📤 Incoming request:");
     console.log("  Method:", req.method);
-    console.log("  URL:", req.url);
-    console.log(
-      "  Authorization:",
-      req.headers.authorization ? "present" : "none",
-    );
+    console.log("  Path:", req.path);
     next();
   });
 }
