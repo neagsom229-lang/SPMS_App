@@ -17,6 +17,11 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 
+// Lock only the current plan's button while more than 7 days remain.
+const renewalLocked = (sub, planId) =>
+  !!sub && sub.status === 'active' && String(sub.plan || 'free').toLowerCase() === String(planId).toLowerCase() &&
+  !!sub.expires && (new Date(sub.expires).getTime() - Date.now()) / 86400000 > 7;
+
 const Pricing = () => {
   const { user, loading: authLoading } = useAuth(); // Grab authLoading to prevent premature calls
   const navigate = useNavigate();
@@ -114,7 +119,7 @@ const Pricing = () => {
   ], []);
 
   const handleSubscribe = useCallback((plan) => {
-    if (user && userSubscription && userSubscription.status === 'active') {
+    if (renewalLocked(userSubscription, plan.id)) {
       toast(`You're already on the ${userSubscription.planName || 'active'} plan!`);
       navigate('/dashboard');
       return;
@@ -142,7 +147,7 @@ const Pricing = () => {
   }, [user, safeUserId, userSubscription, navigate]);
 
   const hasActiveSubscription = useCallback((planId) => {
-    return userSubscription && userSubscription.status === 'active' && String(userSubscription.plan || 'free').toLowerCase() === String(planId).toLowerCase();
+    return renewalLocked(userSubscription, planId);
   }, [userSubscription]);
 
   const renderActionButton = (plan) => {

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node backend/scripts/dev.js",
     "verify": "node backend/scripts/verify.js",
+    "db:deploy": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target live",
+    "db:deploy:dry": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target local -DryRun",
     "verify:full": "node backend/scripts/verify-full.js",
     "test:e2e": "playwright test",
     "rehearse": "node backend/scripts/rehearse.js",

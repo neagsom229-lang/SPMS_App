@@ -39,6 +39,7 @@ function childEnv(extra = {}) {
 
 async function ensureDatabase() {
   const client = new Client({ connectionString: databaseUrl('dev', 'postgres') });
+  client.on('error', () => {});
   await client.connect();
   try {
     const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [DEV_DB_NAME]);
@@ -57,6 +58,7 @@ async function ensureDatabase() {
 // applies 015+. An existing dev database is left untouched.
 async function bootstrapDevSchema() {
   const client = new Client({ connectionString: DEV_URL });
+  client.on('error', () => {});
   await client.connect();
   try {
     const exists = await client.query(`SELECT to_regclass('public.tenants') AS t`);

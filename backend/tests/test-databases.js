@@ -21,6 +21,7 @@ function workerCountFromConfig(config) {
 
 async function withAdmin(fn) {
   const client = new Client({ connectionString: testDatabaseUrl('postgres') });
+  client.on('error', () => {});
   await client.connect();
   try {
     return await fn(client);

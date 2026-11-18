@@ -14,3 +14,8 @@ END $$;
 -- khqr_webhook_events is intentionally NOT created here: the webhook route was
 -- deleted and nothing reads this table. Migration 023 still creates it on the
 -- replay path, so removing it from 026 is a no-op for databases that ran 023.
+
+-- Phase 12d: append the two khqr_sessions indexes from migration 018 (genuine
+-- misses that were never applied on live). 026 is pending on live, not yet applied.
+CREATE INDEX IF NOT EXISTS idx_khqr_sessions_tenant ON khqr_sessions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_khqr_sessions_expiry ON khqr_sessions(expires_at);

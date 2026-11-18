@@ -251,13 +251,6 @@ router.put('/:id/password', authenticate, async (req, res) => {
   }
 });
 
-// ===== GET USER SUBSCRIPTION =====
-router.get('/:id/subscription', authenticate, async (req, res) => {
-  try {
-    res.json({ subscription: 'Active', plan: 'Enterprise', expires_at: new Date(Date.now() + 30*24*60*60*1000).toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 module.exports = router;

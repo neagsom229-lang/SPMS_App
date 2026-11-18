@@ -3,7 +3,13 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
+import apiClient from '../api/client';
 import '../styles/landing.css';
+
+// Lock only the current plan's button while more than 7 days remain.
+const renewalLocked = (sub, planId) =>
+  !!sub && sub.status === 'active' && String(sub.plan || 'free').toLowerCase() === String(planId).toLowerCase() &&
+  !!sub.expires && (new Date(sub.expires).getTime() - Date.now()) / 86400000 > 7;
 
 // ✅ CONFIRMED WORKING ICONS
 import {
@@ -135,16 +141,8 @@ const Landing = () => {
           return;
         }
 
-        const API_URL = 'http://localhost:5000/api';
-        const response = await fetch(`${API_URL}/users/${userId}/subscription`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+        const { data } = await apiClient.get('/payment/subscription');
+        if (data) {
           setUserSubscription(data);
         } else {
           setUserSubscription(null);
@@ -512,15 +510,12 @@ const Landing = () => {
   };
 
   const hasActivePlan = (planId) => {
-    return user && userSubscription && userSubscription.status === 'active' && String(userSubscription.plan || 'free').toLowerCase() === String(planId).toLowerCase();
+    return !!user && renewalLocked(userSubscription, planId);
   };
 
   const getPlanButton = (plan) => {
     if (hasActivePlan(plan.id)) {
       return { text: 'Go to Dashboard', action: goToDashboard, className: 'kf-btn-primary w-full justify-center', isActive: true };
-    }
-    if (user && userSubscription && userSubscription.status === 'active' && String(userSubscription.plan || 'free').toLowerCase() !== String(plan.id).toLowerCase()) {
-      return { text: `Current: ${userSubscription.planName}`, action: null, className: 'kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60', isActive: false, isDisabled: true };
     }
     if (!user) {
       return { text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`, action: () => navigate('/register'), className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center', isActive: false, isDisabled: false };

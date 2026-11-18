@@ -8,6 +8,13 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const PLANS = require('../config/plans');
 
+// Human-readable plan names for the subscription response (planName).
+const PLAN_NAMES = {
+  'market-stall': 'Market Stall',
+  'shophouse': 'Shophouse',
+  'chain': 'Chain'
+};
+
 // Extends a tenant's plan inside the caller's transaction (mark-paid).
 // plan_expires_at is `timestamp` (stored UTC wall time) while NOW() is
 // timestamptz: without explicit AT TIME ZONE 'UTC' the implicit cast uses the
@@ -34,10 +41,17 @@ router.get('/subscription', authenticate, requireTenant, async (req, res) => {
       [req.tenantId]
     );
     const tenant = tenantRes.rows[0] || { plan: null, plan_expires_at: null };
+    const storedPlan = String(tenant.plan || 'free').toLowerCase();
+    const expired =
+      tenant.plan_expires_at && new Date(tenant.plan_expires_at).getTime() < Date.now();
+    const effectivePlan = expired ? 'free' : storedPlan;
     res.json({
       success: true,
-      // case-insensitive, NULL reads as free (live rows hold 'FREE', 'free', ...)
-      plan: String(tenant.plan || 'free').toLowerCase(),
+      // case-insensitive, NULL reads as free (live rows hold 'FREE', 'free', ...);
+      // an expired paid plan behaves as free
+      plan: effectivePlan,
+      planName: PLAN_NAMES[effectivePlan] || effectivePlan,
+      status: effectivePlan === 'free' ? 'inactive' : 'active',
       expires: tenant.plan_expires_at
     });
   } catch (err) {

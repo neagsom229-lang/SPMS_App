@@ -3,9 +3,13 @@
 //   node backend/scripts/rehearse.js <path-to-schema-only-prod-dump.sql>
 //
 // Loads a schema-only production dump into a scratch *_test database inside the
-// local test container, marks the migration ledger 001-014 only, runs the real
-// runner for 015+, then prints the schema signature diff between the resulting
-// database and the dump. That diff is the production deploy plan.
+// local test container (pre-creating the Supabase-managed "extensions" schema
+// and skipping supabase_vault/publication statements in memory, printing every
+// skipped line; the dump file is never modified), marks the migration ledger
+// 001-014 only, runs the real runner for 015+, then prints (1) the schema
+// signature diff between the resulting database and the dump (= the production
+// deploy plan) and (2) a drift report of that database against a freshly built
+// spms_test (baseline + migrations).
 //
 // Never connects to a remote host: the guard refuses anything but 127.0.0.1.
 process.env.SPMS_DB_MODE = 'test';
@@ -14,8 +18,8 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { Client } = require('pg');
-const { TEST_DB_CONTAINER, TEST_DB_PORT, testDatabaseUrl, assertTestDatabaseUrl } = require('./_guard');
-const { migrationFilesFrom } = require('./test-db');
+const { TEST_DB_CONTAINER, TEST_DB_PORT, TEST_DB_NAME, testDatabaseUrl, assertTestDatabaseUrl } = require('./_guard');
+const { migrationFilesFrom, buildTestDatabase } = require('./test-db');
 
 const SCRATCH = 'spms_rehearse_test';
 const BASELINE_MAX = 14;
@@ -31,15 +35,41 @@ function assertLocal() {
 function loadDump(dumpPath) {
   const sql = fs.readFileSync(dumpPath, 'utf8');
   const container = process.env.TEST_DB_CONTAINER || TEST_DB_CONTAINER;
+
+  // F7: the dump references schema "extensions" (CREATE EXTENSION ... WITH
+  // SCHEMA "extensions") but never creates it -> psql:<stdin>:20: ERROR:
+  // schema "extensions" does not exist. The schema is pre-created locally;
+  // the dump file itself is never modified.
+  execFileSync(
+    'docker',
+    ['exec', '-i', container, 'psql', '-U', 'postgres', '-d', SCRATCH, '-v', 'ON_ERROR_STOP=1', '-q', '-c', 'CREATE SCHEMA IF NOT EXISTS "extensions"'],
+    { stdio: ['ignore', 'inherit', 'inherit'] }
+  );
+
+  // Supabase-managed statements cannot run in the local container:
+  //   - supabase_vault (and its vault schema) is Supabase-managed
+  //   - the supabase_realtime publication does not exist locally
+  // They are skipped in memory only, and every skipped line is printed.
+  const SKIP_RE = /^(?:CREATE|ALTER)\s+PUBLICATION\b|CREATE\s+EXTENSION[^;]*supabase_vault/i;
+  const kept = [];
+  const skipped = [];
+  sql.split(/\r?\n/).forEach((line, i) => {
+    if (SKIP_RE.test(line.trim())) skipped.push(`${i + 1}: ${line.trim()}`);
+    else kept.push(line);
+  });
+  console.log(`  skipped (supabase-managed): ${skipped.length} line(s)`);
+  skipped.forEach(s => console.log(`    ${s}`));
+
   execFileSync(
     'docker',
     ['exec', '-i', container, 'psql', '-U', 'postgres', '-d', SCRATCH, '-v', 'ON_ERROR_STOP=1', '-q', '-f', '-'],
-    { input: sql, stdio: ['pipe', 'inherit', 'inherit'], maxBuffer: 1024 * 1024 * 256 }
+    { input: kept.join('\n'), stdio: ['pipe', 'inherit', 'inherit'], maxBuffer: 1024 * 1024 * 256 }
   );
 }
 
 async function recreate(database) {
   const admin = new Client({ connectionString: testDatabaseUrl('postgres') });
+  admin.on('error', () => {});
   await admin.connect();
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
@@ -52,6 +82,7 @@ async function recreate(database) {
 async function markBaselineLedger() {
   const files = migrationFilesFrom(1, BASELINE_MAX);
   const client = new Client({ connectionString: testDatabaseUrl(SCRATCH) });
+  client.on('error', () => {});
   await client.connect();
   try {
     await client.query(`
@@ -70,8 +101,9 @@ async function markBaselineLedger() {
   }
 }
 
-async function signature() {
-  const client = new Client({ connectionString: testDatabaseUrl(SCRATCH) });
+async function signature(database = SCRATCH) {
+  const client = new Client({ connectionString: testDatabaseUrl(database) });
+  client.on('error', () => {});
   await client.connect();
   try {
     const res = await client.query(`
@@ -150,7 +182,7 @@ async function main() {
 
   const d = diff(dumpSignature, after);
   console.log('');
-  console.log('=== schema signature diff (dump -> after runner) ===');
+  console.log('=== (1) schema signature diff (dump -> after 015-028) = deploy plan ===');
   if (d.removed.length === 0 && d.added.length === 0) {
     console.log('no difference: the runner is a no-op on this production schema');
   } else {
@@ -158,6 +190,22 @@ async function main() {
     d.added.forEach(x => console.log(`+ ${x}`));
     console.log('');
     console.log(`deploy plan: ${d.removed.length} removed, ${d.added.length} added`);
+  }
+
+  // (2) drift report: (live dump + 015-028) vs a freshly built spms_test
+  // (baseline + 015-028) - every object present on one side only.
+  console.log('');
+  console.log('=== (2) drift report: (dump + 015-028) vs fresh spms_test (baseline + 015-028) ===');
+  const freshBuild = await buildTestDatabase(TEST_DB_NAME);
+  console.log(`fresh ${TEST_DB_NAME}: baseline loaded, ledger=${freshBuild.ledger.total}`);
+  const fresh = await signature(TEST_DB_NAME);
+  const drift = diff(after, fresh);
+  if (drift.removed.length === 0 && drift.added.length === 0) {
+    console.log('no drift: both sides have identical public-schema signatures');
+  } else {
+    drift.removed.forEach(x => console.log(`only in (dump + migrations): ${x}`));
+    drift.added.forEach(x => console.log(`only in fresh spms_test:       ${x}`));
+    console.log(`drift: ${drift.removed.length} only-dump-side, ${drift.added.length} only-test-side`);
   }
 
   await recreate(SCRATCH);

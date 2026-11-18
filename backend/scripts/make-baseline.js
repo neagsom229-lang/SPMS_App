@@ -35,6 +35,7 @@ function migrationFiles(maxPrefix) {
 
 async function withClient(connectionString, fn) {
   const client = new Client({ connectionString });
+  client.on('error', () => {});
   await client.connect();
   try {
     return await fn(client);

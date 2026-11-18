@@ -14,6 +14,7 @@ describe('Security and Rate Limiting Tests', () => {
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    pool.on('error', () => {});
   });
 
   afterAll(async () => {

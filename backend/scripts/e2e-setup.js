@@ -29,6 +29,7 @@ const E2E_API = process.env.E2E_API_URL || 'http://127.0.0.1:5050/api';
 function testDbReachable() {
   return new Promise(resolve => {
     const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 2000 });
+    client.on('error', () => {});
     client
       .connect()
       .then(() => client.query('SELECT 1'))

@@ -23,3 +23,4 @@
 - Tests must not contain early returns (`if (!x) return;`) or conditional expects.
 - Never publish ports on 0.0.0.0.
 - A report must not say "live" for anything but production; say "local e2e server".
+- Never print, log or pass connection strings or passwords on a command line (npm 12 echoes full commands as "npm notice run ..."); credentials go through environment variables only (PGPASSWORD passed with `docker run -e PGPASSWORD`).

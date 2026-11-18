@@ -27,6 +27,7 @@ const ROOT = { username: 'demo_root', password: 'Demo1234!', role: 'Super Admin'
 async function seed() {
   const identity = assertDatabaseUrl(process.env.DATABASE_URL, MODE);
   const client = new Client({ connectionString: process.env.DATABASE_URL });
+  client.on('error', () => {});
   await client.connect();
 
   try {

@@ -25,6 +25,7 @@ module.exports = async () => {
   console.log(replay.out.trim().split(/\r?\n/).slice(-2).join('\n'));
 
   const client = new Client({ connectionString: process.env.DATABASE_URL });
+  client.on('error', () => {});
   try {
     await client.connect();
     const res = await client.query(

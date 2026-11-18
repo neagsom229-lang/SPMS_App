@@ -38,6 +38,7 @@ function readSql(file) {
 
 async function withClient(database, fn) {
   const client = new Client({ connectionString: testDatabaseUrl(database) });
+  client.on('error', () => {});
   await client.connect();
   try {
     return await fn(client);

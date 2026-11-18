@@ -74,6 +74,7 @@ describe('Bakong payment routes', () => {
 
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    pool.on('error', () => {});
     tenantPlanId = await createTenant('shophouse');
     tenantOtherId = await createTenant('chain');
     await createUser(`${prefix}admin`, tenantPlanId);
@@ -126,6 +127,51 @@ describe('Bakong payment routes', () => {
     expect(row.rows[0].status).toBe('PENDING');
     expect(row.rows[0].plan).toBe('shophouse');
     expect(row.rows[0].tenant_id).toBe(tenantPlanId);
+  });
+
+  test('subscription response includes status and planName with the effective plan', async () => {
+    const sub = await request(app).get('/api/payment/subscription').set('Authorization', `Bearer ${adminToken}`);
+    expect(sub.status).toBe(200);
+    expect(sub.body.plan).toBe('shophouse');
+    expect(sub.body.status).toBe('active');
+    expect(sub.body.planName).toBe('Shophouse');
+  });
+
+  test('an expired paid plan behaves as free; a future expiry keeps it and a NULL plan reads free', async () => {
+    const mk = async (plan, expiresAt) => {
+      const sub = `${prefix}expiry-${plan}-${expiresAt}`;
+      const t = await pool.query(
+        `INSERT INTO tenants (name, subdomain, status, plan, plan_expires_at) VALUES ($1, $2, 'ACTIVE', $3, $4) RETURNING id`,
+        [`Expiry Pay ${plan} ${expiresAt}`, sub, plan, expiresAt]
+      );
+      await pool.query(
+        `INSERT INTO tbl_users (username, email, password, role, status, is_super_admin, tenant_id) VALUES ($1, $2, $3, 'Admin', 'ACTIVE', FALSE, $4)`,
+        [`${sub}_admin`, `${sub}@pay.test`, bcrypt.hashSync('password123', 8), t.rows[0].id]
+      );
+      const token = await login(`${sub}_admin`);
+      const subRes = await request(app).get('/api/payment/subscription').set('Authorization', `Bearer ${token}`);
+      return subRes;
+    };
+
+    const expiredPaid = await mk('shophouse', '2020-01-01T00:00:00Z');
+    expect(expiredPaid.body.plan).toBe('free'); // expired paid -> free
+    expect(expiredPaid.body.status).toBe('inactive'); // expired paid -> inactive
+    expect(expiredPaid.body.planName).toBe('free'); // expired paid -> free name
+
+    const futurePaid = await mk('shophouse', '2030-01-01T00:00:00Z');
+    expect(futurePaid.body.plan).toBe('shophouse'); // future paid
+    expect(futurePaid.body.status).toBe('active'); // future paid -> active
+    expect(futurePaid.body.planName).toBe('Shophouse'); // future paid -> name
+
+    const freePlan = await mk('free', '2030-01-01T00:00:00Z');
+    expect(freePlan.body.plan).toBe('free'); // free plan
+    expect(freePlan.body.status).toBe('inactive'); // free plan -> inactive
+    expect(freePlan.body.planName).toBe('free'); // free plan -> name
+
+    const nullPlan = await mk(null, null);
+    expect(nullPlan.body.plan).toBe('free'); // NULL plan -> free
+    expect(nullPlan.body.status).toBe('inactive'); // NULL plan -> inactive
+    expect(nullPlan.body.planName).toBe('free'); // NULL plan -> free name
   });
 
   test('removed KHQR check endpoint is gone (404)', async () => {
@@ -409,6 +455,7 @@ describe('Bakong payment routes', () => {
 
   test("mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' extends a future expiry by exactly one calendar month in UTC", async () => {
     const client = new Client({ connectionString: process.env.DATABASE_URL });
+    client.on('error', () => {});
     await client.connect();
     try {
       await client.query("SET TIME ZONE 'Asia/Phnom_Penh'");
@@ -433,6 +480,7 @@ describe('Bakong payment routes', () => {
 
   test("mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' computes a new expiry in UTC exactly one calendar month later", async () => {
     const client = new Client({ connectionString: process.env.DATABASE_URL });
+    client.on('error', () => {});
     await client.connect();
     try {
       await client.query("SET TIME ZONE 'Asia/Phnom_Penh'");
