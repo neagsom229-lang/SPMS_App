@@ -23,6 +23,12 @@ async function login(page, user) {
   await page.locator('input[name="username"]').fill(user.username);
   await page.locator('input[name="password"]').fill(user.password);
   await page.getByRole('button', { name: 'Sign In' }).click();
+  // The login POST is async. Wait until the SPA has actually stored the session
+  // and navigated away from /login before the caller does page.goto(). Without
+  // this, page.goto() aborts the in-flight request; the rehydrating AuthProvider
+  // then finds an empty localStorage and bounces back to /login.
+  await page.waitForFunction(() => !!localStorage.getItem('token') && !!localStorage.getItem('user'));
+  await expect(page).not.toHaveURL(/\/login$/);
 }
 
 async function apiLogin(page, user) {
@@ -62,7 +68,7 @@ test('super admin marks a pending session paid and the tenant plan is applied', 
   // 2. The owner opens the panel and sees exactly that one pending session.
   await login(page, ROOT);
   await page.goto('/admin/tenants');
-  await expect(page.getByRole('heading', { name: 'Businesses' })).toBeVisible();
+  await expect(page.getByRole('main').getByRole('heading', { name: 'Businesses' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Pending Payment Sessions' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mark Paid' })).toHaveCount(1);
 
