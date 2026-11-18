@@ -11,20 +11,32 @@ backend/tests/analyticsLocalDay.test.js	Analytics local-day bucketing and order 
 backend/tests/analyticsLocalDay.test.js	Analytics local-day bucketing and order filters > tenant B gets zero rows for tenant A customer_id filter
 backend/tests/bakongPayment.test.js	Bakong payment routes > a repeat mark-paid call does not extend the plan twice
 backend/tests/bakongPayment.test.js	Bakong payment routes > a zero or negative period is rejected
+backend/tests/bakongPayment.test.js	Bakong payment routes > an expired paid plan behaves as free; a future expiry keeps it and a NULL plan reads free
+backend/tests/bakongPayment.test.js	Bakong payment routes > create-qr accepts an uppercase plan name and prices it at the plan rate
+backend/tests/bakongPayment.test.js	Bakong payment routes > create-qr stores the requested plan in lowercase
 backend/tests/bakongPayment.test.js	Bakong payment routes > manual mark-paid records the real admin id in ledger user_id and verified_by
 backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid audit row stores the reason and the admin id
 backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid changes tenants.plan and extends plan_expires_at by exactly one period
 backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid for a missing session returns 404 and writes no ledger row
+backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid stores the session plan value in lowercase
+backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' computes a new expiry in UTC exactly one calendar month later
+backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' extends a future expiry by exactly one calendar month in UTC
 backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid with a whitespace-only reason returns 400 and leaves the session pending
 backend/tests/bakongPayment.test.js	Bakong payment routes > mark-paid with an empty reason returns 400 and leaves the session pending
 backend/tests/bakongPayment.test.js	Bakong payment routes > pricing is server-side: client amount ignored, invalid plan/period/currency and period >= 120 rejected
 backend/tests/bakongPayment.test.js	Bakong payment routes > removed KHQR check endpoint is gone (404)
 backend/tests/bakongPayment.test.js	Bakong payment routes > renewal before expiry extends from the existing expiry, not from now
 backend/tests/bakongPayment.test.js	Bakong payment routes > staff cannot mark a session paid
+backend/tests/bakongPayment.test.js	Bakong payment routes > stored plan 'SHOPHOUSE' reads as shophouse
+backend/tests/bakongPayment.test.js	Bakong payment routes > stored plans 'FREE', 'free' and NULL all read as free
+backend/tests/bakongPayment.test.js	Bakong payment routes > subscription response includes status and planName with the effective plan
 backend/tests/bakongPayment.test.js	Bakong payment routes > subscription returns the tenant plan and create-qr persists a pending session at the plan price
 backend/tests/bakongPayment.test.js	Bakong payment routes > subscription status is not read from the removed endpoint anymore
 backend/tests/bakongPayment.test.js	Bakong payment routes > tenant admin cannot mark a session paid
 backend/tests/bakongPayment.test.js	Bakong payment routes > two different sessions marked paid in a row both succeed
+backend/tests/changePassword.test.js	Change password endpoints > POST /auth/change-password with a wrong old password is rejected and the stored password is unchanged
+backend/tests/changePassword.test.js	Change password endpoints > POST /auth/change-password without an old password is rejected and the stored password is unchanged
+backend/tests/changePassword.test.js	Change password endpoints > a cashier cannot reset another user password through PUT /users/:id/password
 backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > 20 parallel checkout requests for the last unit succeed for at most one and reject others
 backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Duplicate line items in cart returns 409 conflict
 backend/tests/checkout-and-public.test.js	Checkout & Public Store Test Suite > Public store expired pending order expiry restores stock correctly
@@ -42,6 +54,11 @@ backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Pas
 backend/tests/checkoutAndFlow.test.js	Checkout Concurrency, Idempotency, and Password Change Flow Tests > User with must_change_password set receives 403 PASSWORD_CHANGE_REQUIRED on protected endpoints
 backend/tests/contract.test.js	Frontend-Backend Contract Test > all frontend apiClient calls match a mounted backend route
 backend/tests/contract.test.js	Frontend-Backend Contract Test > pure matches function: backend /x/:id does NOT match frontend /x/low-stock
+backend/tests/dashboardLocalDayWindows.test.js	Dashboard sales-summary local-day windows > an order created 30 minutes before the local day start is excluded from range=today
+backend/tests/dashboardLocalDayWindows.test.js	Dashboard sales-summary local-day windows > an order created 30 minutes before the local month start is excluded from range=month
+backend/tests/dashboardLocalDayWindows.test.js	Dashboard sales-summary local-day windows > an order created exactly at the local day start is included in range=today
+backend/tests/dashboardLocalDayWindows.test.js	Dashboard sales-summary local-day windows > an order created exactly at the local month start is included in range=month
+backend/tests/dashboardLocalDayWindows.test.js	Dashboard sales-summary local-day windows > the today timeseries bucket labelled <local date> 00:00 carries the local-day-start order revenue
 backend/tests/deletedRoutes.test.js	Deleted routes are gone (404) > DELETE /api/activity-logs is gone
 backend/tests/deletedRoutes.test.js	Deleted routes are gone (404) > DELETE /api/suppliers/bulk is gone
 backend/tests/deletedRoutes.test.js	Deleted routes are gone (404) > GET /api/auth/test is gone
@@ -179,3 +196,5 @@ backend/tests/security-and-auth.test.js	Security & Auth Test Suite > Suspended t
 backend/tests/security.test.js	Security and Rate Limiting Tests > non-admin (staff) cannot create or promote an admin
 backend/tests/security.test.js	Security and Rate Limiting Tests > repeated bad logins trigger 429 rate limit with Retry-After
 backend/tests/security.test.js	Security and Rate Limiting Tests > tenant B cannot change tenant A roles or data
+backend/tests/selfServiceProfile.test.js	Self-service profile update (PUT /auth/profile) > PUT /auth/profile persists fullname and email to tbl_users
+backend/tests/selfServiceProfile.test.js	Self-service profile update (PUT /auth/profile) > a cashier can update their own profile through PUT /auth/profile
