@@ -572,3 +572,166 @@ no leaks found
 | 4 — known bugs | `/activity` fixed; `/online-orders` 403 expected |
 | 5 — DB_SSL safety | confirmed production defaults to TLS |
 | 6 — final gates | verify exit 0; e2e 8/8 |
+
+---
+
+## Final cleanup (this run)
+
+Five small commits, one per item: `a1ad491` (TLS), worktree removal (no commit),
+`4d1c5eb` (audit fix), expected-names check (no commit), and this docs commit.
+No app behavior changed, no deploy config touched. The `rejectUnauthorized: false`
+snapshots in the hardening section above are historical; they are superseded by item 1 below.
+
+### 1. DB TLS — verify certificates in production, keep local opt-out — `a1ad491`
+
+`backend/src/config/postgres.js:68` now reads:
+
+```js
+ssl: isCloud ? { rejectUnauthorized: true } : false,
+```
+
+`DB_SSL=false` is unchanged and still disables TLS, but only when explicitly set.
+Resolved-option proof (only the ssl option printed, never a connection string):
+
+```
+{"NODE_ENV":"production","DB_SSL":"false","ssl":false}
+{"NODE_ENV":"production","DB_SSL":"(unset)","ssl":{"rejectUnauthorized":true}}
+```
+
+Production-mode smoke against the **local test DB** (127.0.0.1:15432), opt-out set,
+`NODE_ENV=production`, `DB_SSL=false`, backend on 127.0.0.1:5052 — raw:
+
+```
+HEALTH_STATUS 200
+HEALTH_BODY {"status":"healthy","db":"connected","timestamp":"2026-11-18T14:09:12.729Z"}
+LOGIN_STATUS 200 TOKEN true
+```
+
+Server log: `✅ Database connection established!`, `GET /health 200`,
+`POST /api/auth/login 200`. No hosted/production/Neon database was contacted.
+
+**Would verification fail on Neon?** Not on Neon's normal endpoint: Neon presents a
+certificate signed by a publicly trusted CA, which Node's default root store
+accepts, so `rejectUnauthorized: true` succeeds. It *can* fail in a slim container
+or a network with a custom/private CA (e.g. a corporate TLS-inspecting proxy), where
+Node's default CA bundle does not contain the issuing CA — the connection would then
+fail with `UNABLE_TO_VERIFY_LEAF_SIGNATURE` / `SELF_SIGNED_CERT_IN_CHAIN`. That is the
+intended fail-closed behavior; the remedy is to supply the CA bundle via
+`NODE_EXTRA_CA_CERTS` (configured in the deploy environment), not to weaken
+`rejectUnauthorized`. Nothing in this repo was changed to depend on such a bundle,
+and no Neon connection was attempted here.
+
+### 2. Remove `spms-prev4` worktree
+
+```
+git worktree remove C:\Users\chhea\AppData\Local\Temp\opencode\spms-prev4   → REMOVE_EXIT=0
+git worktree prune                                                          → PRUNE_EXIT=0
+```
+
+Remaining worktrees (untouched):
+
+```
+D:/Project/from Github/SPMS_Website/SPMS_App          a1ad491 [lean]
+D:/Project/from Github/SPMS_Website/spms-core         f0c5d1a (detached HEAD)
+D:/Project/from Github/SPMS_Website/spms-orig         af7d423 (detached HEAD)
+```
+
+No commit needed.
+
+### 3. Backend audit — qs / uuid — `4d1c5eb`
+
+Applied non-breaking fixes only (`npm audit fix`; lockfile-only — `package.json`
+unchanged): `qs 6.15.4 → 6.16.2` and `express 4.22.2 → 4.22.3`, plus stale-lock pruning.
+
+```
+npm ls qs express uuid:
+├─┬ exceljs@4.4.0
+│ └── uuid@8.3.2
+├─┬ express@4.22.3
+│ ├─┬ body-parser@1.20.9
+│ │ └── qs@6.16.2 deduped
+│ └── qs@6.16.2
+└── uuid@14.0.1
+```
+
+`qs` no longer appears in the audit report. Counts after the fix:
+`3 moderate, 37 high, 0 critical (40 total)` — down from `4 moderate, 37 high (41 total)`.
+
+Remaining advisories, deliberately **not** applied (breaking):
+
+- `uuid@8.3.2` under `exceljs@4.4.0` — fix requires downgrading to `exceljs@3.4.0`.
+- `picomatch` (high) — fix requires `jest@30.5.2`.
+- `minimatch` (moderate, under nodemon) — fix available via `--force`/major bump of a dev tool.
+
+### 4. expected-names.proposed.txt — gitignored, not committed
+
+```
+git ls-files backend/tests/expected-names.proposed.txt   → (empty)
+git check-ignore -v backend/tests/expected-names.proposed.txt
+.gitignore:31:backend/tests/expected-names.proposed.txt
+```
+
+No commit needed. Note: `npm run verify` re-wrote this ignored file with 200 names
+(`owner runs: npm run names:accept`); it remains untracked, and the committed
+`expected-names.txt` was not edited.
+
+### 5. Final gates — raw
+
+`npm run verify` — `VERIFY_EXIT=0` (test DB was already reachable on 15432, so compose was skipped):
+
+```
+=== VERIFY PIPELINE STARTING ===
+=== 1/7 test database ===
+  test database already reachable at 15432, skipping docker compose
+=== 2/7 jest --runInBand ===
+Test Suites: 21 passed, 21 total
+Tests:       200 passed, 200 total
+=== 3/7 test-name gate (HEAD) ===
+committed: 200 names / actual: 200 names
+-- removed (in committed, missing now) --   (none)
+-- added (not in committed) --              (none)
+OK: no file below its committed count.
+=== 4/7 lint (backend + frontend) ===
+  backend: 0 lint errors
+  frontend: 0 lint errors
+=== 5/7 frontend build ===
+✓ built in 37.09s
+main JS chunk: index-DRlTwAsM.js 145.5 kB
+=== 6/7 npm audit (omit=dev, high) ===
+  .: no high/critical advisories in production dependencies
+  backend: no high/critical advisories in production dependencies
+  frontend: no high/critical advisories in production dependencies
+=== 7/7 secret scan ===
+scanner: gitleaks 8.30.1 (git history, --redact)
+no leaks found
+✅ ALL VERIFICATION CHECKS PASSED (210.0s)
+```
+
+`npm run test:e2e` — `E2E_EXIT=0`:
+
+```
+Running 8 tests using 1 worker
+  ✓  1 [chromium] › e2e\golden-path.spec.js:51:1 › golden path: product -> stock -> sale -> order -> dashboard (14.9s)
+  ✓  2 [chromium] › e2e\golden-path.spec.js:194:1 › fresh tenant dashboard shows the empty state (4.9s)
+  ✓  3 [chromium] › e2e\golden-path.spec.js:219:1 › forced password change: blocked until a new password is set (6.0s)
+  ✓  4 [chromium] › e2e\route-smoke.spec.js:97:3 › route smoke — public routes (9.8s)
+  ✓  5 [chromium] › e2e\route-smoke.spec.js:103:3 › route smoke — tenant routes (37.3s)
+  ✓  6 [chromium] › e2e\route-smoke.spec.js:112:3 › route smoke — super-admin routes (10.2s)
+  ✓  7 [chromium] › e2e\super-admin-panel.spec.js:57:1 › super admin marks a pending session paid and the tenant plan is applied (4.2s)
+  ✓  8 [chromium] › e2e\super-admin-panel.spec.js:95:1 › tenant admin and staff can reach neither the panel nor its API (5.3s)
+  8 passed (2.5m)
+```
+
+The route smoke test confirms the fixed endpoint at runtime:
+`GET /api/activity-logs?limit=200 HTTP/1.1 200` and
+`GET /api/orders/online/count ... 304/200` (no 403 with a tenant session).
+
+### Final cleanup scorecard
+
+| Item | Result |
+| --- | --- |
+| 1 — TLS cert verification | `rejectUnauthorized: true`; opt-out kept; local prod-mode smoke 200; Neon caveat documented |
+| 2 — remove spms-prev4 worktree | removed + pruned |
+| 3 — backend audit | qs fixed (6.16.2); uuid/picomatch/minimatch left (breaking) |
+| 4 — proposed-names ignored | gitignored + untracked |
+| 5 — final gates | verify exit 0 (200 tests); e2e 8/8 |
