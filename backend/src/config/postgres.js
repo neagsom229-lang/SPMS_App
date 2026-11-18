@@ -65,7 +65,7 @@ const isCloud = isSupabase || isNeon;
 
 const pool = new Pool({
   connectionString,
-  ssl: isCloud ? { rejectUnauthorized: false } : false,
+  ssl: isCloud ? { rejectUnauthorized: true } : false,
   max: 10,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 8000,
