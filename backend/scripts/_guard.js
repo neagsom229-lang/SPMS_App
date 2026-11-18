@@ -138,14 +138,15 @@ if (dbUrl) {
   }
 }
 
-// Preflight for local Docker test DB. Call only when the DB is NOT reachable —
-// a reachable DB (CI service or running container) already owns the port.
-// Errors carry a code so callers fail fast with a clear, Windows-friendly hint.
-async function assertPortBindable(port = TEST_DB_PORT) {
+// Preflight for a local Docker database. Call only when the DB is NOT reachable
+// — a running container already owns the port. Errors carry a code so callers
+// fail fast with a clear, Windows-friendly hint. portVarName makes the hint name
+// the right setting (TEST_DB_PORT / DEV_DB_PORT).
+async function assertPortBindable(port = TEST_DB_PORT, portVarName = 'TEST_DB_PORT') {
   await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', (err) => {
-      const e = new Error('Port is reserved by Windows: run `netsh interface ipv4 show excludedportrange protocol=tcp`, or set TEST_DB_PORT');
+      const e = new Error(`Port is reserved by Windows: run \`netsh interface ipv4 show excludedportrange protocol=tcp\`, or set ${portVarName}`);
       e.code = 'PORT_UNAVAILABLE';
       e.cause = err.message;
       reject(e);
@@ -155,7 +156,7 @@ async function assertPortBindable(port = TEST_DB_PORT) {
   });
 }
 
-async function preflightTestDocker(port = TEST_DB_PORT) {
+async function preflightDocker(port, portVarName) {
   try {
     execFileSync('docker', ['info'], { stdio: 'ignore', timeout: 15000 });
   } catch (e) {
@@ -164,7 +165,15 @@ async function preflightTestDocker(port = TEST_DB_PORT) {
     err.cause = (e.message || '').split(/\r?\n/)[0];
     throw err;
   }
-  await assertPortBindable(port);
+  await assertPortBindable(port, portVarName);
+}
+
+async function preflightTestDocker(port = TEST_DB_PORT) {
+  return preflightDocker(port, 'TEST_DB_PORT');
+}
+
+async function preflightDevDocker(port = DEV_DB_PORT) {
+  return preflightDocker(port, 'DEV_DB_PORT');
 }
 
 module.exports = {
@@ -196,5 +205,7 @@ module.exports = {
   isLocal,
   isLocalHost,
   assertPortBindable,
+  preflightDocker,
   preflightTestDocker,
+  preflightDevDocker,
 };

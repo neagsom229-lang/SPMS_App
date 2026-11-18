@@ -5,6 +5,10 @@
   "private": true,
   "scripts": {
     "dev": "node backend/scripts/dev.js",
+    "db:dev:preflight": "node backend/scripts/dev-db.js preflight",
+    "db:dev:up": "node backend/scripts/dev-db.js up",
+    "db:dev:migrate": "node backend/scripts/dev-db.js migrate",
+    "db:dev:seed": "node backend/scripts/dev-db.js seed",
     "verify": "node backend/scripts/verify.js",
     "db:deploy": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target live",
     "db:deploy:dry": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target local -DryRun",

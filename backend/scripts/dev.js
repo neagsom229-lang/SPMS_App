@@ -1,23 +1,24 @@
 // backend/scripts/dev.js
 //
-// `npm run dev` from the repo root:
-//   1. start the dev Postgres container (own port, named volume, 127.0.0.1)
-//   2. create spms_dev if missing and run the real migration runner
-//   3. seed the demo shop (credentials printed once)
+// Root `npm run dev` orchestrator:
+//   1. db:dev:up     — preflight (docker + port), start dev DB, wait for healthy
+//   2. db:dev:migrate — create spms_dev if needed, baseline + real runner
+//   3. db:dev:seed   — demo shop (guarded to local hosts only)
 //   4. start the backend and the frontend dev server
 //   5. print the URLs
+//
+// The database steps live in dev-db.js so `npm run db:dev:up|migrate|seed` work
+// standalone. Every child gets SPMS_DB_MODE=dev and a loopback DATABASE_URL.
 process.env.SPMS_DB_MODE = process.env.SPMS_DB_MODE || 'dev';
 
 const path = require('path');
 const { execFileSync, spawn } = require('child_process');
-const { Client } = require('pg');
-const { DEV_DB_NAME, DEV_DB_PORT, databaseUrl, devDatabaseUrl, assertDevDatabaseUrl, isLocal } = require('./_guard');
-const { BASELINE, migrationFilesFrom, readSql } = require('./test-db');
+const { DEV_DB_NAME, DEV_DB_PORT, devDatabaseUrl, assertDevDatabaseUrl, isLocal } = require('./_guard');
 
 const BACKEND = path.join(__dirname, '..');
 const ROOT = path.join(BACKEND, '..');
 const FRONTEND = path.join(ROOT, 'frontend');
-const COMPOSE_FILE = path.join(ROOT, 'docker-compose.dev.yml');
+const DEV_DB = path.join(__dirname, 'dev-db.js');
 const BACKEND_PORT = Number(process.env.DEV_BACKEND_PORT || 5000);
 const FRONTEND_PORT = Number(process.env.DEV_FRONTEND_PORT || 5173);
 
@@ -37,52 +38,10 @@ function childEnv(extra = {}) {
   return env;
 }
 
-async function ensureDatabase() {
-  const client = new Client({ connectionString: databaseUrl('dev', 'postgres') });
-  client.on('error', () => {});
-  await client.connect();
-  try {
-    const res = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [DEV_DB_NAME]);
-    if (res.rowCount === 0) {
-      await client.query(`CREATE DATABASE ${DEV_DB_NAME}`);
-      console.log(`created database ${DEV_DB_NAME}`);
-    }
-  } finally {
-    await client.end();
-  }
-}
-
-// Migrations 001-014 are patches on top of the shipped schema, exactly like
-// production. A brand-new dev database therefore starts from database/baseline
-// .sql (schema after 014) with the ledger marked 001-014; the real runner then
-// applies 015+. An existing dev database is left untouched.
-async function bootstrapDevSchema() {
-  const client = new Client({ connectionString: DEV_URL });
-  client.on('error', () => {});
-  await client.connect();
-  try {
-    const exists = await client.query(`SELECT to_regclass('public.tenants') AS t`);
-    if (exists.rows[0].t) {
-      console.log('dev schema already present; runner will check for pending migrations');
-      return;
-    }
-    console.log('loading database/baseline.sql (schema after 014)...');
-    // A previously failed bootstrap can leave a schema_migrations table behind
-    // without the schema. baseline.sql creates the table unconditionally.
-    await client.query('DROP TABLE IF EXISTS schema_migrations CASCADE');
-    await client.query(readSql(BASELINE));
-    await client.query('SET search_path TO public');
-    await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
-      filename VARCHAR(255) PRIMARY KEY,
-      executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
-    for (const file of migrationFilesFrom(1, 14)) {
-      await client.query('INSERT INTO schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING', [file]);
-    }
-    console.log('ledger marked 001-014');
-  } finally {
-    await client.end();
-  }
+function runDb(command) {
+  execFileSync(process.execPath, [DEV_DB, command], {
+    cwd: BACKEND, stdio: 'inherit', env: childEnv(),
+  });
 }
 
 async function main() {
@@ -94,33 +53,21 @@ async function main() {
     console.log('ignoring a remote DATABASE_URL from the shell; dev uses the local dev container only');
   }
 
-  console.log(`1/5 starting dev postgres (${COMPOSE_FILE})...`);
-  execFileSync('docker', ['compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait'], { cwd: ROOT, stdio: 'inherit' });
+  console.log(`1/5 db:dev:up (preflight + ${DEV_DB_NAME} on 127.0.0.1:${DEV_DB_PORT})...`);
+  runDb('up');
 
-  console.log(`2/5 ensuring database ${DEV_DB_NAME} on 127.0.0.1:${DEV_DB_PORT}...`);
-  await ensureDatabase();
-  await bootstrapDevSchema();
+  console.log('2/5 db:dev:migrate...');
+  runDb('migrate');
 
-  console.log('3/5 running migrations...');
-  execFileSync(process.execPath, [path.join(__dirname, 'run_migration.js')], {
-    cwd: BACKEND,
-    stdio: 'inherit',
-    env: childEnv(),
-  });
-
-  console.log('4/5 seeding the demo shop...');
-  execFileSync(process.execPath, [path.join(__dirname, 'seed-demo.js')], {
-    cwd: BACKEND,
-    stdio: 'inherit',
-    env: childEnv(),
-  });
+  console.log('3/5 db:dev:seed...');
+  runDb('seed');
 
   if (process.argv.includes('--setup-only')) {
     console.log('setup-only: dev database, migrations and demo seed are ready; servers not started');
     return;
   }
 
-  console.log('5/5 starting backend and frontend...');
+  console.log('4/5 starting backend and frontend...');
   const backend = spawn(process.execPath, [path.join(BACKEND, 'src', 'app.js')], {
     cwd: BACKEND,
     stdio: 'inherit',
