@@ -10,7 +10,6 @@ export const queryKeys = {
   dashboardStats: ['dashboardStats'],
   dashboardAnalytics: (from, to) => ['dashboardAnalytics', from, to],
   dashboardSalesMix: (from, to) => ['dashboardSalesMix', from, to],
-  salesSummary: (range) => ['dashboard', 'sales-summary', range],
 };
 
 export default queryKeys;

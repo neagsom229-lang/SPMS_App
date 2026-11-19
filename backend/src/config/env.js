@@ -11,10 +11,6 @@ const optionalEnv = [
   'NODE_ENV',
   'FRONTEND_URL',
   'CORS_ORIGINS',
-  'STRIPE_SECRET_KEY',
-  'STRIPE_PUBLISHABLE_KEY',
-  'SMTP_USER',
-  'SMTP_PASS',
 ];
 
 const checkEnv = () => {
