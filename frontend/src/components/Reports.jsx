@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import '../styles/reports.css';
 import apiClient from '../api/client';
-import { unwrapList as extractArrayData } from '../api/list';
+import { fetchPage } from '../api/list';
+import Pagination from './Pagination';
 
 // ============================================
 // SHARED DATA HELPERS
@@ -75,6 +76,8 @@ const Reports = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [totalRecords, setTotalRecords] = useState(0);
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPaging, setReportPaging] = useState({ totalPages: 1, total: 0 });
   const [generatedAt, setGeneratedAt] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -254,14 +257,10 @@ const Reports = () => {
     
     try {
       const endpoint = getReportEndpoint(reportType);
-      
-      const res = await apiClient.get(endpoint);
-      
-      // Extract raw data
-      let rawData = extractArrayData(res.data, ['data', 'items', 'results']);
-      if (rawData === null || !Array.isArray(rawData)) {
-        rawData = [];
-      }
+      const { rows: rawData, pagination } = await fetchPage(apiClient, endpoint, {
+        params: { page: reportPage, limit: 20 },
+      });
+      setReportPaging(pagination);
       
       
       // Normalize data
@@ -269,7 +268,7 @@ const Reports = () => {
       
       if (isMounted.current) {
         setData(normalizedData);
-        setTotalRecords(normalizedData.length);
+        setTotalRecords(pagination.total ?? normalizedData.length);
         setGeneratedAt(new Date().toLocaleString());
         calculateStats(reportType, normalizedData);
         showMessage(`✅ ${reportOptions.find(r => r.value === reportType)?.label} report generated successfully! (${normalizedData.length} records)`, 'success');
@@ -293,7 +292,7 @@ const Reports = () => {
         setIsGenerating(false);
       }
     }
-  }, [reportType, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage]);
+  }, [reportType, reportPage, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage]);
 
   // ===== INITIAL MOUNT / CLEANUP =====
   useEffect(() => {
@@ -316,6 +315,10 @@ const Reports = () => {
       generateReport();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportType, reportPage]);
+
+  useEffect(() => {
+    setReportPage(1);
   }, [reportType]);
 
   // ===== FILTERED DATA (search, status filter, sort — all client-side) =====
@@ -904,11 +907,19 @@ const Reports = () => {
 
           {/* Footer */}
           <div className="reports-footer">
-            <span>Showing {filteredData.length} of {data.length} records</span>
+            <span>Showing {filteredData.length} of {totalRecords} records</span>
             <span className="reports-footer-right">
               <span>Generated: {generatedAt}</span>
               <span className="reports-footer-total">• Total: {totalRecords} records</span>
             </span>
+            <Pagination
+              currentPage={reportPage}
+              totalPages={Math.max(1, Number(reportPaging.totalPages) || 1)}
+              onPageChange={setReportPage}
+              totalItems={totalRecords}
+              itemsPerPage={20}
+              loading={loading}
+            />
           </div>
         </div>
       ) : data && data.length === 0 ? (

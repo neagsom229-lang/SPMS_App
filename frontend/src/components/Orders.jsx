@@ -37,7 +37,7 @@ import '../styles/orders.css';
 // ✅ Shared axios instance — attaches the Authorization header from
 // localStorage on every request.
 import apiClient from '../api/client';
-import { unwrapList as extractArrayData } from '../api/list';
+import { unwrapList as extractArrayData, fetchPage } from '../api/list';
 
 // ============================================
 // SHARED DATA HELPERS
@@ -198,6 +198,8 @@ const Orders = () => {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("success");
   const [searchTerm, setSearchTerm] = useState("");
+  const [productPage, setProductPage] = useState(1);
+  const [productPaging, setProductPaging] = useState({ total: 0, totalPages: 1, limit: 50 });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [savedOrderData, setSavedOrderData] = useState(null);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -266,11 +268,12 @@ const Orders = () => {
   // ============================================
   const fetchProducts = useCallback(async () => {
     try {
-      const res = await apiClient.get("/products");
+      const { rows, pagination } = await fetchPage(apiClient, "/products", {
+        params: { page: productPage, limit: 50, q: searchTerm || undefined },
+      });
       if (!isMounted.current) return;
-      const extracted = extractArrayData(res.data, ["products", "items"]);
-      if (extracted === null) throw new Error("API not available");
-      setProducts(extracted.length > 0 ? extracted : getFallbackProducts());
+      setProducts(rows.length > 0 ? rows : getFallbackProducts());
+      setProductPaging(pagination);
     } catch (error) {
       console.warn(
         "⚠️ Products API unavailable, using fallback:",
@@ -278,7 +281,7 @@ const Orders = () => {
       );
       if (isMounted.current) setProducts(getFallbackProducts());
     }
-  }, []);
+  }, [productPage, searchTerm]);
 
   // ============================================
   // FETCH ORDERS - Properly maps data
@@ -409,7 +412,7 @@ const Orders = () => {
   useEffect(() => {
     isMounted.current = true;
     setDataLoading(true);
-    Promise.all([fetchCustomers(), fetchProducts()]).finally(() => {
+    Promise.all([fetchCustomers()]).finally(() => {
       if (isMounted.current) setDataLoading(false);
     });
     generateOrderNo();
@@ -419,7 +422,15 @@ const Orders = () => {
       isMounted.current = false;
       if (messageTimeout.current) clearTimeout(messageTimeout.current);
     };
-  }, [fetchCustomers, fetchProducts, fetchOrders, generateOrderNo]);
+  }, [fetchCustomers, fetchOrders, generateOrderNo]);
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
+    if (isMounted.current) fetchProducts();
+  }, [fetchProducts, productPage]);
 
   // ===== SCROLL TO ITEMS =====
   useEffect(() => {
@@ -1531,6 +1542,12 @@ const Orders = () => {
                     placeholder="🔍 Search products by name, barcode..."
                     className="orders-search-input"
                   />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 12 }}>
+                    <span>Showing {filteredProducts.length} of {productPaging.total} products</span>
+                    <button type="button" onClick={() => setProductPage((p) => Math.max(1, p - 1))} disabled={productPage <= 1}>Prev</button>
+                    <span>Page {productPage} / {productPaging.totalPages}</span>
+                    <button type="button" onClick={() => setProductPage((p) => Math.min(productPaging.totalPages, p + 1))} disabled={productPage >= productPaging.totalPages}>Next</button>
+                  </div>
                 </div>
               </div>
 

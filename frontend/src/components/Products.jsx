@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Pagination from './Pagination';
 import apiClient from '../api/client';
 import { queryKeys } from '../api/queryKeys';
-import { unwrapList as extractProductsData } from '../api/list';
+import { fetchPage } from '../api/list';
 import {
   Search, Plus, Edit2, Trash2, Package, X, Save,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
@@ -148,29 +148,29 @@ const Products = () => {
   // QUERY: PRODUCTS
   // ============================================
   const {
-    data: products = [],
+    data: productPage,
     isLoading: loading,
     isFetching: isRefreshing,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.productsSearch(debouncedSearch),
+    queryKey: queryKeys.productsSearch(debouncedSearch).concat(page),
     queryFn: async () => {
   try {
-    const res = await apiClient.get('/products', { params: debouncedSearch ? { search: debouncedSearch } : {} });
-    if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
-      showMessage('❌ API not available — could not load products', 'error');
-      return [];
-    }
-    const data = extractProductsData(res.data);
-    return Array.isArray(data) ? data : [];
+    const result = await fetchPage(apiClient, '/products', {
+      params: { page, limit: ITEMS_PER_PAGE, ...(debouncedSearch ? { search: debouncedSearch } : {}) },
+    });
+    return result;
   } catch (error) {
     console.error('❌ Error fetching products:', error.message);
     showMessage('❌ Failed to load products from server', 'error');
-    return [];
+    return { rows: [], pagination: { page: 1, limit: ITEMS_PER_PAGE, total: 0, totalPages: 1 } };
   }
 },
     staleTime: 30_000,
   });
+
+  const products = useMemo(() => productPage?.rows || [], [productPage]);
+  const serverPagination = productPage?.pagination || { total: 0, totalPages: 1 };
 
   // ============================================
   // QUERY: STOCK (read‑only for stock info)
@@ -455,11 +455,9 @@ const Products = () => {
     return result;
   }, [products, filterStatus, sortBy, sortOrder, getStock]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
-  const paginatedProducts = useMemo(() => {
-    const start = (page - 1) * ITEMS_PER_PAGE;
-    return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredProducts, page]);
+  // Server owns pagination; no client-side slicing of a single page.
+  const totalPages = Math.max(1, Number(serverPagination.totalPages) || 1);
+  const paginatedProducts = filteredProducts;
 
   const pageIds = useMemo(() => paginatedProducts.map(getId), [paginatedProducts]);
   const allOnPageSelected = pageIds.length > 0 && pageIds.every(id => selectedProducts.includes(id));
@@ -955,7 +953,7 @@ const Products = () => {
           currentPage={page}
           totalPages={totalPages}
           onPageChange={setPage}
-          totalItems={filteredProducts.length}
+          totalItems={serverPagination.total}
           itemsPerPage={ITEMS_PER_PAGE}
           loading={loading}
         />

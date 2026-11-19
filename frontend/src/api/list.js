@@ -74,4 +74,18 @@ export async function fetchAllList(
   return all;
 }
 
+/**
+ * Fetch one server page and return rows plus the envelope's pagination.
+ * Endpoints without pagination get a synthetic one-page envelope.
+ */
+export async function fetchPage(api, url, { params = {} } = {}) {
+  const res = await api.get(url, { params });
+  const rows = unwrapList(res.data);
+  const paging = res.data?.pagination || res.data?.data?.pagination;
+  const pagination = paging
+    ? paging
+    : { page: 1, limit: rows.length, total: rows.length, totalPages: 1 };
+  return { rows, pagination };
+}
+
 export default unwrapList;
