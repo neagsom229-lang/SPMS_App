@@ -7,43 +7,79 @@ const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
+const SORT_COLUMNS = {
+  NAME_EN: 'p.name',
+  SALEOUT_PRICE: 'p.price',
+  QtyInStock: 'COALESCE(st.qtyinstock, 0)',
+  BARCODE: 'p.barcode',
+};
+
+function productWhere(scope, req) {
+  const { search, q, category, status, lowStock } = req.query;
+  const searchTerm = search || q;
+  let whereClause = ' WHERE 1=1';
+  const params = [];
+  let paramIndex = 1;
+
+  if (!scope.isSuperAdmin || scope.tenantId) {
+    whereClause += ` AND p.tenant_id = $${paramIndex}`;
+    params.push(scope.tenantId);
+    paramIndex++;
+  }
+  if (searchTerm) {
+    whereClause += ` AND (p.name ILIKE $${paramIndex} OR p.name_kh ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex})`;
+    params.push(`%${searchTerm}%`);
+    paramIndex++;
+  }
+  if (category) {
+    whereClause += ` AND p.category_id = $${paramIndex}`;
+    params.push(category);
+    paramIndex++;
+  }
+  if (status) {
+    whereClause += ` AND p.status = $${paramIndex}`;
+    params.push(status);
+    paramIndex++;
+  }
+  if (String(lowStock).toLowerCase() === 'true') {
+    whereClause += ' AND COALESCE(st.qtyavailable, 0) <= COALESCE(p.qty_alert, 0)';
+  }
+  return { whereClause, params, paramIndex };
+}
+
+// Tenant-wide aggregate for stat cards (never derived from one page).
+router.get('/stats', authenticate, async (req, res) => {
+  const scope = getScope(req, res);
+  if (!scope) return;
+  const { whereClause, params } = productWhere(scope, req);
+  try {
+    const r = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE LOWER(p.status) = 'active')::int AS active,
+              COUNT(*) FILTER (WHERE COALESCE(st.qtyavailable,0) <= COALESCE(p.qty_alert,0))::int AS "lowStock",
+              COALESCE(SUM(COALESCE(st.qtyavailable,0) * COALESCE(p.price,0)), 0)::float AS "totalValue"
+       FROM tbl_products p
+       LEFT JOIN tbl_stock st ON st.productid = p.id AND st.tenant_id = p.tenant_id
+       ${whereClause}`,
+      params
+    );
+    res.json(r.rows[0]);
+  } catch (error) {
+    console.error('Get product stats error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch product stats' });
+  }
+});
+
 // ===== GET ALL PRODUCTS =====
 router.get('/', authenticate, async (req, res) => {
   const scope = getScope(req, res);
   if (!scope) return;
-  const { search, q, category, status } = req.query;
-  const searchTerm = search || q;
   const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
+  const { whereClause, params, paramIndex } = productWhere(scope, req);
+  const sortColumn = SORT_COLUMNS[req.query.sort] || 'p.id';
+  const sortDirection = String(req.query.order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
   try {
-    let whereClause = ' WHERE 1=1';
-    const params = [];
-    let paramIndex = 1;
-
-    if (!scope.isSuperAdmin || scope.tenantId) {
-      whereClause += ` AND p.tenant_id = $${paramIndex}`;
-      params.push(scope.tenantId);
-      paramIndex++;
-    }
-
-    if (searchTerm) {
-      whereClause += ` AND (p.name ILIKE $${paramIndex} OR p.name_kh ILIKE $${paramIndex} OR p.barcode ILIKE $${paramIndex})`;
-      params.push(`%${searchTerm}%`);
-      paramIndex++;
-    }
-
-    if (category) {
-      whereClause += ` AND p.category_id = $${paramIndex}`;
-      params.push(category);
-      paramIndex++;
-    }
-
-    if (status) {
-      whereClause += ` AND p.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex++;
-    }
-
     // Direct count query
     const countQuery = `
       SELECT COUNT(*) as total 
@@ -68,7 +104,7 @@ router.get('/', authenticate, async (req, res) => {
       LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
       LEFT JOIN tbl_stock st ON st.productid = p.id AND st.tenant_id = p.tenant_id
       ${whereClause}
-      ORDER BY p.id DESC 
+      ORDER BY ${sortColumn} ${sortDirection}, p.id DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
     params.push(limit, offset);

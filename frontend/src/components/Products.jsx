@@ -144,6 +144,26 @@ const Products = () => {
     setTimeout(() => setMessage(''), 5000);
   }, []);
 
+  const productParams = useMemo(() => ({
+    page,
+    limit: ITEMS_PER_PAGE,
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(filterStatus === 'active' ? { status: 'Active' }
+      : filterStatus === 'inactive' ? { status: 'Inactive' }
+      : filterStatus === 'lowStock' ? { lowStock: 'true' } : {}),
+    sort: sortBy,
+    order: sortOrder,
+  }), [page, debouncedSearch, filterStatus, sortBy, sortOrder]);
+
+  const statsParams = useMemo(() => ({
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(filterStatus === 'active' ? { status: 'Active' }
+      : filterStatus === 'inactive' ? { status: 'Inactive' }
+      : filterStatus === 'lowStock' ? { lowStock: 'true' } : {}),
+    sort: sortBy,
+    order: sortOrder,
+  }), [debouncedSearch, filterStatus, sortBy, sortOrder]);
+
   // ============================================
   // QUERY: PRODUCTS
   // ============================================
@@ -153,12 +173,10 @@ const Products = () => {
     isFetching: isRefreshing,
     refetch,
   } = useQuery({
-    queryKey: queryKeys.productsSearch(debouncedSearch).concat(page),
+    queryKey: ['products', productParams],
     queryFn: async () => {
   try {
-    const result = await fetchPage(apiClient, '/products', {
-      params: { page, limit: ITEMS_PER_PAGE, ...(debouncedSearch ? { search: debouncedSearch } : {}) },
-    });
+    const result = await fetchPage(apiClient, '/products', { params: productParams });
     return result;
   } catch (error) {
     console.error('❌ Error fetching products:', error.message);
@@ -171,6 +189,12 @@ const Products = () => {
 
   const products = useMemo(() => productPage?.rows || [], [productPage]);
   const serverPagination = productPage?.pagination || { total: 0, totalPages: 1 };
+
+  const { data: serverStats = {} } = useQuery({
+    queryKey: ['productStats', statsParams],
+    queryFn: async () => (await apiClient.get('/products/stats', { params: statsParams })).data,
+    staleTime: 30_000,
+  });
 
   // ============================================
   // QUERY: STOCK (read‑only for stock info)
@@ -223,16 +247,13 @@ const Products = () => {
     return getOwnStockField(product);
   }, [stockByNumericId]);
 
-  // ===== STATS =====
-  const productStats = useMemo(() => {
-    const arr = Array.isArray(products) ? products : [];
-    return {
-      total: arr.length,
-      lowStock: arr.filter(p => getStock(p) <= getAlert(p)).length,
-      active: arr.filter(p => getStatus(p) === 'Active').length,
-      totalValue: arr.reduce((sum, p) => sum + getSalePrice(p) * getStock(p), 0),
-    };
-  }, [products, getStock]);
+  // ===== STATS (tenant-wide, from the server) =====
+  const productStats = {
+    total: serverStats.total ?? 0,
+    lowStock: serverStats.lowStock ?? 0,
+    active: serverStats.active ?? 0,
+    totalValue: Number(serverStats.totalValue) || 0,
+  };
 
   // ============================================
   // MUTATIONS WITH AUTO STOCK SYNC (numeric IDs)
@@ -425,37 +446,8 @@ const Products = () => {
 
   const handleRefresh = useCallback(() => { refetch(); }, [refetch]);
 
-  // ============================================
-  // FILTERED & SORTED PRODUCTS
-  // ============================================
-  const filteredProducts = useMemo(() => {
-    let result = Array.isArray(products) ? [...products] : [];
-
-    if (filterStatus === 'lowStock') result = result.filter(p => getStock(p) <= getAlert(p));
-    else if (filterStatus === 'active') result = result.filter(p => getStatus(p) === 'Active');
-    else if (filterStatus === 'inactive') result = result.filter(p => getStatus(p) !== 'Active');
-
-    const sortGetters = {
-      NAME_EN: getName,
-      SALEOUT_PRICE: getSalePrice,
-      QtyInStock: getStock,
-      BARCODE: getBarcode,
-    };
-    const getSortVal = sortGetters[sortBy] || getName;
-
-    result.sort((a, b) => {
-      const aVal = getSortVal(a);
-      const bVal = getSortVal(b);
-      const comparison = typeof aVal === 'number' && typeof bVal === 'number'
-        ? aVal - bVal
-        : String(aVal).localeCompare(String(bVal));
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-
-    return result;
-  }, [products, filterStatus, sortBy, sortOrder, getStock]);
-
-  // Server owns pagination; no client-side slicing of a single page.
+  // Filtering, sorting and pagination are all server-side.
+  const filteredProducts = products;
   const totalPages = Math.max(1, Number(serverPagination.totalPages) || 1);
   const paginatedProducts = filteredProducts;
 

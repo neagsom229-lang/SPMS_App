@@ -42,6 +42,22 @@ const REPORTS = {
   }
 };
 
+// All matching rows for CSV/print on the client (server-side, not one page).
+router.get('/rows/:type', authenticate, async (req, res) => {
+  try {
+    const scope = getScope(req, res);
+    if (!scope) return;
+    const report = REPORTS[req.params.type];
+    if (!report) return res.status(400).json({ error: 'Unknown report type', supported: Object.keys(REPORTS) });
+    const queryParams = report.params ? [scope.tenantId, report.params] : [scope.tenantId];
+    const { rows } = await pool.query(report.sql, queryParams);
+    res.json({ rows });
+  } catch (err) {
+    console.error('Report rows error:', err.message);
+    res.status(500).json({ error: 'Failed to export report rows' });
+  }
+});
+
 router.get('/export/:type', authenticate, async (req, res) => {
   try {
     const scope = getScope(req, res);

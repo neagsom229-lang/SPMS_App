@@ -375,24 +375,30 @@ const Reports = () => {
   }, [data, searchTerm, filterStatus, sortBy, sortOrder]);
 
   // ===== EXPORT CSV =====
-  const exportCSV = useCallback(() => {
-    if (!data || data.length === 0) {
+  const exportCSV = useCallback(async () => {
+    if (!reportType || totalRecords === 0) {
       showMessage('❌ No data to export', 'error');
       return;
     }
-    
     try {
-      const headers = Object.keys(data[0]);
+      // All matching rows come from the server, not just the current page.
+      const res = await apiClient.get(`/reports/rows/${reportType}`);
+      const rows = normalizeReportData(reportType, res.data?.rows || []);
+      if (rows.length === 0) {
+        showMessage('❌ No data to export', 'error');
+        return;
+      }
+      const headers = Object.keys(rows[0]);
       const csv = [
         headers.join(','),
-        ...data.map(row => headers.map(h => {
+        ...rows.map(row => headers.map(h => {
           const value = row[h] ?? '';
-          return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
-            ? `"${value.replace(/"/g, '""')}"` 
+          return typeof value === 'string' && (value.includes(',') || value.includes('"'))
+            ? `"${value.replace(/"/g, '""')}"`
             : value;
         }).join(','))
       ].join('\n');
-      
+
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -402,14 +408,12 @@ const Reports = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      showMessage(`✅ CSV exported successfully!`, 'success');
-      
+      showMessage(`✅ CSV exported successfully! (${rows.length} records)`, 'success');
     } catch (error) {
       console.error('❌ Export error:', error);
       showMessage('❌ Failed to export CSV', 'error');
     }
-  }, [data, reportType, showMessage]);
+  }, [reportType, totalRecords, normalizeReportData, showMessage]);
 
   // ===== PRINT REPORT =====
   const printReport = useCallback(() => {
