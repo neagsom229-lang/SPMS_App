@@ -15,6 +15,12 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
+
+const ADMIN_ROLES = ['admin', 'administrator', 'manager', 'owner'];
+const isAdmin = (user) => !!(user && (
+  user.isSuperAdmin || ADMIN_ROLES.includes(String(user.role || '').trim().toLowerCase())
+));
 
 const STATUSES = ['All', 'Pending', 'Confirmed', 'Preparing', 'Ready', 'Completed', 'Cancelled'];
 
@@ -39,6 +45,8 @@ const OnlineOrders = () => {
   const [confirmCancelId, setConfirmCancelId] = useState(null);
   const [actionError, setActionError] = useState(null);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canCancel = isAdmin(user);
 
   // Fetch counts per status
   const { data: counts = {} } = useQuery({
@@ -355,7 +363,7 @@ const OnlineOrders = () => {
                   </button>
 
                   <div className="flex items-center gap-2 flex-1 justify-end">
-                    {['Pending', 'Confirmed', 'Preparing', 'Ready'].includes(order.status) && (
+                    {canCancel && ['Pending', 'Confirmed', 'Preparing', 'Ready'].includes(order.status) && (
                       <button
                         onClick={() => setConfirmCancelId(order.or_id)}
                         disabled={isProcessing}
@@ -379,7 +387,7 @@ const OnlineOrders = () => {
                 </div>
 
                 {/* Confirm Cancel Modal per card */}
-                {confirmCancelId === order.or_id && (
+                {canCancel && confirmCancelId === order.or_id && (
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-xs z-20 flex items-center justify-center p-4">
                     <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-xl space-y-4 border border-gray-200 dark:border-gray-700">
                       <h4 className="text-base font-bold text-gray-900 dark:text-white">Cancel Order #{order.order_no}?</h4>

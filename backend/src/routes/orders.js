@@ -5,6 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/cache');
 const { BusinessError } = require('../lib/errors');
 const { parsePaging } = require('../utils/paging');
+const { isAdminRole, canMoveOrderForward } = require('../middleware/rolePolicy');
 
 const router = express.Router();
 
@@ -750,9 +751,13 @@ router.patch('/:id/status', authenticate, async (req, res) => {
     return res.status(400).json({ error: 'A valid status is required' });
   }
 
-  const role = req.user?.role ? req.user.role.toLowerCase() : '';
-  if (newStatus === 'Cancelled' && role === 'cashier') {
-    return res.status(403).json({ error: 'Cashiers cannot cancel orders' });
+  // Option A: Staff/Cashier may advance orders, but only admins may cancel.
+  // Unknown roles are rejected here as well (rolePolicy no longer gates PATCH).
+  if (!canMoveOrderForward(req.user)) {
+    return res.status(403).json({ error: 'You do not have permission to change order status' });
+  }
+  if (newStatus === 'Cancelled' && !isAdminRole(req.user)) {
+    return res.status(403).json({ error: 'Only admins may cancel orders' });
   }
 
   const client = await pool.connect();
