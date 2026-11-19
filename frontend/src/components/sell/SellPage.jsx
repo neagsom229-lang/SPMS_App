@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
-import { unwrapList } from '../../api/list';
+import { unwrapList, fetchPage } from '../../api/list';
 import ProductCatalog from './ProductCatalog';
 import CartPanel from './CartPanel';
 import CustomerPicker from './CustomerPicker';
@@ -18,6 +18,8 @@ const SellPage = () => {
   const [productQuery, setProductQuery] = useState('');
   const [customerQuery, setCustomerQuery] = useState('');
   const [productTotal, setProductTotal] = useState(0);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -29,6 +31,16 @@ const SellPage = () => {
 
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    let alive = true;
+    apiClient.get('/categories').then((res) => {
+      if (!alive) return;
+      const rows = unwrapList(res.data, ['categories']);
+      setCategories(rows.map((c) => ({ id: c.id || c.ID, name: c.name || c.NAME || c.category })).filter((c) => c.id && c.name));
+    }).catch(() => { if (alive) setCategories([]); });
+    return () => { alive = false; };
+  }, []);
+
   // Reset idempotency key when cart changes
   useEffect(() => {
     setIdempotencyKey(crypto.randomUUID());
@@ -36,14 +48,12 @@ const SellPage = () => {
 
   // Fetch products (?q= search, limit 50 while searching, 200 newest otherwise)
   const loadProducts = useCallback(async (q) => {
-    const params = q ? { q, limit: 50 } : { limit: 200 };
-    const res = await apiClient.get('/products', { params });
-    const list = unwrapList(res.data, ['products']);
+    const params = { limit: 200, ...(q ? { q } : {}), ...(selectedCategory ? { category: selectedCategory } : {}) };
+    const { rows: list, pagination } = await fetchPage(apiClient, '/products', { params });
     setProducts(list);
-    const total = res.data.pagination?.total;
-    setProductTotal(typeof total === 'number' ? total : list.length);
+    setProductTotal(pagination.total ?? list.length);
     return list;
-  }, []);
+  }, [selectedCategory]);
 
   // Fetch customers (?q= search on name / phone / email)
   const loadCustomers = useCallback(async (q) => {
@@ -271,20 +281,21 @@ const SellPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Catalog */}
         <div className="lg:col-span-2">
-          {!productQuery && productTotal > 200 && (
-            <div
-              data-testid="newest-note"
-              className="mb-3 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-sm rounded-xl"
-            >
-              Showing 200 newest - search for more
-            </div>
-          )}
+          <div
+            data-testid="pos-product-total"
+            className="mb-3 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-sm rounded-xl"
+          >
+            Showing {products.length} of {productTotal} products
+          </div>
           <ProductCatalog
             products={products}
             cart={cart}
             onAddToCart={handleAddToCart}
             onSearchChange={setProductQuery}
             resolveByBarcode={resolveByBarcode}
+            categories={categories}
+            selectedCategory={selectedCategory}
+            onCategoryChange={setSelectedCategory}
           />
         </div>
 

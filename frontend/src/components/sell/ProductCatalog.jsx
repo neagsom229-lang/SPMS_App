@@ -3,9 +3,8 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Search, Plus, Package, QrCode } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveByBarcode }) => {
+const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveByBarcode, categories = [], selectedCategory = '', onCategoryChange }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
   const barcodeInputRef = useRef(null);
   const navigate = useNavigate();
 
@@ -24,16 +23,6 @@ const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveBy
     return map;
   }, [cart]);
 
-  // Categories list
-  const categories = useMemo(() => {
-    const set = new Set(['All']);
-    products.forEach(p => {
-      const cat = p.category || p.category_en || p.CATEGORY || p.brand || p.BRAND;
-      if (cat) set.add(cat);
-    });
-    return Array.from(set);
-  }, [products]);
-
   // Filtered products (Active items with stock)
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -43,20 +32,18 @@ const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveBy
       const name = p.name || p.name_en || p.NAME_EN || '';
       const nameKh = p.name_kh || p.NAME_KH || '';
       const barcode = p.barcode || p.BARCODE || '';
-      const cat = p.category || p.category_en || p.CATEGORY || p.brand || p.BRAND || '';
 
       const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             nameKh.toLowerCase().includes(searchQuery.toLowerCase()) ||
                             barcode.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCat = selectedCategory === 'All' || cat === selectedCategory;
-
+      // Category is filtered server-side by SellPage; no client-side second filter.
       const stock = Number(p.stock ?? p.qtyinstock ?? p.qtyavailable ?? 0);
       const inCart = cartQtyMap[p.id] || 0;
       const remaining = stock - inCart;
 
-      return matchesSearch && matchesCat && remaining > 0;
+      return matchesSearch && remaining > 0;
     });
-  }, [products, searchQuery, selectedCategory, cartQtyMap]);
+  }, [products, searchQuery, cartQtyMap]);
 
   // Barcode / Search form submit (Enter adds product if exact barcode match).
   // Falls back to a direct ?q= lookup when the debounced search response has
@@ -113,17 +100,17 @@ const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveBy
 
       {/* Category Chips */}
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {categories.map(cat => (
+        {[{ id: '', name: 'All' }, ...categories].map(cat => (
           <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
+            key={cat.id || 'All'}
+            onClick={() => onCategoryChange && onCategoryChange(cat.id)}
             className={`px-3.5 py-1.5 rounded-lg font-medium text-xs whitespace-nowrap transition ${
-              selectedCategory === cat
+              selectedCategory === cat.id
                 ? 'bg-indigo-600 text-white shadow'
                 : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
             }`}
           >
-            {cat}
+            {cat.name}
           </button>
         ))}
       </div>
