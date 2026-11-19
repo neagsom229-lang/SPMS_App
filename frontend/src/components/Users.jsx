@@ -46,7 +46,7 @@ const Users = () => {
     username: '',
     password: '',
     fullname: '',
-    role_id: '2',
+    role: 'Staff',
     email: '',
     phone: '',
     status: 'ACTIVE'
@@ -101,7 +101,7 @@ const Users = () => {
         // ✅ Extract real data from API response
         const raw = unwrapList(res.data, ['users']);
         // Normalize id field in case the API returns `id` instead of `user_id`
-        const data = raw.map(u => ({ ...u, user_id: u.user_id ?? u.id }));
+        const data = raw.map(u => ({ ...u, user_id: u.user_id ?? u.id ?? u.userid }));
         setUsers(data);
         calculateStats(data);
         if (data.length > 0) {
@@ -248,7 +248,7 @@ const Users = () => {
       const submitData = {
         username: formData.username.trim(),
         fullname: formData.fullname?.trim() || formData.username.trim(),
-        role_id: parseInt(formData.role_id, 10),
+        role: formData.role || 'Staff',
         status: formData.status || 'ACTIVE'
       };
       
@@ -371,7 +371,7 @@ const Users = () => {
       username: '',
       password: '',
       fullname: '',
-      role_id: '2',
+      role: 'Staff',
       email: '',
       phone: '',
       status: 'ACTIVE'
@@ -387,7 +387,7 @@ const Users = () => {
       username: user.username || '',
       password: '',
       fullname: user.fullname || '',
-      role_id: String(user.role_id || 2),
+      role: user.role || 'Staff',
       email: user.email || '',
       phone: user.phone || '',
       status: user.status || 'ACTIVE'
@@ -1257,14 +1257,14 @@ const Users = () => {
                       Role
                     </label>
                     <select
-                      value={formData.role_id}
-                      onChange={(e) => setFormData({...formData, role_id: e.target.value})}
+                      value={formData.role}
+                      onChange={(e) => setFormData({...formData, role: e.target.value})}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
                       disabled={submitting}
                     >
-                      <option value="1">Admin</option>
-                      <option value="2">Cashier</option>
-                      <option value="3">Viewer</option>
+                      <option value="Admin">Admin</option>
+                      <option value="Staff">Staff</option>
+                      <option value="Viewer">Viewer</option>
                     </select>
                   </div>
                   <div className="group">

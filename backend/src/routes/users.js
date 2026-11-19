@@ -148,7 +148,8 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
   }
-  if (role !== undefined && !(isSuperAdmin ? ['admin', 'manager', 'cashier', 'super admin'] : ['admin', 'manager', 'cashier']).includes(String(role).trim().toLowerCase())) {
+  // Cashier stays allowed for legacy rows; Staff is the current DB role.
+  if (role !== undefined && !(isSuperAdmin ? ['admin', 'manager', 'cashier', 'staff', 'super admin'] : ['admin', 'manager', 'cashier', 'staff']).includes(String(role).trim().toLowerCase())) {
     return res.status(400).json({ error: 'Role not allowed' });
   }
   if (role !== undefined) {
