@@ -632,9 +632,10 @@ async function reverseOrder(client, order, type, userId, reason) {
       [newStatus, userId, reason, orderId, tenantId]
     );
     await client.query(
-      `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [userId || 1, 'VOID_ORDER', 'tbl_orders', orderId, tenantId]
+      `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [userId || 1, 'VOID_ORDER', 'tbl_orders', orderId, tenantId,
+        `from=${order.status || 'unknown'};to=${newStatus};cashPaymentCreated=false`]
     );
   } else {
     await client.query(
@@ -642,11 +643,21 @@ async function reverseOrder(client, order, type, userId, reason) {
       [newStatus, orderId, tenantId]
     );
     await client.query(
-      `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [userId || 1, `${type}_ORDER`, 'tbl_orders', orderId, tenantId]
+      `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, details, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [userId || 1, `${type}_ORDER`, 'tbl_orders', orderId, tenantId,
+        `from=${order.status || 'unknown'};to=${newStatus};cashPaymentCreated=false`]
     );
   }
+}
+
+async function writeOrderStatusLog(client, userId, tenantId, orderId, from, to, cashPaymentCreated) {
+  await client.query(
+    `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, details, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,NOW())`,
+    [userId || 1, 'ORDER_STATUS_CHANGED', 'tbl_orders', orderId, tenantId,
+      `from=${from};to=${to};cashPaymentCreated=${cashPaymentCreated}`]
+  );
 }
 
 // ===== CANCEL ORDER =====
@@ -776,6 +787,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
 
     const order = orderRes.rows[0];
     const currentStatus = order.status;
+    let cashPaymentCreated = false;
 
     const allowedTransitions = {
       'Pending': ['Confirmed', 'Cancelled'],
@@ -805,6 +817,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
            VALUES ($1, $2, $3, $4, 'COMPLETED', NOW())`,
           [orderId, tenantId, order.total, order.payment_method || 'Cash']
         );
+        cashPaymentCreated = true;
       }
     }
 
@@ -821,6 +834,12 @@ router.patch('/:id/status', authenticate, async (req, res) => {
       `SELECT * FROM tbl_orders WHERE or_id = $1 AND tenant_id = $2`,
       [orderId, tenantId]
     );
+
+    // Cancelled is already logged by reverseOrder with the same from/to
+    // details; writing here too would produce two rows for one cancel.
+    if (newStatus !== 'Cancelled') {
+      await writeOrderStatusLog(client, userId, tenantId, orderId, currentStatus, newStatus, cashPaymentCreated);
+    }
 
     await client.query('COMMIT');
     clearTenantCache(tenantId);

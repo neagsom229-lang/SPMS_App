@@ -20,7 +20,7 @@ const BASELINE = path.join(ROOT, 'database', 'baseline.sql');
 const MIGRATIONS = path.join(ROOT, 'database', 'migrations');
 const REPLAY_DB = 'spms_replay_test';
 const BASELINE_MAX = 14;
-const LATEST = 29;
+const LATEST = 30;
 
 function migrationFilesFrom(min, max) {
   return fs.readdirSync(MIGRATIONS)
