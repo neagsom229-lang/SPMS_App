@@ -40,7 +40,7 @@ async function authHeaders(page) {
 
 async function apiGet(page, path) {
   const headers = await authHeaders(page);
-  const res = await page.request.get(`${API}${path}`, { headers });
+  const res = await page.request.get(`${API}${path}`, { headers, maxRetries: 3 });
   expect(res.ok(), `GET ${path} -> ${res.status()}`).toBeTruthy();
   return res.json();
 }

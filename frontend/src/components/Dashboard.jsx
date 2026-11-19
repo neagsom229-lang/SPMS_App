@@ -6,6 +6,7 @@ import apiClient from "../api/client";
 import { queryKeys } from '../api/queryKeys';
 import { unwrapList as extractArrayData } from '../api/list';
 import { DEFAULT_STORE_SLUG } from '../config/store';
+import { isAdminRole } from '../utils/roles';
 import { 
   Users, Package, ShoppingCart, DollarSign, 
   Clock, ArrowRight, BarChart3, PieChart, CheckCircle, Rocket, RefreshCw, Activity, Cpu, Sparkles 
@@ -205,6 +206,7 @@ const buildMonthlySeries = (revenueByMonth = []) => {
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const canSeeSalesMix = isAdminRole(user);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
 
@@ -257,7 +259,8 @@ const Dashboard = () => {
       return res.data || {};
     },
     staleTime: REFRESH_STALE_TIME_MS,
-    retry: 1,
+    enabled: canSeeSalesMix,
+    retry: (failureCount, error) => (error?.response?.status === 403 ? false : failureCount < 1),
   });
 
   // `x.data || {}` creates a fresh object on every render when data is absent,
@@ -321,9 +324,11 @@ const Dashboard = () => {
 
   // Honest empty state: a brand-new tenant has no sales at all, while an
   // established tenant can simply have none inside the six-month window.
-  const emptyChartText = stats.totalOrders > 0
-    ? 'No sales in the last 6 months'
-    : 'No sales yet';
+  const emptyChartText = !canSeeSalesMix
+    ? 'Admin only'
+    : stats.totalOrders > 0
+      ? 'No sales in the last 6 months'
+      : 'No sales yet';
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -339,9 +344,9 @@ const Dashboard = () => {
     statsQuery.refetch();
     ordersQuery.refetch();
     analyticsQuery.refetch();
-    salesMixQuery.refetch();
+    if (canSeeSalesMix) salesMixQuery.refetch();
     toast.success('Dashboard refreshed successfully');
-  }, [statsQuery, ordersQuery, analyticsQuery, salesMixQuery]);
+  }, [statsQuery, ordersQuery, analyticsQuery, salesMixQuery, canSeeSalesMix]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 font-sans antialiased selection:bg-cyan-500 selection:text-slate-950">

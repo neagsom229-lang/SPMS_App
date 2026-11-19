@@ -50,7 +50,15 @@ router.get('/rows/:type', authenticate, async (req, res) => {
     const report = REPORTS[req.params.type];
     if (!report) return res.status(400).json({ error: 'Unknown report type', supported: Object.keys(REPORTS) });
     const queryParams = report.params ? [scope.tenantId, report.params] : [scope.tenantId];
-    const { rows } = await pool.query(report.sql, queryParams);
+    const CAP = 10000;
+    const limitParam = queryParams.length + 1;
+    const { rows: fetched } = await pool.query(
+      `SELECT * FROM (${report.sql}) AS report_rows LIMIT $${limitParam}`,
+      [...queryParams, CAP + 1]
+    );
+    const truncated = fetched.length > CAP;
+    const rows = truncated ? fetched.slice(0, CAP) : fetched;
+    res.set('X-Truncated', truncated ? 'true' : 'false');
     res.json({ rows });
   } catch (err) {
     console.error('Report rows error:', err.message);

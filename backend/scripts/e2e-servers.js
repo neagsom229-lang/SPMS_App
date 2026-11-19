@@ -104,14 +104,10 @@ async function main() {
     }),
   });
 
-  // Spawn vite directly (no npm/cmd wrapper) so the process Playwright kills
-  // is the server itself; a surviving cmd.exe would keep the port bound.
-  const vite = path.join(FRONTEND, 'node_modules', 'vite', 'bin', 'vite.js');
-  const frontend = spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', String(FRONTEND_PORT), '--strictPort'], {
-    cwd: FRONTEND,
-    stdio: 'inherit',
-    env: childEnv(),
-  });
+  // Playwright starts tests as soon as the frontend URL answers. Start the
+  // preview only AFTER the backend is healthy, otherwise the first test can
+  // submit a login before the API is ready.
+  let frontend;
 
   let stopping = false;
   const stop = signal => {
@@ -131,6 +127,16 @@ async function main() {
       process.exit(code === 0 ? 1 : code);
     }
   });
+  await waitFor(`${API}/health`, 'backend');
+
+  // Spawn vite directly (no npm/cmd wrapper) so the process Playwright kills
+  // is the server itself; a surviving cmd.exe would keep the port bound.
+  const vite = path.join(FRONTEND, 'node_modules', 'vite', 'bin', 'vite.js');
+  frontend = spawn(process.execPath, [vite, 'preview', '--host', '127.0.0.1', '--port', String(FRONTEND_PORT), '--strictPort'], {
+    cwd: FRONTEND,
+    stdio: 'inherit',
+    env: childEnv(),
+  });
   frontend.on('exit', code => {
     if (!stopping) {
       console.error(`e2e frontend exited with code ${code}`);
@@ -139,7 +145,6 @@ async function main() {
     }
   });
 
-  await waitFor(`${API}/health`, 'backend');
   await waitFor(WEB, 'frontend preview');
   console.log(`e2e servers ready: backend ${API} frontend ${WEB}`);
 }

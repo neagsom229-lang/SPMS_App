@@ -4,6 +4,7 @@ const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/cache');
 const { parsePaging } = require('../utils/paging');
+const { isViewerRole, isAdminRole } = require('../middleware/rolePolicy');
 
 const router = express.Router();
 
@@ -51,6 +52,9 @@ function productWhere(scope, req) {
 router.get('/stats', authenticate, async (req, res) => {
   const scope = getScope(req, res);
   if (!scope) return;
+  if (isViewerRole(req.user)) {
+    return res.status(403).json({ error: 'Viewers cannot read product statistics' });
+  }
   const { whereClause, params } = productWhere(scope, req);
   try {
     const r = await pool.query(
@@ -63,7 +67,9 @@ router.get('/stats', authenticate, async (req, res) => {
        ${whereClause}`,
       params
     );
-    res.json(r.rows[0]);
+    const stats = r.rows[0];
+    if (!isAdminRole(req.user)) delete stats.totalValue;
+    res.json(stats);
   } catch (error) {
     console.error('Get product stats error:', error.message);
     res.status(500).json({ error: 'Failed to fetch product stats' });
@@ -76,8 +82,11 @@ router.get('/', authenticate, async (req, res) => {
   if (!scope) return;
   const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
   const { whereClause, params, paramIndex } = productWhere(scope, req);
-  const sortColumn = SORT_COLUMNS[req.query.sort] || 'p.id';
-  const sortDirection = String(req.query.order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const sortColumn = Object.prototype.hasOwnProperty.call(SORT_COLUMNS, req.query.sort)
+    ? SORT_COLUMNS[req.query.sort]
+    : null;
+  const sortDirection = sortColumn && String(req.query.order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const orderBy = sortColumn ? `${sortColumn} ${sortDirection}, p.id DESC` : 'p.id DESC';
 
   try {
     // Direct count query
@@ -104,7 +113,7 @@ router.get('/', authenticate, async (req, res) => {
       LEFT JOIN tbl_suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
       LEFT JOIN tbl_stock st ON st.productid = p.id AND st.tenant_id = p.tenant_id
       ${whereClause}
-      ORDER BY ${sortColumn} ${sortDirection}, p.id DESC
+      ORDER BY ${orderBy}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
     params.push(limit, offset);

@@ -651,12 +651,12 @@ async function reverseOrder(client, order, type, userId, reason) {
   }
 }
 
-async function writeOrderStatusLog(client, userId, tenantId, orderId, from, to, cashPaymentCreated) {
+async function writeOrderStatusLog(client, userId, actor, tenantId, orderId, from, to, cashPaymentCreated) {
   await client.query(
     `INSERT INTO tbl_activity_logs (user_id, action, target_table, target_id, tenant_id, details, created_at)
      VALUES ($1,$2,$3,$4,$5,$6,NOW())`,
     [userId || 1, 'ORDER_STATUS_CHANGED', 'tbl_orders', orderId, tenantId,
-      `from=${from};to=${to};cashPaymentCreated=${cashPaymentCreated}`]
+      `actor=${actor || 'unknown'};from=${from};to=${to};cashPaymentCreated=${cashPaymentCreated}`]
   );
 }
 
@@ -838,7 +838,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
     // Cancelled is already logged by reverseOrder with the same from/to
     // details; writing here too would produce two rows for one cancel.
     if (newStatus !== 'Cancelled') {
-      await writeOrderStatusLog(client, userId, tenantId, orderId, currentStatus, newStatus, cashPaymentCreated);
+      await writeOrderStatusLog(client, userId, req.user?.username, tenantId, orderId, currentStatus, newStatus, cashPaymentCreated);
     }
 
     await client.query('COMMIT');

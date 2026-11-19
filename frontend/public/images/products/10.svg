@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="450" viewBox="0 0 600 450" role="img" aria-label="ASUS ROG Swift PG27UQR">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a1020"/><stop offset="1" stop-color="#131f38"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="58%">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity="0.28"/><stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="9"/></filter>
+  </defs>
+  <rect width="600" height="450" fill="url(#bg)"/>
+  <rect width="600" height="450" fill="url(#glow)"/>
+  <g opacity="0.10" stroke="#334155" stroke-width="1">
+    <path d="M0 360 H600 M0 390 H600 M0 420 H600"/>
+  </g>
+  <ellipse cx="300" cy="372" rx="176" ry="20" fill="#000000" opacity="0.45" filter="url(#soft)"/>
+  <g transform="translate(300 225) scale(1.3) translate(-300 -225)">
+    
+        <rect x="120" y="108" width="360" height="212" rx="10" fill="#0b1424" stroke="#334155" stroke-width="2"/>
+        <rect x="132" y="120" width="336" height="188" rx="5" fill="#06101f" stroke="#06b6d4" stroke-opacity="0.45"/>
+        <path d="M132 308 L468 122 L468 170 L200 308 Z" fill="url(#accent)" opacity="0.09"/>
+        <rect x="285" y="320" width="30" height="36" fill="#1e293b"/>
+        <path d="M250 356 h100 l16 10 h-132 z" fill="#1e293b" stroke="#334155"/>
+  </g>
+  <text x="28" y="42" fill="#22d3ee" font-family="ui-sans-serif,system-ui,Arial" font-size="13" font-weight="700" letter-spacing="2">MONITORS</text>
+  <text x="572" y="428" text-anchor="end" fill="#64748b" font-family="ui-sans-serif,system-ui,Arial" font-size="11" letter-spacing="1">BUILD YOUR DREAM SETUP</text>
+</svg>

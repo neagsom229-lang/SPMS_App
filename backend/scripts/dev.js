@@ -15,7 +15,42 @@
 // database spms_db, least-privilege app role. Without that file the historical
 // Docker dev container is used. A remote DATABASE_URL in the shell is ignored.
 const path = require('path');
+const net = require('net');
 const { execFileSync, spawn } = require('child_process');
+
+// Parse ports before any DB work so an occupied port fails fast.
+const BACKEND_PORT = Number(process.env.DEV_BACKEND_PORT || 5000);
+const FRONTEND_PORT = Number(process.env.DEV_FRONTEND_PORT || 5173);
+
+async function portAnswers(port) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const finish = (value) => { socket.destroy(); resolve(value); };
+    socket.setTimeout(500);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+function ownerOfPort(port) {
+  try {
+    const lines = execFileSync('netstat', ['-ano'], { encoding: 'utf8' }).split(/\r?\n/);
+    const line = lines.find((l) => /LISTENING/i.test(l) && new RegExp(`:${port}\\b`).test(l));
+    return line ? line.trim().split(/\s+/).pop() : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function assertPortsFree() {
+  for (const port of [BACKEND_PORT, FRONTEND_PORT]) {
+    if (await portAnswers(port)) {
+      throw new Error(`port ${port} is already in use (PID ${ownerOfPort(port)}); close it or set DEV_BACKEND_PORT / DEV_FRONTEND_PORT`);
+    }
+  }
+}
+
 const { loadDevEnv } = require('./dev-env');
 
 const { mode } = loadDevEnv();
@@ -32,8 +67,6 @@ const ROOT = path.join(BACKEND, '..');
 const FRONTEND = path.join(ROOT, 'frontend');
 const DEV_DB = path.join(__dirname, 'dev-db.js');
 const MODE = mode === 'local' ? 'local' : 'dev';
-const BACKEND_PORT = Number(process.env.DEV_BACKEND_PORT || 5000);
-const FRONTEND_PORT = Number(process.env.DEV_FRONTEND_PORT || 5173);
 // POSIX children get their own process group so shutdown can signal the tree.
 const POSIX_GROUP = process.platform !== 'win32';
 
@@ -164,7 +197,9 @@ async function main() {
   console.log('  stop with Ctrl+C');
 }
 
-main().catch(err => {
-  console.error('dev start failed:', err.message);
-  process.exit(1);
-});
+assertPortsFree()
+  .then(() => main())
+  .catch((err) => {
+    console.error(`dev start failed: ${err.message}`);
+    process.exit(1);
+  });

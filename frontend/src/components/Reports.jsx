@@ -383,7 +383,11 @@ const Reports = () => {
     try {
       // All matching rows come from the server, not just the current page.
       const res = await apiClient.get(`/reports/rows/${reportType}`);
+      const truncated = res.headers?.get?.('x-truncated') === 'true';
       const rows = normalizeReportData(reportType, res.data?.rows || []);
+      if (truncated) {
+        showMessage('Export limited to 10,000 rows (narrow the report before exporting again)', 'warning');
+      }
       if (rows.length === 0) {
         showMessage('❌ No data to export', 'error');
         return;
