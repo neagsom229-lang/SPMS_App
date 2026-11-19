@@ -13,6 +13,8 @@ import '../styles/users.css'
 // ============================================
 // MAIN USERS COMPONENT
 // ============================================
+const ROLE_OPTIONS = ['Admin', 'Staff', 'Viewer'];
+
 const Users = () => {
   // ===== STATE =====
   const [users, setUsers] = useState([]);
@@ -46,7 +48,7 @@ const Users = () => {
     username: '',
     password: '',
     fullname: '',
-    role: 'Staff',
+    role: 'Viewer',
     email: '',
     phone: '',
     status: 'ACTIVE'
@@ -371,7 +373,7 @@ const Users = () => {
       username: '',
       password: '',
       fullname: '',
-      role: 'Staff',
+      role: 'Viewer',
       email: '',
       phone: '',
       status: 'ACTIVE'
@@ -387,7 +389,7 @@ const Users = () => {
       username: user.username || '',
       password: '',
       fullname: user.fullname || '',
-      role: user.role || 'Staff',
+      role: user.role || 'Viewer',
       email: user.email || '',
       phone: user.phone || '',
       status: user.status || 'ACTIVE'
@@ -1262,9 +1264,10 @@ const Users = () => {
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
                       disabled={submitting}
                     >
-                      <option value="Admin">Admin</option>
-                      <option value="Staff">Staff</option>
-                      <option value="Viewer">Viewer</option>
+                      {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                      {!ROLE_OPTIONS.includes(formData.role) && (
+                        <option value={formData.role} disabled>{formData.role}</option>
+                      )}
                     </select>
                   </div>
                   <div className="group">

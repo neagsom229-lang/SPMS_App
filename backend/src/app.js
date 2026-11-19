@@ -51,6 +51,7 @@ process.on("uncaughtException", (err) => {
 const db = require("./config/postgres");
 const logger = require("./utils/logger");
 const { checkEnv } = require("./config/env");
+const { isStaffOrAdminRole } = require("./middleware/rolePolicy");
 
 // ============================================
 // MIDDLEWARE
@@ -161,6 +162,9 @@ app.get("/health", async (req, res) => {
 // ACTIVITY LOGS (POSTGRES-BACKED)
 // ============================================
 app.get("/api/activity-logs", authenticate, async (req, res) => {
+  if (!isStaffOrAdminRole(req.user)) {
+    return res.status(403).json({ error: "Access denied. Admin or Staff privileges required." });
+  }
   const scope = getScope(req, res);
   if (!scope) return;
   const { limit } = parsePaging(req, { defaultLimit: 50, maxLimit: 200 });

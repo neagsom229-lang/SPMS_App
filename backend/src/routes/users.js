@@ -6,6 +6,15 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// One allow-list for both create and update. Cashier/Manager are legacy values
+// kept so existing rows can still be saved; Viewer is the least-privilege default.
+const ASSIGNABLE_ROLES = ['admin', 'manager', 'staff', 'cashier', 'viewer'];
+const canonicalRole = (role) => {
+  const key = String(role || '').trim().toLowerCase();
+  if (!ASSIGNABLE_ROLES.includes(key)) return null;
+  return key.charAt(0).toUpperCase() + key.slice(1);
+};
+
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
@@ -75,12 +84,10 @@ router.post('/', authenticate, async (req, res) => {
   }
 
   const targetTenantId = isSuperAdmin ? (tenant_id || tenantId) : tenantId;
-    const ROLE_MAP = { admin: 'Admin', manager: 'Manager', cashier: 'Cashier' };
-    const roleKey = String(role).trim().toLowerCase();
-    const canonicalRole = (isSuperAdmin && roleKey === 'super admin') ? 'Super Admin' : ROLE_MAP[roleKey];
-    if (!canonicalRole) {
-      return res.status(400).json({ error: 'Role must be Admin, Manager or Cashier' });
-    }
+  const newRole = canonicalRole(role);
+  if (!newRole) {
+    return res.status(400).json({ error: `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}` });
+  }
 
   try {
     const existing = await pool.query(
@@ -104,7 +111,7 @@ router.post('/', authenticate, async (req, res) => {
         hashedPassword,
         fullname.trim(),
         email.trim(),
-        canonicalRole,
+        newRole,
         status ? status.trim() : 'ACTIVE'
       ]
     );
@@ -148,9 +155,9 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
   }
-  // Cashier stays allowed for legacy rows; Staff is the current DB role.
-  if (role !== undefined && !(isSuperAdmin ? ['admin', 'manager', 'cashier', 'staff', 'super admin'] : ['admin', 'manager', 'cashier', 'staff']).includes(String(role).trim().toLowerCase())) {
-    return res.status(400).json({ error: 'Role not allowed' });
+  // Same allow-list as create; Super Admin is never assignable through /users.
+  if (role !== undefined && !canonicalRole(role)) {
+    return res.status(400).json({ error: `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}` });
   }
   if (role !== undefined) {
     if (!role || typeof role !== 'string' || role.trim().length === 0) {
@@ -199,7 +206,7 @@ router.put('/:id', authenticate, async (req, res) => {
            password = COALESCE($6, password)
        WHERE userid = $7
        RETURNING userid, username, fullname, role, status, email`,
-      [username?.trim(), fullname?.trim(), email?.trim(), (role === undefined ? undefined : (String(role).trim().toLowerCase() === 'super admin' ? 'Super Admin' : String(role).trim().charAt(0).toUpperCase() + String(role).trim().slice(1).toLowerCase())), status?.trim(), hashedPassword, userId]
+      [username?.trim(), fullname?.trim(), email?.trim(), (role === undefined ? undefined : canonicalRole(role)), status?.trim(), hashedPassword, userId]
     );
 
     res.json({

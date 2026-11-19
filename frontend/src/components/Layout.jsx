@@ -32,6 +32,7 @@ import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { DEFAULT_STORE_SLUG } from '../config/store';
+import { isViewerRole } from '../utils/roles';
 
 const Layout = ({ children }) => {
   const navigate = useNavigate();
@@ -84,7 +85,7 @@ const Layout = ({ children }) => {
       ];
     }
 
-    return [
+    const tenantMenu = [
       ...baseMenu,
       { path: '/users', icon: Shield, label: 'Users', color: 'text-red-400', bg: 'bg-red-500/15', keywords: ['accounts', 'permissions'] },
       { path: '/activity', icon: Clock, label: 'Activity', color: 'text-orange-400', bg: 'bg-orange-500/15', keywords: ['logs', 'history'] },
@@ -93,7 +94,10 @@ const Layout = ({ children }) => {
       { path: '/profile', icon: UserCircle, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/15', keywords: ['account', 'settings'] },
       { path: '/settings', icon: Settings, label: 'Settings', color: 'text-slate-400', bg: 'bg-slate-500/15', keywords: ['preferences', 'config'] },
     ];
-  }, [isSuperAdmin]);
+    return isViewerRole(user)
+      ? tenantMenu.filter((item) => item.path !== '/activity')
+      : tenantMenu;
+  }, [isSuperAdmin, user]);
 
   const menu = useMemo(() => getMenuItems(), [getMenuItems]);
 

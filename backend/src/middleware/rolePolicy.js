@@ -22,6 +22,10 @@ function isViewerRole(user) {
   return !!user && normalizeRole(user) === 'viewer';
 }
 
+function isStaffOrAdminRole(user) {
+  return isAdminRole(user) || normalizeRole(user) === 'staff';
+}
+
 function isKnownWriteRole(user) {
   return isAdminRole(user) || ['staff', 'cashier'].includes(normalizeRole(user));
 }
@@ -80,4 +84,5 @@ module.exports = rolePolicy;
 module.exports.isAdminRole = isAdminRole;
 module.exports.canMoveOrderForward = canMoveOrderForward;
 module.exports.isViewerRole = isViewerRole;
+module.exports.isStaffOrAdminRole = isStaffOrAdminRole;
 module.exports.ADMIN_ROLES = ADMIN_ROLES;
