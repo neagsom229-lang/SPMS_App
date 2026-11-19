@@ -23,7 +23,7 @@ function isViewerRole(user) {
 }
 
 function isStaffOrAdminRole(user) {
-  return isAdminRole(user) || normalizeRole(user) === 'staff';
+  return isAdminRole(user) || ['staff', 'cashier'].includes(normalizeRole(user));
 }
 
 function isKnownWriteRole(user) {

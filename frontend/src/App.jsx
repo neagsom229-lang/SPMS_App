@@ -187,7 +187,7 @@ function App() {
                     <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
                     <Route path="/reports" element={<Layout><Reports /></Layout>} />
                     <Route path="/users" element={<Layout><Users /></Layout>} />
-                    <Route path="/activity" element={<Layout><ActivityLog /></Layout>} />
+                    <Route path="/activity" element={<Layout><ViewerRedirect><ActivityLog /></ViewerRedirect></Layout>} />
                     <Route path="/warranty" element={<Layout><Warranty /></Layout>} />
                     <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
                     <Route path="/profile" element={<Layout><Profile /></Layout>} />
