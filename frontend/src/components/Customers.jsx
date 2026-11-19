@@ -14,11 +14,15 @@ import '../styles/customer.css';
 // client.js actually lives relative to this file (e.g. '../api/client').
 import apiClient from '../api/client';
 import { unwrapList } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isViewerRole } from '../utils/roles';
 
 // ============================================
 // MAIN CUSTOMERS COMPONENT
 // ============================================
 const Customers = () => {
+  const { user } = useAuth();
+  const readOnly = isViewerRole(user);
   // ===== STATE =====
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
@@ -659,6 +663,7 @@ const Customers = () => {
             </button>
             <button
               onClick={openAddModal}
+              hidden={readOnly}
               className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition hover:scale-105 duration-300 flex items-center gap-2 border border-white/10"
             >
               <Plus className="w-4 h-4" />
@@ -795,6 +800,7 @@ const Customers = () => {
           </p>
           <button
             onClick={openAddModal}
+            hidden={readOnly}
             className="mt-4 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105 font-medium"
           >
             <Plus className="w-4 h-4 inline mr-2" />
@@ -868,6 +874,7 @@ const Customers = () => {
                           openEditModal(customer);
                         }}
                         className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
+                        hidden={readOnly}
                         title="Edit"
                       >
                         <Edit2 className="w-4 h-4" />
@@ -878,6 +885,7 @@ const Customers = () => {
                           handleDelete(id);
                         }}
                         className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
+                        hidden={readOnly}
                         title="Delete"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1023,6 +1031,7 @@ const Customers = () => {
                           <button
                             onClick={() => openEditModal(customer)}
                             className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 group-hover:scale-110"
+                            hidden={readOnly}
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -1030,6 +1039,7 @@ const Customers = () => {
                           <button
                             onClick={() => handleDelete(id)}
                             className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 group-hover:scale-110"
+                            hidden={readOnly}
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />

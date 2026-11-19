@@ -42,6 +42,12 @@ const Settings = lazy(() => import('./pages/Settings'));
 // Context
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { isViewerRole } from "./utils/roles";
+
+const ViewerRedirect = ({ children }) => {
+  const { user } = useAuth();
+  return isViewerRole(user) ? <Navigate to="/dashboard" replace /> : children;
+};
 
 // Create Query Client
 const queryClient = new QueryClient({
@@ -172,7 +178,7 @@ function App() {
                   <Route element={<ProtectedRoute />}>
                     <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
                     <Route path="/orders" element={<Layout><Orders /></Layout>} />
-                    <Route path="/sell" element={<Layout><SellPage /></Layout>} />
+                    <Route path="/sell" element={<Layout><ViewerRedirect><SellPage /></ViewerRedirect></Layout>} />
                     <Route path="/online-orders" element={<Layout><OnlineOrders /></Layout>} />
                     <Route path="/orders/:id" element={<Layout><Orders /></Layout>} />
                     <Route path="/products" element={<Layout><Products /></Layout>} />

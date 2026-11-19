@@ -11,11 +11,15 @@ import {
 import '../styles/warranty.css';
 import apiClient from '../api/client';
 import { unwrapList, fetchAllList } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isViewerRole } from '../utils/roles';
 
 // ============================================
 // MAIN WARRANTY COMPONENT
 // ============================================
 const Warranty = () => {
+  const { user } = useAuth();
+  const readOnly = isViewerRole(user);
   // ===== STATE =====
   const [warranties, setWarranties] = useState([]);
   const [services, setServices] = useState([]);
@@ -796,7 +800,7 @@ const Warranty = () => {
               <Download className="w-4 h-4" />
               Export
             </button>
-            <button onClick={openAddModal} className="header-btn-primary">
+            <button onClick={openAddModal} className="header-btn-primary" hidden={readOnly}>
               <Plus className="w-4 h-4" />
               Add {activeTab === 'warranty' ? 'Warranty' : 'Service'}
             </button>
@@ -985,6 +989,7 @@ const Warranty = () => {
             </p>
             <button
               onClick={openAddModal}
+              hidden={readOnly}
               className="empty-btn"
             >
               <Plus className="w-4 h-4" />
@@ -1042,6 +1047,7 @@ const Warranty = () => {
                             openEditModal(item);
                           }}
                           className="grid-card-action edit"
+                          hidden={readOnly}
                           title="Edit"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1052,6 +1058,7 @@ const Warranty = () => {
                             handleDelete(id);
                           }}
                           className="grid-card-action delete"
+                          hidden={readOnly}
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1219,6 +1226,7 @@ const Warranty = () => {
                           <button
                             onClick={() => openEditModal(item)}
                             className="list-action edit"
+                            hidden={readOnly}
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -1226,6 +1234,7 @@ const Warranty = () => {
                           <button
                             onClick={() => handleDelete(id)}
                             className="list-action delete"
+                            hidden={readOnly}
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
