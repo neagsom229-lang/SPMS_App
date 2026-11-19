@@ -40,13 +40,33 @@ ALTER ROLE :"app_role" WITH LOGIN PASSWORD :'app_password'
 -- `authenticated` roles. Plain PostgreSQL does not ship them. NOLOGIN
 -- placeholders with no privileges let those guarded revokes run; the app never
 -- connects as either role. No `service_role`/`supabase_admin` is created.
+--
+-- PostgreSQL has no `CREATE ROLE IF NOT EXISTS` syntax, so the DO block below
+-- is the guard. On a hosted project these roles already exist, so no CREATE
+-- ROLE is attempted and no CREATEROLE privilege is needed. If a role is
+-- missing and the executor lacks CREATEROLE, skip it with a notice instead of
+-- aborting the script.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-    CREATE ROLE anon NOLOGIN;
+    BEGIN
+      CREATE ROLE anon NOLOGIN;
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        RAISE NOTICE 'anon not created: current role lacks CREATEROLE';
+      WHEN duplicate_object THEN
+        NULL;
+    END;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-    CREATE ROLE authenticated NOLOGIN;
+    BEGIN
+      CREATE ROLE authenticated NOLOGIN;
+    EXCEPTION
+      WHEN insufficient_privilege THEN
+        RAISE NOTICE 'authenticated not created: current role lacks CREATEROLE';
+      WHEN duplicate_object THEN
+        NULL;
+    END;
   END IF;
 END $$;
 

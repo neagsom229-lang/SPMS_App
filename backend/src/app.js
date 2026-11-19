@@ -73,24 +73,12 @@ checkEnv();
 // ============================================
 const app = express();
 const PORT = process.env.PORT || 5000;
-const isProd = process.env.NODE_ENV === "production";
 
 app.set("trust proxy", 1);
 app.use(helmet());
 
-// ============================================
-// DEBUG LOGGING (DEV ONLY)
-// Never logs headers or tokens: only the method and the path (no query string,
-// which may carry tokens). Disabled entirely when NODE_ENV=production.
-// ============================================
-if (!isProd) {
-  app.use((req, res, next) => {
-    console.log("📤 Incoming request:");
-    console.log("  Method:", req.method);
-    console.log("  Path:", req.path);
-    next();
-  });
-}
+// Request lines are logged once by morgan below. The old dev-only middleware
+// printed each request a second time (and in a different format).
 
 // ============================================
 // CORS CONFIGURATION
@@ -110,6 +98,9 @@ const corsOptions = {
     return callback(new Error('CORS blocked'));
   },
   credentials: true,
+  // Cache preflight responses so each origin stops sending OPTIONS before
+  // every API call.
+  maxAge: 86400,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: [

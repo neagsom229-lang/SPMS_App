@@ -6,10 +6,6 @@ if (!API_URL) {
   console.error('❌ VITE_API_URL environment variable is missing');
 }
 
-if (import.meta.env.DEV) {
-  console.log('🔧 API URL:', API_URL);
-}
-
 const apiClient = axios.create({
   baseURL: API_URL,
   headers: {

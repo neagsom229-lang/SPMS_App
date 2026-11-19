@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import apiClient from '../api/client';
+import { DEFAULT_STORE_SLUG } from '../config/store';
 import '../styles/landing.css';
 
 // Lock only the current plan's button while more than 7 days remain.
@@ -203,7 +204,7 @@ const Landing = () => {
   const chatEndRef = useRef(null);
 
   // ─── CONSTANTS ───
-  const storeSlug = import.meta.env.VITE_DEFAULT_STORE_SLUG || 'demo-store';
+  const storeSlug = DEFAULT_STORE_SLUG;
 
   const NAV_LINKS = useMemo(() => [
     { id: 'home', label: 'Home' },
@@ -1168,7 +1169,7 @@ const Landing = () => {
           <h2 className="kf-display kf-h2" style={{ color: 'var(--kf-cream)' }}>Your tech store deserves a ledger this clear.</h2>
           <p className="kf-body kf-lede-sm mt-4 max-w-xl mx-auto" style={{ color: 'rgba(241,238,255,0.72)' }}>Set up in one evening. Free for your first counter, forever.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center mt-10">
-            <Link to={`/shop/demo-store/${storeSlug}`} className="kf-btn-primary bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)]">
+            <Link to={`/shop/${storeSlug}`} className="kf-btn-primary bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)]">
               <span>Explore 3D Storefront</span>
               <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </Link>

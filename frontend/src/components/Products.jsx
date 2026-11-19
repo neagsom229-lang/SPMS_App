@@ -3,6 +3,8 @@ import { toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Pagination from './Pagination';
 import apiClient from '../api/client';
+import { queryKeys } from '../api/queryKeys';
+import { unwrapList as extractProductsData } from '../api/list';
 import {
   Search, Plus, Edit2, Trash2, Package, X, Save,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
@@ -60,23 +62,7 @@ const isValidImage = (url) => {
   return false;
 };
 
-const extractProductsData = (responseData) => {
-  if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) return [];
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === 'object') {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    if (Array.isArray(responseData.products)) return responseData.products;
-    if (Array.isArray(responseData.items)) return responseData.items;
-    if (responseData.data && typeof responseData.data === 'object') {
-      if (Array.isArray(responseData.data.items)) return responseData.data.items;
-      if (Array.isArray(responseData.data.products)) return responseData.data.products;
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 const formatPrice = (price) => `$${Number(price || 0).toFixed(2)}`;
 
 const getStatusBadge = (status) => (status || 'Active') === 'Active'
@@ -167,7 +153,7 @@ const Products = () => {
     isFetching: isRefreshing,
     refetch,
   } = useQuery({
-    queryKey: ['products', debouncedSearch],
+    queryKey: queryKeys.productsSearch(debouncedSearch),
     queryFn: async () => {
   try {
     const res = await apiClient.get('/products', { params: debouncedSearch ? { search: debouncedSearch } : {} });
@@ -190,7 +176,7 @@ const Products = () => {
   // QUERY: STOCK (read‑only for stock info)
   // ============================================
   const { data: stockList = [] } = useQuery({
-    queryKey: ['stock'],
+    queryKey: queryKeys.stock,
     queryFn: async () => {
       try {
         const res = await apiClient.get('/stock');
@@ -263,7 +249,7 @@ const Products = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
 
       // The server creates the tbl_stock row from the product payload, so the
       // client must not POST stock again (it used to double-create).
@@ -282,7 +268,7 @@ const Products = () => {
     mutationFn: async (productIdString) => apiClient.delete(`/products/${productIdString}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
       showMessage('✅ Product deleted successfully!');
       toast.success('Product deleted!');
     },
@@ -301,7 +287,7 @@ const Products = () => {
     },
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
       showMessage(`✅ ${ids.length} products deleted!`);
       setSelectedProducts([]);
     },

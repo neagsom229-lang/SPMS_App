@@ -13,6 +13,7 @@ import '../styles/customer.css';
 // localStorage on every request. Adjust the path below to match where
 // client.js actually lives relative to this file (e.g. '../api/client').
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
 
 // ============================================
 // MAIN CUSTOMERS COMPONENT
@@ -95,42 +96,7 @@ const Customers = () => {
   // ============================================
   // SAFE DATA EXTRACTION
   // ============================================
-  const extractCustomersData = useCallback((responseData) => {
-    if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) {
-      console.warn('⚠️ Received HTML - API not available');
-      return [];
-    }
-    
-    if (Array.isArray(responseData)) {
-      return responseData;
-    }
-    
-    if (responseData && typeof responseData === 'object') {
-      if (Array.isArray(responseData.data)) {
-        return responseData.data;
-      }
-      if (Array.isArray(responseData.customers)) {
-        return responseData.customers;
-      }
-      if (Array.isArray(responseData.items)) {
-        return responseData.items;
-      }
-      if (responseData.data && typeof responseData.data === 'object') {
-        if (Array.isArray(responseData.data.items)) {
-          return responseData.data.items;
-        }
-        if (Array.isArray(responseData.data.customers)) {
-          return responseData.data.customers;
-        }
-        const values = Object.values(responseData.data);
-        if (values.length > 0 && Array.isArray(values[0])) {
-          return values[0];
-        }
-      }
-    }
-    
-    return [];
-  }, []);
+  const extractCustomersData = unwrapList;
 
   // ============================================
   // CALCULATE STATS
@@ -175,7 +141,6 @@ const Customers = () => {
       const customersData = extractCustomersData(res.data);
       const customersArray = Array.isArray(customersData) ? customersData : [];
       
-      console.log('✅ Customers loaded:', customersArray.length);
       setCustomers(customersArray);
       calculateStats(customersArray);
     }
@@ -217,11 +182,9 @@ const Customers = () => {
   const handleImageSelect = useCallback(async (e) => {
     const file = e.target.files[0];
     if (!file) {
-      console.log('❌ No file selected');
       return;
     }
 
-    console.log('📸 File selected:', file.name, file.type, file.size);
 
     const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/gif'];
     if (!validTypes.includes(file.type)) {
@@ -242,14 +205,12 @@ const Customers = () => {
       const base64Image = await readFileAsDataURL(file);
       setUploadProgress(100);
 
-      console.log('📸 Base64 image length:', base64Image.length);
 
       // ✅ Write to the ref immediately — this is synchronous and can't race with a click.
       imageUrlRef.current = base64Image;
 
       setImagePreview(base64Image);
       setFormData(prev => {
-        console.log('📸 Updating formData with image');
         return { ...prev, IMAGE_URL: base64Image };
       });
 
@@ -264,13 +225,11 @@ const Customers = () => {
   }, [showMessage]);
 
   const removeImage = useCallback(() => {
-    console.log('🗑️ Removing image...');
     setSelectedImage(null);
     setImagePreview(null);
     setUploadProgress(0);
     imageUrlRef.current = '';
     setFormData(prev => {
-      console.log('🗑️ Clearing image from formData');
       return { ...prev, IMAGE_URL: '' };
     });
     if (fileInputRef.current) {
@@ -282,12 +241,8 @@ const Customers = () => {
   // ✅ OPEN EDIT MODAL - Reads image_url from database
   // ============================================
   const openEditModal = useCallback((customer) => {
-    const customerId = customer.CUS_ID || customer.cus_id || customer.ID;
-    console.log('✏️ Editing customer:', customerId);
-    
     // ✅ Read from database field (image_url) or fallback to IMAGE_URL
     const existingImage = customer.image_url || customer.IMAGE_URL || '';
-    console.log('📸 Existing image:', existingImage ? 'YES (has image)' : 'NO (no image)');
     
     setEditingCustomer(customer);
     setFormData({
@@ -304,7 +259,6 @@ const Customers = () => {
     
     if (existingImage) {
       setImagePreview(existingImage);
-      console.log('📸 Image preview loaded from existing');
     } else {
       setImagePreview(null);
     }
@@ -369,7 +323,6 @@ const Customers = () => {
 
     // ✅ Prefer the ref — it's always in sync, formData can lag a render behind
     const imageUrl = imageUrlRef.current || formData.IMAGE_URL || '';
-    console.log('📸 Image URL before submit:', imageUrl ? `✅ EXISTS (${imageUrl.length} chars)` : '❌ EMPTY');
 
     const submitData = {
       FIRST_NAME: formData.FIRST_NAME.trim(),
@@ -382,35 +335,26 @@ const Customers = () => {
       IMAGE_URL: imageUrl
     };
 
-    console.log('📤 Sending customer data:', {
-      ...submitData,
-      IMAGE_URL: submitData.IMAGE_URL ? `✅ (${submitData.IMAGE_URL.length} chars)` : '❌ MISSING'
-    });
-
     try {
       let customerId;
       if (editingCustomer) {
         customerId = editingCustomer.CUS_ID || editingCustomer.cus_id || editingCustomer.ID;
-        console.log('🆔 Updating customer ID:', customerId);
       }
 
-      let response;
       if (editingCustomer && customerId) {
-        response = await apiClient.put(`/customers/${customerId}`, submitData);
+        await apiClient.put(`/customers/${customerId}`, submitData);
         showMessage('✅ Customer updated successfully!');
       } else {
-        response = await apiClient.post('/customers', submitData);
+        await apiClient.post('/customers', submitData);
         showMessage('✅ Customer created successfully!');
       }
       
-      console.log('📥 Server response:', response.data);
       
       setShowModal(false);
       setEditingCustomer(null);
       
       await fetchCustomers();
       
-      console.log('🔄 Resetting form and removing image...');
       resetForm();
       removeImage();
       
@@ -891,7 +835,6 @@ const Customers = () => {
                             alt={fullName}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              console.log('❌ Image failed to load, using fallback');
                               e.target.style.display = 'none';
                             }}
                           />
@@ -1047,7 +990,6 @@ const Customers = () => {
                               alt={fullName}
                               className="w-10 h-10 rounded-lg object-cover bg-gray-100 dark:bg-gray-700"
                               onError={(e) => {
-                                console.log('❌ Image failed to load, using fallback');
                                 e.target.style.display = 'none';
                               }}
                             />

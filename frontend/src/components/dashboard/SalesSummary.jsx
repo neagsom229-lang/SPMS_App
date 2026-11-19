@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import apiClient from "../../api/client";
+import { queryKeys } from '../../api/queryKeys';
 import { useAuth } from "../../context/AuthContext";
 import {
   TrendingUp,
@@ -68,7 +69,7 @@ export default function SalesSummary() {
   const [exporting, setExporting] = useState(null);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['dashboard', 'sales-summary', range],
+    queryKey: queryKeys.salesSummary(range),
     queryFn: async () => {
       const res = await apiClient.get('/dashboard/sales-summary', { params: { range } });
       return res.data;

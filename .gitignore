@@ -19,6 +19,7 @@ backend/logs/
 # Test and mutation output
 test-results/
 playwright-report/
+ui-shots/
 jest-full.json
 nullltest.json
 backend/mut*.json

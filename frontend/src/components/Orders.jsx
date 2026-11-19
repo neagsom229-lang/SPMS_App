@@ -37,35 +37,12 @@ import '../styles/orders.css';
 // ✅ Shared axios instance — attaches the Authorization header from
 // localStorage on every request.
 import apiClient from '../api/client';
+import { unwrapList as extractArrayData } from '../api/list';
 
 // ============================================
 // SHARED DATA HELPERS
 // ============================================
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (
-    typeof responseData === "string" &&
-    responseData.includes("<!DOCTYPE html>")
-  ) {
-    return null;
-  }
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key]))
-          return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 const getFallbackCustomers = () => [
   {
     CUS_ID: "CUS001",
@@ -275,7 +252,6 @@ const Orders = () => {
       const extracted = extractArrayData(res.data, ["customers", "items"]);
       if (extracted === null) throw new Error("API not available");
       setCustomers(extracted.length > 0 ? extracted : getFallbackCustomers());
-      console.log("✅ Customers loaded:", extracted.length);
     } catch (error) {
       console.warn(
         "⚠️ Customers API unavailable, using fallback:",
@@ -295,7 +271,6 @@ const Orders = () => {
       const extracted = extractArrayData(res.data, ["products", "items"]);
       if (extracted === null) throw new Error("API not available");
       setProducts(extracted.length > 0 ? extracted : getFallbackProducts());
-      console.log("✅ Products loaded:", extracted.length);
     } catch (error) {
       console.warn(
         "⚠️ Products API unavailable, using fallback:",

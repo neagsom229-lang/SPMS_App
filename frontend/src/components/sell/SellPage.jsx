@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
+import { unwrapList } from '../../api/list';
 import ProductCatalog from './ProductCatalog';
 import CartPanel from './CartPanel';
 import CustomerPicker from './CustomerPicker';
@@ -37,7 +38,7 @@ const SellPage = () => {
   const loadProducts = useCallback(async (q) => {
     const params = q ? { q, limit: 50 } : { limit: 200 };
     const res = await apiClient.get('/products', { params });
-    const list = res.data.products || res.data.data || (Array.isArray(res.data) ? res.data : []);
+    const list = unwrapList(res.data, ['products']);
     setProducts(list);
     const total = res.data.pagination?.total;
     setProductTotal(typeof total === 'number' ? total : list.length);
@@ -48,7 +49,7 @@ const SellPage = () => {
   const loadCustomers = useCallback(async (q) => {
     const params = q ? { q } : { limit: 200 };
     const res = await apiClient.get('/customers', { params });
-    return res.data.customers || res.data.data || (Array.isArray(res.data) ? res.data : []);
+    return unwrapList(res.data, ['customers']);
   }, []);
 
   // Initial load (immediate) + debounced search for both lists. The sequence
@@ -105,7 +106,7 @@ const SellPage = () => {
   const resolveByBarcode = useCallback(async (term) => {
     try {
       const res = await apiClient.get('/products', { params: { q: term, limit: 50 } });
-      const list = res.data.products || [];
+      const list = unwrapList(res.data, ['products']);
       const wanted = String(term).toLowerCase();
       return list.find(p => String(p.barcode || p.BARCODE || '').toLowerCase() === wanted) || null;
     } catch (err) {

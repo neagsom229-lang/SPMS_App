@@ -7,6 +7,10 @@
 //   4. start the backend and the frontend dev server
 //   5. print the URLs
 //
+// If either server exits, or the orchestrator gets Ctrl+C/SIGTERM, both process
+// trees are killed. On Windows this uses `taskkill /T /F`, so a failed Vite
+// start cannot leave the backend holding port 5000.
+//
 // DEV_DB_MODE=local (backend/.env) means no Docker: 127.0.0.1:${DEV_DB_PORT},
 // database spms_db, least-privilege app role. Without that file the historical
 // Docker dev container is used. A remote DATABASE_URL in the shell is ignored.
@@ -30,6 +34,8 @@ const DEV_DB = path.join(__dirname, 'dev-db.js');
 const MODE = mode === 'local' ? 'local' : 'dev';
 const BACKEND_PORT = Number(process.env.DEV_BACKEND_PORT || 5000);
 const FRONTEND_PORT = Number(process.env.DEV_FRONTEND_PORT || 5173);
+// POSIX children get their own process group so shutdown can signal the tree.
+const POSIX_GROUP = process.platform !== 'win32';
 
 const DEV_URL = devDatabaseUrl();
 const identity = assertDatabaseUrl(DEV_URL, MODE);
@@ -82,6 +88,7 @@ async function main() {
   const backend = spawn(process.execPath, [path.join(BACKEND, 'src', 'app.js')], {
     cwd: BACKEND,
     stdio: 'inherit',
+    detached: POSIX_GROUP,
     env: childEnv({
       NODE_ENV: 'development',
       PORT: String(BACKEND_PORT),
@@ -101,22 +108,53 @@ async function main() {
   ], {
     cwd: FRONTEND,
     stdio: 'inherit',
+    // A new process group on POSIX lets shutdown signal the whole tree.
+    detached: POSIX_GROUP,
     env: childEnv({ VITE_API_URL: `http://127.0.0.1:${BACKEND_PORT}/api` }),
   });
 
-  const stop = signal => {
-    for (const child of [backend, frontend]) {
-      if (child && !child.killed) child.kill(signal);
+  let shuttingDown = false;
+
+  function killTree(child) {
+    if (!child || typeof child.pid !== 'number') return;
+    try {
+      if (process.platform === 'win32') {
+        execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      } else {
+        process.kill(-child.pid, 'SIGTERM');
+      }
+    } catch {
+      // Already gone: taskkill exits non-zero, POSIX kill throws ESRCH.
     }
-  };
-  process.on('SIGINT', () => stop('SIGINT'));
-  process.on('SIGTERM', () => stop('SIGTERM'));
-  const onExit = code => {
-    stop('SIGTERM');
+  }
+
+  function shutdown(code) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    killTree(backend);
+    killTree(frontend);
     process.exit(code);
-  };
-  backend.on('exit', onExit);
-  frontend.on('exit', onExit);
+  }
+
+  process.on('SIGINT', () => shutdown(130));
+  process.on('SIGTERM', () => shutdown(143));
+  process.on('exit', () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    killTree(backend);
+    killTree(frontend);
+  });
+
+  for (const [name, child] of [['backend', backend], ['frontend', frontend]]) {
+    child.on('exit', (code, signal) => {
+      console.log(`${name} exited (${signal || code}); stopping both servers`);
+      shutdown(typeof code === 'number' ? code : 1);
+    });
+    child.on('error', err => {
+      console.error(`${name} failed to start: ${err.message}`);
+      shutdown(1);
+    });
+  }
 
   console.log('');
   console.log('dev ready');

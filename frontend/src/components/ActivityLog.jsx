@@ -9,35 +9,12 @@ import {
 } from 'lucide-react';
 import '../styles/activitylog.css';
 import apiClient from '../api/client';
+import { unwrapList as extractArrayData } from '../api/list';
 
 // ============================================
 // SHARED DATA HELPERS
 // ============================================
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (
-    typeof responseData === "string" &&
-    responseData.includes("<!DOCTYPE html>")
-  ) {
-    return null;
-  }
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key]))
-          return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 // ============================================
 // MAIN ACTIVITYLOG COMPONENT
 // ============================================
@@ -126,7 +103,6 @@ const ActivityLog = () => {
         const data = extractArrayData(res.data, ['logs', 'items', 'data']);
         const rawArray = Array.isArray(data) ? data : [];
         const logsArray = rawArray.map(normalizeLog);
-        console.log(`📋 Activity logs loaded: ${logsArray.length}`);
         
         setLogs(logsArray);
         if (logsArray.length > 0) {
@@ -155,7 +131,6 @@ const ActivityLog = () => {
         const data = extractArrayData(res.data, ['users', 'items', 'data']);
         const usersArray = Array.isArray(data) ? data.map(normalizeUser) : [];
         setUsers(usersArray);
-        console.log(`👥 Users loaded: ${usersArray.length}`);
       }
     } catch (error) {
       console.error('❌ Error fetching users:', error);

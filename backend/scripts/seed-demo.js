@@ -24,6 +24,18 @@ const FORCED = { username: 'demo_forced', password: 'Demo1234!', role: 'Staff', 
 // super-admin routes) and the pending payment sessions panel.
 const ROOT = { username: 'demo_root', password: 'Demo1234!', role: 'Super Admin' };
 
+// The public storefront resolves its slug from store_settings, so the demo
+// tenant must have a row for /shop/demo to return 200. Idempotent: re-seeding
+// refreshes the row instead of creating a second one with another slug.
+async function ensureStoreSettings(client, tenantId) {
+  await client.query(
+    `INSERT INTO store_settings (tenant_id, slug, store_name, currency, is_open, accepts_online_orders, delivery_enabled, pickup_enabled)
+     VALUES ($1, $2, $3, 'USD', TRUE, TRUE, TRUE, TRUE)
+     ON CONFLICT (slug) DO UPDATE SET tenant_id = EXCLUDED.tenant_id`,
+    [tenantId, DEMO_SUBDOMAIN, 'Demo Shop']
+  );
+}
+
 async function seed() {
   const identity = assertDatabaseUrl(process.env.DATABASE_URL, MODE);
   const client = new Client({ connectionString: process.env.DATABASE_URL });
@@ -33,6 +45,7 @@ async function seed() {
   try {
     const existing = await client.query('SELECT id FROM tenants WHERE subdomain = $1', [DEMO_SUBDOMAIN]);
     if (existing.rows.length > 0) {
+      await ensureStoreSettings(client, existing.rows[0].id);
       console.log(`demo shop already seeded in ${identity.database} (tenant ${existing.rows[0].id}); credentials not reprinted`);
       return false;
     }
@@ -44,6 +57,7 @@ async function seed() {
       ['Demo Shop', DEMO_SUBDOMAIN, 'shophouse']
     );
     const tenantId = tenant.rows[0].id;
+    await ensureStoreSettings(client, tenantId);
 
     const category = await client.query(
       'INSERT INTO tbl_categories (name, tenant_id) VALUES ($1, $2) RETURNING id',

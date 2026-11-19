@@ -2,6 +2,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '../api/client';
+import { queryKeys } from '../api/queryKeys';
+import { unwrapList } from '../api/list';
+import { DEFAULT_STORE_SLUG } from '../config/store';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   ShoppingCart, Globe, Phone, MapPin, Clock, CheckCircle, 
@@ -145,7 +148,7 @@ function ProductCard({ product, lang, exchangeRate, addToCart, setSelectedProduc
 
 export default function Storefront() {
   const { slug } = useParams();
-  const storeSlug = slug || 'demo-store';
+  const storeSlug = slug || DEFAULT_STORE_SLUG;
   const queryClient = useQueryClient();
 
   const [store, setStore] = useState(null);
@@ -209,7 +212,7 @@ export default function Storefront() {
       if (sortBy !== 'default') params.sort = sortBy;
 
       const res = await apiClient.get(`/public/store/${storeSlug}/menu`, { params });
-      setProducts(res.data.products || []);
+      setProducts(unwrapList(res.data, ['products']));
     } catch (err) {
       console.error('Failed to fetch menu products:', err);
     }
@@ -302,10 +305,10 @@ export default function Storefront() {
       setIsCheckoutOpen(false);
       setIsCartOpen(false);
 
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
-      queryClient.invalidateQueries({ queryKey: ['orders'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders });
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboardStats });
 
       toast.success('Order placed successfully!');
     } catch (err) {

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../api/client';
+import { unwrapList as extractArrayData } from '../api/list';
 import {
   Search, RefreshCw, AlertCircle, CheckCircle, Package, Clock,
   X, Download, Eye, Loader2, Database, ArrowUp, ArrowDown,
@@ -26,25 +27,7 @@ import '../styles/stock.css';
 // ============================================================
 
 // -------- Helpers (all in one place) --------
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (typeof responseData === "string" && responseData.includes("<!DOCTYPE html>")) return null;
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key])) return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 
 const getStockValue = (item, field) => {
   if (!item || typeof item !== 'object') return 0;

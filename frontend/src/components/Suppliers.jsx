@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
 import { 
   Search, Plus, Edit2, Trash2, Truck, X, Save, 
   Phone, Mail, MapPin, User, Building2, RefreshCw,
@@ -151,12 +152,7 @@ const Suppliers = () => {
     const res = await apiClient.get(url);
     
     if (isMounted.current) {
-      let data = [];
-      if (Array.isArray(res.data)) {
-        data = res.data;
-      } else if (res.data?.data && Array.isArray(res.data.data)) {
-        data = res.data.data;
-      }
+      const data = unwrapList(res.data, ['suppliers']);
       
       const normalized = data.map((item, index) => normalizeSupplier(item, index)).filter(Boolean);
       setSuppliers(normalized);

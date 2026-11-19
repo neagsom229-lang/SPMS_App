@@ -30,13 +30,15 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
+import { queryKeys } from '../api/queryKeys';
+import { DEFAULT_STORE_SLUG } from '../config/store';
 
 const Layout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, tenant, isSuperAdmin } = useAuth();
   const { data: onlineCounts } = useQuery({
-    queryKey: ['online-orders-count'],
+    queryKey: queryKeys.onlineOrdersCount,
     queryFn: async () => { const res = await apiClient.get('/orders/online/count'); return res.data || {}; },
     enabled: !!user && !isSuperAdmin,
     staleTime: 30000,
@@ -166,7 +168,7 @@ const Layout = ({ children }) => {
   const userInitial = userName.charAt(0).toUpperCase();
   const userAvatar = user?.avatar || avatarPreview;
   const tenantName = tenant?.name || user?.tenant?.name || 'TechFlow Electronics';
-  const subdomain = tenant?.subdomain || user?.tenant?.subdomain || 'demo-store';
+  const subdomain = tenant?.subdomain || user?.tenant?.subdomain || DEFAULT_STORE_SLUG;
 
   const currentPage = menu.find(item => item.path === location.pathname)?.label || 'Dashboard';
   const currentIcon = menu.find(item => item.path === location.pathname)?.icon || LayoutDashboard;
@@ -180,7 +182,7 @@ const Layout = ({ children }) => {
   }, [userAvatar, userInitial]);
 
   const renderNavItems = useCallback(() => (
-    <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
+    <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto" data-testid="sidebar-nav">
       {menu.map((item) => {
         const Icon = item.icon;
         const isActive = location.pathname === item.path;
@@ -190,7 +192,7 @@ const Layout = ({ children }) => {
             to={item.path}
             onClick={() => setIsSidebarOpen(false)}
             className={`
-              flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all duration-200 group relative text-xs font-bold uppercase tracking-wider
+              flex items-center gap-3 px-3.5 py-3 min-h-11 rounded-xl transition-all duration-200 group relative text-xs font-bold uppercase tracking-wider
               ${isActive 
                 ? 'bg-cyan-500/10 text-cyan-400 border-l-2 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]' 
                 : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
@@ -286,7 +288,7 @@ const Layout = ({ children }) => {
         {renderNavItems()}
 
         {/* ===== BOTTOM ACTIONS ===== */}
-        <div className="p-3 border-t border-slate-800/80 space-y-1">
+        <div className="p-3 border-t border-slate-800/80 space-y-1" data-testid="sidebar-footer">
           <Link
             to={`/shop/${subdomain}`}
             className="flex items-center gap-3 w-full px-3.5 py-2.5 rounded-xl text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200 text-xs font-bold"

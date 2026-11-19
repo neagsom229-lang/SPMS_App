@@ -30,12 +30,6 @@ export const AuthProvider = ({ children }) => {
         const userData = localStorage.getItem('user');
         const tenantData = localStorage.getItem('tenant');
         
-        if (import.meta.env.DEV) {
-          console.log('🔍 Loading user...');
-          console.log('📦 Token found:', token ? '✅ Yes' : '❌ No');
-          console.log('📦 User found:', userData ? '✅ Yes' : '❌ No');
-          console.log('📦 Tenant found:', tenantData ? '✅ Yes' : '❌ No');
-        }
         
         if (token && userData) {
           const parsedUser = JSON.parse(userData);
@@ -66,9 +60,6 @@ export const AuthProvider = ({ children }) => {
   // ===== REGISTER (Self-Registration) =====
   const register = useCallback(async (formData) => {
     try {
-      if (import.meta.env.DEV) {
-        console.log('📤 Registering business...');
-      }
       
       const response = await apiClient.post('/auth/register-client', {
         businessName: formData.businessName,
@@ -79,9 +70,6 @@ export const AuthProvider = ({ children }) => {
         subdomain: formData.subdomain
       });
 
-      if (import.meta.env.DEV) {
-        console.log('✅ Registration response received');
-      }
 
       const { token, user: userData, tenant: tenantData } = response.data;
 
@@ -129,9 +117,6 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      if (import.meta.env.DEV) {
-        console.log('📤 Logging in...');
-      }
       
       const response = await apiClient.post('/auth/login', {
         username,
@@ -140,9 +125,6 @@ export const AuthProvider = ({ children }) => {
         timeout: 60000
       });
 
-      if (import.meta.env.DEV) {
-        console.log('✅ Login response received');
-      }
 
       const { token, user: userData } = response.data;
 
@@ -214,7 +196,6 @@ export const AuthProvider = ({ children }) => {
 
   // ===== LOGOUT =====
   const logout = useCallback(() => {
-    console.log('📤 Logging out...');
     
     localStorage.removeItem('token');
     localStorage.removeItem('user');

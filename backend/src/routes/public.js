@@ -76,7 +76,6 @@ router.expirePendingOrders = expirePendingOrders;
 // Helper to resolve store by slug
 async function getStoreBySlug(client, slug) {
   const queryText = 'SELECT * FROM store_settings WHERE slug = $1';
-  console.log('🔍 Lookup store query:', queryText, [slug]);
   const res = await client.query(queryText, [slug]);
   if (res.rowCount === 0) return null;
   const store = res.rows[0];

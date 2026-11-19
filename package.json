@@ -16,6 +16,7 @@
     "db:deploy:dry": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target local -DryRun",
     "verify:full": "node backend/scripts/verify-full.js",
     "test:e2e": "playwright test",
+    "ui:shots": "node backend/scripts/ui-shots.js",
     "rehearse": "node backend/scripts/rehearse.js",
     "names:diff": "node backend/scripts/names-diff.js",
     "names:accept": "node backend/scripts/names-accept.js",

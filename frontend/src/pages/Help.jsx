@@ -380,13 +380,12 @@ const Help = () => {
         timestamp: new Date().toLocaleString()
       };
 
-      const result = await emailjs.send(
+      await emailjs.send(
         EMAILJS_CONFIG.SERVICE_ID,
         EMAILJS_CONFIG.TEMPLATE_ID,
         templateParams
       );
 
-      console.log('✅ Email sent successfully:', result.text);
       toast.success('✅ Your message has been sent! We\'ll respond within 24 hours.');
       
       setContactForm({

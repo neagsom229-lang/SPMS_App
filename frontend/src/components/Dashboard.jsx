@@ -3,6 +3,9 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import apiClient from "../api/client";
+import { queryKeys } from '../api/queryKeys';
+import { unwrapList as extractArrayData } from '../api/list';
+import { DEFAULT_STORE_SLUG } from '../config/store';
 import { 
   Users, Package, ShoppingCart, DollarSign, 
   Clock, ArrowRight, BarChart3, PieChart, CheckCircle, Rocket, RefreshCw, Activity, Cpu, Sparkles 
@@ -175,17 +178,7 @@ const getStat = (stats, aliases, fallback = 0) => {
   return Number.isFinite(num) ? num : fallback;
 };
 
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 // Builds the trailing six calendar months (UTC keys, matching date_trunc in
 // /dashboard/analytics-summary) and fills them from the SQL revenue_by_month
 // aggregate. No value here is invented: a month with no sales is a real zero.
@@ -217,7 +210,7 @@ const Dashboard = () => {
 
   // Queries pulling from backend API
   const statsQuery = useQuery({
-    queryKey: ["dashboardStats"],
+    queryKey: queryKeys.dashboardStats,
     queryFn: async () => {
       const res = await apiClient.get("/dashboard/stats");
       return res.data || {};
@@ -227,7 +220,7 @@ const Dashboard = () => {
   });
 
   const ordersQuery = useQuery({
-    queryKey: ["recentOrders"],
+    queryKey: queryKeys.orders,
     queryFn: async () => {
       const res = await apiClient.get("/orders/recent");
       return extractArrayData(res.data, ["orders", "items"]);
@@ -244,7 +237,7 @@ const Dashboard = () => {
   }, []);
 
   const analyticsQuery = useQuery({
-    queryKey: ["dashboardAnalytics", analyticsRange.from, analyticsRange.to],
+    queryKey: queryKeys.dashboardAnalytics(analyticsRange.from, analyticsRange.to),
     queryFn: async () => {
       const res = await apiClient.get("/dashboard/analytics-summary", {
         params: analyticsRange,
@@ -256,7 +249,7 @@ const Dashboard = () => {
   });
 
   const salesMixQuery = useQuery({
-    queryKey: ["dashboardSalesMix", analyticsRange.from, analyticsRange.to],
+    queryKey: queryKeys.dashboardSalesMix(analyticsRange.from, analyticsRange.to),
     queryFn: async () => {
       const res = await apiClient.get("/dashboard/sales-summary", {
         params: { range: "custom", ...analyticsRange },
@@ -378,7 +371,7 @@ const Dashboard = () => {
           </button>
 
           <button
-            onClick={() => navigate('/shop/demo-store')}
+            onClick={() => navigate(`/shop/${DEFAULT_STORE_SLUG}`)}
             className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black rounded-xl text-xs uppercase tracking-wider hover:opacity-90 transition shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center space-x-2"
           >
             <Sparkles className="w-4 h-4 fill-current" />

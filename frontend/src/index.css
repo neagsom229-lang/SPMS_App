@@ -43,22 +43,27 @@
   --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-* {
-  transition: background-color 0.3s var(--ease-premium), 
-              color 0.3s var(--ease-premium),
-              border-color 0.3s var(--ease-premium),
-              box-shadow 0.3s var(--ease-premium);
-}
+/* Resets belong in a layer. In Tailwind v4 the utilities are layered too:
+   an unlayered `*` would quietly beat every utility (px-3.5, p-4, ...) and
+   flatten the app shell. */
+@layer base {
+  * {
+    transition: background-color 0.3s var(--ease-premium), 
+                color 0.3s var(--ease-premium),
+                border-color 0.3s var(--ease-premium),
+                box-shadow 0.3s var(--ease-premium);
+  }
 
-html {
-  scroll-behavior: smooth;
-}
+  html {
+    scroll-behavior: smooth;
+  }
 
-body {
-  @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  body {
+    @apply bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
 /* ==========================================================
@@ -311,10 +316,12 @@ body {
 .animate-shimmer { animation: shimmer 3s linear infinite; background-size: 200% 100%; }
 .animate-sparkle { animation: sparkle 2s ease-in-out infinite; }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    transition: none !important;
-    animation: none !important;
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 }
 
@@ -335,8 +342,10 @@ body {
 }
 
 /* Touch optimization */
-* {
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 /* ==========================================================
    Mobile Responsive Fixes
@@ -389,30 +398,31 @@ body {
 }
 
 /* Touch-friendly targets */
-button, 
-a,
-input,
-select {
-  min-height: 44px;
-}
-
-@media (min-width: 1024px) {
+@layer base {
   button, 
   a,
   input,
   select {
-    min-height: auto;
+    min-height: 44px;
+  }
+
+  @media (min-width: 1024px) {
+    button, 
+    a,
+    input,
+    select {
+      min-height: auto;
+    }
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
 /* Prevent horizontal scroll */
 .overflow-x-auto {
   -webkit-overflow-scrolling: touch;
-}
-
-/* Better touch scrolling */
-* {
-  -webkit-tap-highlight-color: transparent;
 }
 
 /* Mobile font sizes. Kept in @layer base so Tailwind utilities (e.g. text-xs)
@@ -432,8 +442,10 @@ select {
 }
 
 /* Fix for mobile modals */
-@media (max-width: 640px) {
-  .fixed {
-    padding: 0.5rem !important;
+@layer base {
+  @media (max-width: 640px) {
+    .fixed {
+      padding: 0.5rem !important;
+    }
   }
 }

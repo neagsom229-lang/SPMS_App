@@ -9,35 +9,12 @@ import {
 } from 'lucide-react';
 import '../styles/reports.css';
 import apiClient from '../api/client';
+import { unwrapList as extractArrayData } from '../api/list';
 
 // ============================================
 // SHARED DATA HELPERS
 // ============================================
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (
-    typeof responseData === "string" &&
-    responseData.includes("<!DOCTYPE html>")
-  ) {
-    return null;
-  }
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key]))
-          return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 // ============================================
 // MAIN REPORTS COMPONENT
 // ============================================
@@ -258,7 +235,6 @@ const Reports = () => {
   // ===== GENERATE REPORT =====
   const generateReport = useCallback(async () => {
     if (isGenerating) {
-      console.log('⚠️ Already generating, skipping...');
       return;
     }
     
@@ -267,7 +243,6 @@ const Reports = () => {
       return;
     }
     
-    console.log(`📊 Generating ${reportType} report...`);
     
     setIsGenerating(true);
     setLoading(true);
@@ -279,10 +254,8 @@ const Reports = () => {
     
     try {
       const endpoint = getReportEndpoint(reportType);
-      console.log(`📡 Fetching from: ${endpoint}`);
       
       const res = await apiClient.get(endpoint);
-      console.log(`📥 Response received:`, res.status);
       
       // Extract raw data
       let rawData = extractArrayData(res.data, ['data', 'items', 'results']);
@@ -290,11 +263,9 @@ const Reports = () => {
         rawData = [];
       }
       
-      console.log(`📊 Raw data count: ${rawData.length}`);
       
       // Normalize data
       const normalizedData = normalizeReportData(reportType, rawData);
-      console.log(`📊 Normalized data count: ${normalizedData.length}`);
       
       if (isMounted.current) {
         setData(normalizedData);
@@ -342,7 +313,6 @@ const Reports = () => {
   // re-trigger this effect and cause an infinite fetch loop.
   useEffect(() => {
     if (reportType) {
-      console.log(`📊 Report type changed to: ${reportType}, generating...`);
       generateReport();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

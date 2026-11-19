@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
 import { 
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw,
   User, Users as UsersIcon, CheckCircle, AlertCircle,
@@ -97,7 +98,7 @@ const Users = () => {
       
       if (isMounted.current) {
         // ✅ Extract real data from API response
-        const raw = res.data?.data || res.data || [];
+        const raw = unwrapList(res.data, ['users']);
         // Normalize id field in case the API returns `id` instead of `user_id`
         const data = raw.map(u => ({ ...u, user_id: u.user_id ?? u.id }));
         setUsers(data);
@@ -225,7 +226,6 @@ const Users = () => {
     e.preventDefault();
     
     if (isSubmittingRef || submitting) {
-      console.log('⏳ Submission already in progress');
       return;
     }
     
@@ -249,15 +249,12 @@ const Users = () => {
       if (formData.phone?.trim()) submitData.phone = formData.phone.trim();
       if (formData.password) submitData.password = formData.password;
       
-      console.log('📤 Submitting data:', JSON.stringify(submitData, null, 2));
       
-      let response;
       if (editingUser) {
         const updateData = { ...submitData };
         if (!formData.password) delete updateData.password;
         
-        console.log(`📤 Updating user ${editingUser.user_id} with:`, updateData);
-        response = await apiClient.put(`/users/${editingUser.user_id}`, updateData);
+        await apiClient.put(`/users/${editingUser.user_id}`, updateData);
         showMessage('✅ User updated successfully!');
       } else {
         if (!submitData.password) {
@@ -266,12 +263,10 @@ const Users = () => {
           setSubmitting(false);
           return;
         }
-        console.log('📤 Creating new user with:', submitData);
-        response = await apiClient.post('/users', submitData);
+        await apiClient.post('/users', submitData);
         showMessage('✅ User created successfully!');
       }
       
-      console.log('✅ Success response:', response.data);
       
       setShowModal(false);
       setEditingUser(null);
@@ -283,7 +278,6 @@ const Users = () => {
       console.error('❌ Submit error:', error);
       
       if (error.response?.data) {
-        console.log('📋 Full server error:', JSON.stringify(error.response.data, null, 2));
         
         // Handle specific error messages
         if (error.response.data.errors) {

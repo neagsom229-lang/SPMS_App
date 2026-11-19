@@ -1,6 +1,7 @@
 // frontend/src/pages/SuperAdmin/Businesses.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import apiClient from '../../api/client';
+import { unwrapList } from '../../api/list';
 import { toast } from 'react-hot-toast';
 import { 
   Plus, Search, Edit, Trash2,
@@ -32,7 +33,7 @@ const Businesses = () => {
       const response = await apiClient.get('/tenants', {
         params: { search, limit: 20 }
       });
-      setTenants(response.data.tenants || []);
+      setTenants(unwrapList(response.data, ['tenants']));
       setPagination(response.data.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
     } catch (error) {
       console.error('Fetch tenants error:', error);

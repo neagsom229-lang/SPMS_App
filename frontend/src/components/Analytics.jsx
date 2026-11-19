@@ -1,6 +1,7 @@
 // Analytics.jsx - Real data, computed from actual orders/customers/products
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
 import {
   BarChart, Bar, Line, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -31,7 +32,6 @@ import '../styles/analytics.css';
 // stack duplicate interceptors. We now just log locally, only in dev,
 // scoped to this component's own requests.
 const DEBUG = import.meta.env?.DEV ?? false;
-const debugLog = (...args) => { if (DEBUG) console.log(...args); };
 const debugError = (...args) => { if (DEBUG) console.error(...args); };
 
 // ============================================
@@ -433,13 +433,10 @@ const Analytics = () => {
 
       if (!isMounted.current) return;
 
-      const customersData = Array.isArray(customersRes.data)
-        ? customersRes.data
-        : (Array.isArray(customersRes.data?.data) ? customersRes.data.data : []);
+      const customersData = unwrapList(customersRes.data, ['customers']);
 
       setCustomers(customersData);
 
-      debugLog(`👥 Customers loaded: ${customersData.length}`);
     } catch (error) {
       debugError('❌ Error loading analytics data:', error);
       if (isMounted.current) {
@@ -640,7 +637,7 @@ const Analytics = () => {
     apiClient.get('/orders', { params: { customer_id: selectedCustomer, limit: 200 } })
       .then(res => {
         if (cancelled) return;
-        const rows = Array.isArray(res.data) ? res.data : (res.data?.orders || []);
+        const rows = unwrapList(res.data, ['orders']);
         setCustomerHistory(rows);
       })
       .catch(error => {
