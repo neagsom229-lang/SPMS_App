@@ -25,7 +25,6 @@ const Profile = lazy(() => import("./components/Profile"));
 const ChangePassword = lazy(() => import("./components/ChangePassword"));
 const SellPage = lazy(() => import("./components/sell/SellPage"));
 const OnlineOrders = lazy(() => import("./components/orders/OnlineOrders"));
-const RegisterBusiness = lazy(() => import('./pages/RegisterBusiness'));
 
 // Super Admin Pages
 const SuperAdminDashboard = lazy(() => import("./pages/SuperAdmin/Dashboard"));
@@ -159,7 +158,6 @@ function App() {
                   <Route path="/shop/:slug" element={<Storefront />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
-                  <Route path="/register-business" element={<RegisterBusiness />} />
                   <Route path="/pricing" element={<Pricing />} />
                   <Route path="/help" element={<Help />} />
 
@@ -167,7 +165,6 @@ function App() {
                   <Route element={<SuperAdminRoute />}>
                     <Route path="/admin" element={<Layout><SuperAdminDashboard /></Layout>} />
                     <Route path="/admin/tenants" element={<Layout><Businesses /></Layout>} />
-                    <Route path="/admin/tenants/new" element={<Layout><Businesses /></Layout>} />
                     <Route path="/admin/users" element={<Layout><SystemUsers /></Layout>} />
                   </Route>
 
@@ -175,13 +172,10 @@ function App() {
                   <Route element={<ProtectedRoute />}>
                     <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
                     <Route path="/orders" element={<Layout><Orders /></Layout>} />
-                    <Route path="/orders/new" element={<Layout><SellPage /></Layout>} />
                     <Route path="/sell" element={<Layout><SellPage /></Layout>} />
                     <Route path="/online-orders" element={<Layout><OnlineOrders /></Layout>} />
                     <Route path="/orders/:id" element={<Layout><Orders /></Layout>} />
-                    <Route path="/orders/:id/process" element={<Layout><Orders /></Layout>} />
                     <Route path="/products" element={<Layout><Products /></Layout>} />
-                    <Route path="/products/new" element={<Layout><Products /></Layout>} />
                     <Route path="/customers" element={<Layout><Customers /></Layout>} />
                     <Route path="/stock" element={<Layout><Stock /></Layout>} />
                     <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />

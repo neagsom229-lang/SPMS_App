@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../config/postgres');
-const { authenticate, requireSuperAdmin, isActiveStatus, isTenantStatusValid } = require('../middleware/auth');
+const { authenticate, isActiveStatus, isTenantStatusValid } = require('../middleware/auth');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -300,56 +300,6 @@ router.post('/register-client', async (req, res) => {
     });
   } finally {
     client.release();
-  }
-});
-
-// ============================================
-// REGISTER (Super Admin Only)
-// ============================================
-router.post('/register', authenticate, requireSuperAdmin, async (req, res) => {
-  const { username, email, password, firstName, lastName, companyName } = req.body;
-
-  if (!username || !email || !password || !firstName || !lastName || !companyName) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
-
-  try {
-    const existingUser = await db.query(
-      `SELECT userid FROM tbl_users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)`,
-      [username, email]
-    );
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'Username or email already exists' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const fullName = `${firstName} ${lastName}`;
-
-    const result = await db.query(
-      `INSERT INTO tbl_users (username, password, fullname, role, status, email) 
-       VALUES ($1, $2, $3, 'Admin', 'ACTIVE', $4) 
-       RETURNING userid, username, role`,
-      [username, hashedPassword, fullName, email]
-    );
-
-    const user = result.rows[0];
-
-    res.status(201).json({
-      message: 'Account created successfully',
-      user: {
-        user_id: user.userid,
-        username: user.username,
-        role: user.role,
-        fullname: fullName,
-        email: email,
-      },
-    });
-  } catch (err) {
-    console.error('❌ Registration error:', err.message);
-    res.status(500).json({ error: 'Registration failed. Please try again.' });
   }
 });
 

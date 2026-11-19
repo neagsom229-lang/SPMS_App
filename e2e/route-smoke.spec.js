@@ -16,16 +16,16 @@ const ROOT = { username: 'demo_root', password: 'Demo1234!' };
 
 // Routes grouped by the session that may visit them.
 const PUBLIC_ROUTES = [
-  '/', '/login', '/register', '/register-business', '/pricing', '/help',
+  '/', '/login', '/register', '/pricing', '/help',
 ];
 const TENANT_ROUTES = [
-  '/dashboard', '/orders', '/orders/new', '/sell', '/online-orders',
-  '/products', '/products/new', '/customers', '/stock', '/suppliers',
+  '/dashboard', '/orders', '/sell', '/online-orders',
+  '/products', '/customers', '/stock', '/suppliers',
   '/reports', '/users', '/activity', '/warranty', '/analytics',
   '/profile', '/settings', '/change-password',
 ];
 const SUPERADMIN_ROUTES = [
-  '/admin', '/admin/tenants', '/admin/tenants/new', '/admin/users',
+  '/admin', '/admin/tenants', '/admin/users',
 ];
 
 // Documented exceptions. Keep this list empty unless a failure is understood

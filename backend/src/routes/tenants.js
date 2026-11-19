@@ -99,7 +99,6 @@ const systemStatsHandler = async (req, res) => {
   }
 };
 
-router.get('/system/stats', authenticate, requireSuperAdmin, systemStatsHandler);
 router.systemStatsHandler = systemStatsHandler;
 
 // ===== GET SINGLE TENANT DETAILS =====

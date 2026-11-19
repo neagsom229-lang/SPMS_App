@@ -134,7 +134,7 @@ const ProductCatalog = ({ products, cart, onAddToCart, onSearchChange, resolveBy
           <Package className="w-16 h-16 text-gray-400 mb-3" />
           <p className="text-lg font-medium text-gray-600 dark:text-gray-300 mb-2">No active products with stock found</p>
           <button
-            onClick={() => navigate('/products/new')}
+            onClick={() => navigate('/products')}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold shadow hover:bg-indigo-700 transition"
           >
             Add Products
