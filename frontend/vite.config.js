@@ -57,7 +57,6 @@ export default defineConfig(({ mode }) => {
         'react-dom',
         'react-router-dom',
         'axios',
-        'date-fns',
       ],
     },
     

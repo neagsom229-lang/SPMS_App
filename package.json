@@ -28,7 +28,6 @@
     "vercel-build": "cd frontend && npm install && npm run build"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.0",
-    "concurrently": "^8.0.1"
+    "@playwright/test": "^1.50.0"
   }
 }
