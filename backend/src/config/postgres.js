@@ -90,10 +90,19 @@ function sslOptions() {
   return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: true };
 }
 
+// A single small pool is enough for one backend process. Keep the bound
+// explicit and validated so a typo cannot exhaust the server's connections.
+const poolMax = Number(process.env.DB_POOL_MAX || 10);
+if (!Number.isInteger(poolMax) || poolMax < 1 || poolMax > 50) {
+  console.error('❌ DB_POOL_MAX must be an integer between 1 and 50');
+  process.exit(1);
+}
+
 const pool = new Pool({
   connectionString,
   ssl: sslOptions(),
-  max: 10,
+  application_name: 'spms-backend',
+  max: poolMax,
   idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 8000,
   keepAlive: true,

@@ -26,8 +26,11 @@ Every file, what runs it, and whether it stays.
 
 | File | Referenced by | Keep / delete |
 |---|---|---|
-| `_guard.js` | `tests/globalSetup.js`, `tests/setup.js`, `tests/test-databases.js`, `tests/postgresGuard.test.js`, `scripts/verify.js`, `scripts/seed-postgres.js`, `scripts/list-routes.js` | keep |
+| `_guard.js` | `tests/globalSetup.js`, `tests/setup.js`, `tests/test-databases.js`, `tests/postgresGuard.test.js`, `scripts/verify.js`, `scripts/dev.js`, `scripts/dev-db.js`, `scripts/reset-local.js`, `scripts/smoke-local.js`, `scripts/list-routes.js` | keep |
 | `dev.js` | `package.json` `dev` | keep |
+| `dev-env.js` | `scripts/dev.js`, `scripts/dev-db.js`, `scripts/reset-local.js`, `scripts/smoke-local.js` | keep |
+| `dev-db.js` | `scripts/dev.js`, `backend/package.json` `seed`, `scripts/reset-local.js` | keep |
+| `e2e-ports.js` | `playwright.config.js`, `scripts/e2e-servers.js`, `scripts/e2e-setup.js`, `e2e/*.spec.js` | keep |
 | `e2e-servers.js` | `playwright.config.js` `webServer` | keep |
 | `e2e-setup.js` | `scripts/e2e-servers.js` | keep |
 | `flake.js` | `backend/package.json` `flake` | keep |
@@ -38,20 +41,29 @@ Every file, what runs it, and whether it stays.
 | `names-diff.js` | `scripts/verify.js`, `package.json` `names:diff` | keep |
 | `perf-explain.js` | nothing (temporary Phase 5b harness) | delete |
 | `rehearse.js` | `package.json` `rehearse` (owner-run) | keep |
-| `run_migration.js` | `scripts/test-db.js`, `scripts/dev.js`, `scripts/rehearse.js` | keep |
+| `run_migration.js` | `scripts/test-db.js`, `scripts/dev-db.js`, `scripts/rehearse.js` | keep |
 | `run-mutants.ps1` | `scripts/verify-full.js`, `backend/package.json` `verify:full` | keep |
-| `seed-demo.js` | `scripts/dev.js`, `scripts/e2e-setup.js` | keep |
-| `seed-postgres.js` | `backend/package.json` `seed` | keep |
-| `test-db.js` | `tests/globalSetup.js`, `scripts/dev.js`, `scripts/e2e-setup.js`, `scripts/rehearse.js` | keep |
+| `reset-local.js` | `package.json` `db:reset:local` | keep |
+| `seed-demo.js` | `scripts/dev-db.js`, `scripts/e2e-setup.js` | keep |
+| `smoke-local.js` | `package.json` `smoke:local` | keep |
+| `test-db.js` | `tests/globalSetup.js`, `scripts/dev-db.js`, `scripts/e2e-setup.js`, `scripts/rehearse.js` | keep |
 | `verify.js` | `package.json` `verify`, `backend/package.json` `verify` | keep |
 | `verify-full.js` | `package.json` `verify:full` | keep |
 
 ## Database
 
 - The test database is disposable. `docker compose -f docker-compose.test.yml up -d`, then
-  `npm run verify` rebuilds `spms_test` from `database/baseline.sql` + `database/migrations/015-027`.
-- The dev database is `spms_dev` in `docker-compose.dev.yml` on port 15433 (DEV_DB_PORT) with a named volume.
-  `npm run dev` starts it, runs the real migration runner, seeds a demo shop.
+  `npm run verify` rebuilds `spms_test` from `database/baseline.sql` plus every
+  pending file in `database/migrations/` (the real runner records them in
+  `schema_migrations`).
+- Local native mode (`DEV_DB_MODE=local`) uses `spms_db` on `127.0.0.1:5432` with
+  the least-privilege role `spms_app`; provision once with
+  `database/local/001_app_role.sql`. `npm run dev` preflights, migrates and seeds it.
+- Docker fallback uses `spms_dev` in `docker-compose.dev.yml` on port 15433
+  (DEV_DB_PORT) with a named volume. `npm run dev` starts it, runs the real
+  migration runner and seeds a demo shop.
+- `npm run db:reset:local` drops only the `public` schema inside `spms_db`, after a
+  typed confirmation; it never drops the database, the role or Docker volumes.
 - `database/baseline.sql` is generated, never hand-edited. Regenerate it with
   `node backend/scripts/make-baseline.js` (local Docker only, refuses any non-test URL).
 - No production dump is stored in this repository. `prod_backup.sql` was a local, untracked

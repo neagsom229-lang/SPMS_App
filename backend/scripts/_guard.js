@@ -1,11 +1,13 @@
 // Database connection security guard + single source of truth for local DBs.
 //
-// Two modes, both reachable only through 127.0.0.1:
-//   test (default): disposable container, tmpfs data dir, database ends _test
-//   dev:            long-lived container, named volume, database ends _dev
+// Three modes, all reachable only through 127.0.0.1:
+//   test  (default): disposable container, tmpfs data dir, database ends _test
+//   dev:             long-lived container, named volume, database ends _dev
+//   local:           native PostgreSQL installed on Windows (no Docker),
+//                    DATABASE_URL from backend/.env, database spms_db
 //
-// Fails closed: a DATABASE_URL/DIRECT_URL that is not the current mode's local
-// URL on that mode's port and name suffix stops the process before connecting.
+// Fails closed: a DATABASE_URL that is not the current mode's local URL on
+// that mode's port and database stops the process before connecting.
 const { URL } = require('url');
 const { execFileSync } = require('child_process');
 const net = require('net');
@@ -18,11 +20,15 @@ const TEST_DB_NAME = 'spms_test';
 const TEST_TEMPLATE_NAME = 'spms_template';
 const TEST_DB_CONTAINER = 'spms_test_db';
 
-const DEFAULT_DEV_DB_PORT = 15433;
+// DEV_DB_MODE=local selects the native PostgreSQL install. Anything else keeps
+// the historical Docker dev database, so existing checkouts keep working.
+const DEV_DB_MODE = process.env.DEV_DB_MODE === 'local' ? 'local' : 'docker';
+const DEFAULT_DEV_DB_PORT = DEV_DB_MODE === 'local' ? 5432 : 15433;
 const DEV_DB_PORT = Number(process.env.DEV_DB_PORT || DEFAULT_DEV_DB_PORT);
-const DEV_DB_NAME = 'spms_dev';
-const DEV_DB_CONTAINER = 'spms_dev_db';
-const DEV_DB_VOLUME = 'spms_dev_pgdata';
+const DEV_DB_NAME = process.env.DEV_DB_NAME || (DEV_DB_MODE === 'local' ? 'spms_db' : 'spms_dev');
+const DEV_DB_CONTAINER = DEV_DB_MODE === 'local' ? null : 'spms_dev_db';
+const DEV_DB_VOLUME = DEV_DB_MODE === 'local' ? null : 'spms_dev_pgdata';
+const LOCAL_DB_USER = process.env.DEV_DB_USER || 'spms_app';
 
 const DB_USER = 'postgres';
 const DB_PASSWORD = 'postgres';
@@ -49,6 +55,18 @@ const MODES = {
     volume: DEV_DB_VOLUME,
     storage: 'volume',
     suffix: '_dev',
+  },
+  local: {
+    name: 'local',
+    host: DB_HOST,
+    port: DEV_DB_PORT,
+    database: DEV_DB_NAME,
+    template: null,
+    container: null,
+    volume: null,
+    storage: null,
+    suffix: null,
+    user: LOCAL_DB_USER,
   },
 };
 
@@ -86,6 +104,12 @@ function isLocal(urlStr) {
 
 function databaseUrl(mode = 'test', database = modeConfig(mode).database) {
   const config = modeConfig(mode);
+  if (mode === 'local') {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is required for local mode (put it in backend/.env)');
+    }
+    return process.env.DATABASE_URL;
+  }
   return `postgresql://${DB_USER}:${DB_PASSWORD}@${config.host}:${config.port}/${database}`;
 }
 
@@ -95,6 +119,15 @@ function testDatabaseUrl(database = TEST_DB_NAME) {
 }
 
 function devDatabaseUrl(database = DEV_DB_NAME) {
+  if (DEV_DB_MODE === 'local') {
+    if (database !== DEV_DB_NAME) {
+      throw new Error(`local mode has a single dev database (${DEV_DB_NAME})`);
+    }
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is required for local mode (put it in backend/.env)');
+    }
+    return process.env.DATABASE_URL;
+  }
   return databaseUrl('dev', database);
 }
 
@@ -113,6 +146,16 @@ function assertDatabaseUrl(urlStr, mode = 'test') {
   if (parsed.port !== config.port) {
     throw new Error(`DATABASE_URL port must be ${config.port} (${mode} mode)`);
   }
+  if (mode === 'local') {
+    if (parsed.database !== config.database) {
+      throw new Error(`DATABASE_URL database must be ${config.database} (local mode)`);
+    }
+    const user = new URL(urlStr).username;
+    if (user === 'postgres') {
+      throw new Error('local mode must connect as the least-privilege app role (spms_app), not postgres');
+    }
+    return parsed;
+  }
   if (!parsed.database.endsWith(config.suffix)) {
     throw new Error(`DATABASE_URL database name must end with ${config.suffix}`);
   }
@@ -124,10 +167,10 @@ function assertTestDatabaseUrl(urlStr = process.env.DATABASE_URL) {
 }
 
 function assertDevDatabaseUrl(urlStr = process.env.DATABASE_URL) {
-  return assertDatabaseUrl(urlStr, 'dev');
+  return assertDatabaseUrl(urlStr, DEV_DB_MODE === 'local' ? 'local' : 'dev');
 }
 
-const dbUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
+const dbUrl = process.env.DATABASE_URL;
 if (dbUrl) {
   const mode = process.env.SPMS_DB_MODE || 'test';
   try {
@@ -184,10 +227,12 @@ module.exports = {
   TEST_TEMPLATE_NAME,
   TEST_DB_CONTAINER,
   DEFAULT_DEV_DB_PORT,
+  DEV_DB_MODE,
   DEV_DB_PORT,
   DEV_DB_NAME,
   DEV_DB_CONTAINER,
   DEV_DB_VOLUME,
+  LOCAL_DB_USER,
   DB_USER,
   DB_PASSWORD,
   // legacy aliases

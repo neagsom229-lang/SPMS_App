@@ -1,8 +1,8 @@
 # Operations
 
 What to do when SPMS is running somewhere real. Everything here assumes a
-single Postgres instance (Supabase in production) and one backend process per
-tenant-facing environment.
+single hosted Postgres instance reached through `DATABASE_URL` (Supabase, Neon,
+or another provider) and one backend process per tenant-facing environment.
 
 - Backups and restore
 - Uptime check on `/health`
@@ -23,8 +23,8 @@ pg_dump --no-owner --no-privileges --format=custom \
 ```
 
 - Keep 7 nightly dumps and 4 weekly dumps. Copy them off the database host.
-- Supabase also takes daily platform backups; treat those as the second copy,
-  not the only one.
+- If the provider takes platform backups (Supabase does), treat those as the
+  second copy, not the only one.
 - Verify a dump is readable at least monthly:
   `pg_restore --list <dump> | head` must list tables, not error.
 

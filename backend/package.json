@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
-    "seed": "node scripts/seed-postgres.js",
+    "seed": "node scripts/dev-db.js seed",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

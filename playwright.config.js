@@ -4,8 +4,9 @@
 // and a production build of the frontend. The webServer command runs the e2e
 // setup (test DB + demo seed + frontend build) and then both servers.
 const { defineConfig, devices } = require('@playwright/test');
+const { WEB: DEFAULT_WEB } = require('./backend/scripts/e2e-ports');
 
-const WEB = process.env.E2E_WEB_URL || 'http://127.0.0.1:4173';
+const WEB = process.env.E2E_WEB_URL || DEFAULT_WEB;
 
 module.exports = defineConfig({
   testDir: './e2e',

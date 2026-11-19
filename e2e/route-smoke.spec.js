@@ -7,7 +7,9 @@
 // act; the rule itself is never disabled.
 const { test, expect } = require('@playwright/test');
 
-const API = process.env.E2E_API_URL || 'http://127.0.0.1:5050/api';
+const { API_URL } = require('../backend/scripts/e2e-ports');
+
+const API = process.env.E2E_API_URL || API_URL;
 const API_ORIGIN = API.replace(/\/api\/?$/, '');
 const ADMIN = { username: 'demo_admin', password: 'Demo1234!' };
 const ROOT = { username: 'demo_root', password: 'Demo1234!' };

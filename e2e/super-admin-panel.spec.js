@@ -11,7 +11,9 @@
 // public path a tenant uses to buy a subscription. No SQL anywhere here.
 const { test, expect } = require('@playwright/test');
 
-const API = process.env.E2E_API_URL || 'http://127.0.0.1:5050/api';
+const { API_URL } = require('../backend/scripts/e2e-ports');
+
+const API = process.env.E2E_API_URL || API_URL;
 
 const ADMIN = { username: 'demo_admin', password: 'Demo1234!' };
 const STAFF = { username: 'demo_staff', password: 'Demo1234!' };

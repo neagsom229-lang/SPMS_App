@@ -3,6 +3,12 @@
 Owner-run only. This is a checklist, not an automated deploy; `render.yaml` and
 other deploy config are owner-controlled and are not changed here.
 
+For **local** development (native PostgreSQL 18, `DEV_DB_MODE=local`, database
+`spms_db`, role `spms_app`), the one-time provisioning script is
+`database/local/001_app_role.sql`; `npm run dev` then runs preflight → migrate →
+seed → both servers. `npm run db:reset:local` drops only the `public` schema of
+`spms_db` after a typed confirmation. The sections below are for production.
+
 ## 1. Environment variables
 
 Set these in the host secret store (never in a committed file).
@@ -11,9 +17,10 @@ Backend — required by `checkEnv()`:
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | production Postgres; pooler session mode, port 5432 |
+| `DATABASE_URL` | hosted PostgreSQL connection (Supabase, Neon, or another provider); production port 5432 |
 | `JWT_SECRET` | random value; rotating it signs every user out |
 | `CORS_ORIGINS` | comma-separated production frontend origin(s); **required when `NODE_ENV=production`** |
+| `DB_SSL_CA` | optional: PEM text or a path to a PEM file when the provider uses a private CA |
 
 Backend — Render sets these (`render.yaml`): `NODE_ENV=production`, `PORT=5000`.
 Do not override them by hand.
@@ -31,38 +38,38 @@ Backend — operational:
 Frontend (Vercel): `VITE_API_URL` (backend API base, e.g. `https://<host>/api`),
 optional `VITE_SENTRY_DSN`.
 
-### DB_SSL must be unset on Render
+### TLS in production
 
-Do **not** set `DB_SSL`. `backend/src/config/postgres.js` detects Supabase pooler
-hosts (`*.pooler.supabase.com`, `*.supabase.co`) and always connects with TLS and
-`rejectUnauthorized: true`. Setting `DB_SSL=false` disables certificate
-verification; it exists only for local production-like smoke tests against a
-loopback DB. Never weaken `rejectUnauthorized`.
+`NODE_ENV=production` enables TLS with `rejectUnauthorized: true` by default.
+Leave `DB_SSL` unset: setting `DB_SSL=false` disables certificate verification
+and is only for local production-like smoke tests against a loopback database.
+Never weaken `rejectUnauthorized` in production.
 
-### Optional DB_SSL_CA (Supabase CA)
+### Optional DB_SSL_CA (private CA)
 
-Production uses Supabase, whose standard certificate chain is publicly trusted, so
-no CA variable is normally needed. If the deploy environment uses a private CA (or
-a TLS-inspecting proxy), supply the CA with `DB_SSL_CA` — either the PEM text or a
-path to a PEM file. `postgres.js` adds it as `ssl.ca` while keeping
-`rejectUnauthorized: true`; it never downgrades verification. An unreadable file
-path fails startup rather than silently skipping verification.
+Hosted providers with a publicly trusted chain (including Supabase) need no CA
+variable. If the deploy environment uses a private CA or a TLS-inspecting proxy,
+supply the CA with `DB_SSL_CA` — either the PEM text or a path to a PEM file.
+`postgres.js` adds it as `ssl.ca` while keeping `rejectUnauthorized: true`; it
+never downgrades verification. An unreadable file path fails startup rather
+than silently skipping verification.
 
 `NODE_EXTRA_CA_CERTS` remains a valid alternative for a system-wide CA bundle.
 
 ## 2. Migrations and seed
 
 - The backend does **not** run migrations on start (`startCommand: node src/app.js`).
-- Apply pending migrations in order with the owner-run deploy script:
-  `npm run db:deploy` (see `docs/RELEASE.md` for the current live ledger state —
-  pending migrations are `026` then `028`). Migrations are additive and idempotent
-  and recorded in the migration ledger.
+- Apply every migration not yet recorded in `schema_migrations`, in filename
+  order, with the owner-run deploy script: `npm run db:deploy` (see
+  `docs/RELEASE.md` for the live ledger state — do not assume the local ledger
+  matches production). Migrations are additive and idempotent and recorded in
+  the migration ledger. `029_tenant_list_indexes.sql` is additive indexes only.
 - Rehearse any schema change first on a scratch test DB:
   `npm run rehearse -- <schema-only-dump.sql>`.
 - **Do not run `npm run seed` against production.** `backend/scripts/_guard.js`
-  refuses any database that is not the local loopback test/dev DB. The seeded
-  `superadmin` / `SuperAdminPassword123!` credentials are demo-only, not production
-  credentials.
+  refuses any database that is not the local loopback test/dev DB.
+  `backend/scripts/seed-demo.js` creates the local demo shop only; its printed
+  `demo_*` credentials are demo-only, not production credentials.
 
 ## 3. Create the first super-admin
 
@@ -80,6 +87,10 @@ path fails startup rather than silently skipping verification.
 ## 4. Before and after deploying
 
 - Before: `npm run verify`, then `npm run test:e2e`. Both must exit 0.
+  Playwright's backend listens on `127.0.0.1:5055` because pgAdmin 4 uses 5050 by
+  default; override with `E2E_BACKEND_PORT` if that port is taken too.
+- Local sanity check: with `npm run dev` running, `npm run smoke:local` hits
+  `/health`, login, the list routes and CRUD against the **dev** database.
 - Take a backup first: `pg_dump --format=custom` (see `docs/OPERATIONS.md`).
 - After: `GET /health` returns HTTP 200 with `"db":"connected"`.
 

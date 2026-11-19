@@ -23,7 +23,7 @@ const BACKEND = path.join(__dirname, '..');
 const ROOT = path.join(BACKEND, '..');
 const FRONTEND = path.join(ROOT, 'frontend');
 const COMPOSE_FILE = path.join(ROOT, 'docker-compose.test.yml');
-const E2E_API = process.env.E2E_API_URL || 'http://127.0.0.1:5050/api';
+const { API_URL: E2E_API } = require('./e2e-ports');
 
 // A CI job may already serve the test database (service container on the same
 // port). Probe first so `docker compose up` does not fight it for the port.

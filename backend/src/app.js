@@ -293,6 +293,13 @@ async function startServer() {
 
   } catch (err) {
     console.error("❌ Server startup error:", err.message);
+    if (err.code === "ECONNREFUSED") {
+      console.error("   Start the PostgreSQL service: services.msc -> postgresql-x64-18");
+    } else if (err.code === "28P01" || err.code === "28000") {
+      console.error("   PostgreSQL rejected the credentials. Fix DATABASE_URL (the value is never printed).");
+    } else if (err.code === "3D000") {
+      console.error("   The database does not exist. Run database/local/001_app_role.sql once as postgres.");
+    }
     process.exit(1);
   }
 }

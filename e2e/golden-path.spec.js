@@ -10,7 +10,9 @@
 // fails before any later step can hide it.
 const { test, expect } = require('@playwright/test');
 
-const API = process.env.E2E_API_URL || 'http://127.0.0.1:5050/api';
+const { API_URL } = require('../backend/scripts/e2e-ports');
+
+const API = process.env.E2E_API_URL || API_URL;
 
 const ADMIN = { username: 'demo_admin', password: 'Demo1234!' };
 // seeded by backend/scripts/seed-demo.js with must_change_password = TRUE

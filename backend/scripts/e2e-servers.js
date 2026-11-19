@@ -2,25 +2,57 @@
 //
 // Playwright webServer entry point. Runs the e2e setup (unless E2E_SKIP_SETUP=1),
 // then serves:
-//   backend  http://127.0.0.1:5050  (test DB, NODE_ENV=development)
+//   backend  http://127.0.0.1:5055  (test DB, NODE_ENV=development)
 //   frontend http://127.0.0.1:4173  (vite preview of the built bundle)
 // Both bind loopback only. The backend receives the test DATABASE_URL and no
 // remote one, so it cannot reach a hosted database even by accident.
+// Ports come from e2e-ports.js; 5050 is avoided because pgAdmin 4 uses it.
 process.env.SPMS_DB_MODE = 'test';
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = require('./_guard').testDatabaseUrl();
 }
 
 const path = require('path');
+const net = require('net');
 const { spawn } = require('child_process');
+const { BACKEND_PORT, FRONTEND_PORT, API_ORIGIN: API, WEB } = require('./e2e-ports');
 
 const BACKEND = path.join(__dirname, '..');
 const ROOT = path.join(BACKEND, '..');
 const FRONTEND = path.join(ROOT, 'frontend');
-const BACKEND_PORT = Number(process.env.E2E_BACKEND_PORT || 5050);
-const FRONTEND_PORT = Number(process.env.E2E_FRONTEND_PORT || 4173);
-const API = `http://127.0.0.1:${BACKEND_PORT}`;
-const WEB = `http://127.0.0.1:${FRONTEND_PORT}`;
+
+// Refuse to start on a port something else already answers on. Without this,
+// a local pgAdmin on 5050 wins the socket and every health poll gets its HTML
+// 401 while the backend still logs that it started.
+function portAnswers(port) {
+  return new Promise(resolve => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const finish = value => {
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(750);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+async function assertPortsFree() {
+  const ports = [
+    [BACKEND_PORT, 'backend', 'E2E_BACKEND_PORT'],
+    [FRONTEND_PORT, 'frontend preview', 'E2E_FRONTEND_PORT'],
+  ];
+  for (const [port, label, variable] of ports) {
+    if (await portAnswers(port)) {
+      const hint = port === 5050 ? ' pgAdmin 4 uses 5050 by default;' : '';
+      throw new Error(
+        `e2e ${label} port ${port} is already in use.${hint}` +
+        ` Close that process or set ${variable} to a free port.`
+      );
+    }
+  }
+}
 
 function childEnv(extra = {}) {
   const env = {
@@ -34,7 +66,6 @@ function childEnv(extra = {}) {
     BAKONG_ACCOUNT_ID: process.env.BAKONG_ACCOUNT_ID || 'abaakhppxxx@abaa',
     ...extra,
   };
-  delete env.DIRECT_URL;
   delete env.ALLOW_REMOTE_DB;
   delete env.RENDER;
   return env;
@@ -55,6 +86,7 @@ async function waitFor(url, label, timeoutMs = 60000) {
 }
 
 async function main() {
+  await assertPortsFree();
   if (process.env.E2E_SKIP_SETUP !== '1') {
     const { setup } = require('./e2e-setup');
     await setup();
