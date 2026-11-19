@@ -56,6 +56,7 @@ const Users = () => {
   const isMounted = useRef(true);
   const searchTimeout = useRef(null);
   const submitTimeoutRef = useRef(null);
+  const didMountDebounce = useRef(false);
 
   // ===== CALCULATE STATS =====
   // Declared before fetchUsers: the dependency array below is evaluated during
@@ -140,6 +141,12 @@ const Users = () => {
 
   // ===== SEARCH DEBOUNCE =====
   useEffect(() => {
+    // The initial load effect already fetches. Skip only the first debounce
+    // run; clearing the search later must still trigger a fresh full fetch.
+    if (!didMountDebounce.current) {
+      didMountDebounce.current = true;
+      return undefined;
+    }
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current);
     }
