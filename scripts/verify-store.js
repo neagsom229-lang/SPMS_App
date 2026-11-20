@@ -112,16 +112,14 @@ async function main() {
     ['addToCart(product)', 'Add To Cart wired to cards'],
     ['sm:grid-cols-2', 'responsive grid (tablet)'],
     ['lg:grid-cols-4', 'responsive grid (desktop)'],
-    ['barcodeFor(', 'checkout resolves catalog SKU to DB row id'],
-    ['/public/store/${storeSlug}/menu', 'storefront resolves SKU via public menu'],
+    ['/public/store/${storeSlug}/menu', 'storefront loads tenant catalog from public menu'],
+    ['/public/store/${storeSlug}/categories', 'storefront loads tenant categories from public endpoint'],
   ];
   for (const [needle, label] of sourceChecks) {
     check(storefront.includes(needle), `storefront: ${label} missing`);
   }
-  check(productsSource.includes('barcodeFor'), 'products data exposes barcodeFor for SKU resolution');
-  check(/public\/store\/\$\{storeSlug\}\/menu/.test(storefront), 'storefront: public menu endpoint missing');
-  check(/stockStatus === 'out'/.test(storefront) && /inStock === false/.test(storefront),
-    'storefront: out-of-stock guard missing');
+  check(/stock_status === 'out'/.test(storefront) && /stock_status === 'low'/.test(storefront),
+    'storefront: stock_status driven out/low handling missing');
   check(/price \* exchangeRate/.test(storefront), 'storefront: KHR is not computed from USD');
 
   const seed = fs.readFileSync(SEED, 'utf8');

@@ -72,7 +72,7 @@ const CustomerPicker = ({ customers, selectedCustomer, onSelectCustomer, onCusto
         <option value="">-- Walk-in Customer --</option>
         {customers.map(c => {
           const cid = c.id || c.CUS_ID;
-          const cname = c.name || c.name_en || `${c.FIRST_NAME || ''} ${c.LAST_NAME || ''}`.trim() || 'Customer';
+          const cname = c.name || c.name_en || `${c.FIRST_NAME || ''} ${c.LAST_NAME || ''}`.trim() || 'No name recorded';
           return (
             <option key={cid} value={cid}>
               {cname} {c.phone ? `(${c.phone})` : ''}

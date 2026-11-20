@@ -52,10 +52,11 @@ async function ensureStoreSettings(client, tenantId) {
 }
 
 // Re-sync an already-seeded tenant to the catalog in
-// frontend/src/data/products.js. Rows are matched by SKU barcode; leftover
-// placeholder rows (the old DEMO-### products) are recycled in id order so
-// primary keys stay stable and existing order history keeps its foreign keys.
-// Idempotent: running it twice produces the same 20 catalog rows.
+// frontend/src/data/products.js. Rows are matched by SKU barcode; when a
+// catalog item has no row yet a NEW row is inserted. Leftover placeholder rows
+// (the old DEMO-### products) are DEACTIVATED (never recycled, never deleted)
+// so old rows and their order history stay intact while new catalog data gets
+// fresh rows. Idempotent: running it twice produces the same 20 catalog rows.
 async function refreshCatalog(client, tenantId, PRODUCTS, ALL_CATEGORIES, barcodeFor) {
   await client.query('BEGIN');
   try {
@@ -117,17 +118,6 @@ async function refreshCatalog(client, tenantId, PRODUCTS, ALL_CATEGORIES, barcod
           [item.name, categoryIds[item.category], supplierId, item.price, cost,
             stockQty, item.shortDescription, item.image, productId]
         );
-      } else if (recycle.length > 0) {
-        productId = recycle.shift();
-        await client.query(
-          `UPDATE tbl_products
-             SET barcode = $1, name = $2, category_id = $3, supplier_id = $4, price = $5, cost = $6,
-                 stock = $7, status = 'Active', is_published = true,
-                 description_en = $8, image_url = $9
-           WHERE id = $10`,
-          [barcode, item.name, categoryIds[item.category], supplierId, item.price, cost,
-            stockQty, item.shortDescription, item.image, productId]
-        );
       } else {
         const ins = await client.query(
           `INSERT INTO tbl_products (name, barcode, category_id, supplier_id, price, cost, stock, tenant_id, status, description_en, image_url)
@@ -156,13 +146,18 @@ async function refreshCatalog(client, tenantId, PRODUCTS, ALL_CATEGORIES, barcod
       synced += 1;
     }
 
-    // Placeholders left over (more old rows than catalog items) are retired
-    // so no leftover placeholder row stays active in the product list.
-    if (recycle.length > 0) {
+    // Leftover placeholder rows from the old seed are deactivated (never
+    // recycled, never deleted) so order history keeps its foreign keys intact
+    // while the catalog owns only fresh rows from here on.
+    const leftover = await client.query(
+      `SELECT id FROM tbl_products WHERE tenant_id = $1 AND barcode LIKE 'DEMO-%'`,
+      [tenantId]
+    );
+    if (leftover.rows.length > 0) {
       await client.query(
         `UPDATE tbl_products SET status = 'Inactive', is_published = false, category_id = NULL, supplier_id = NULL
          WHERE id = ANY($1::int[])`,
-        [recycle]
+        [leftover.rows.map((r) => r.id)]
       );
     }
 

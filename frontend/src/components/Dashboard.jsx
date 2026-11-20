@@ -57,11 +57,11 @@ const TrendChart = ({ data }) => {
       </defs>
       {[0, 1, 2, 3, 4].map((i) => {
         const y = padTop + (plotH / 4) * i;
-        return <line key={i} x1="0" y1={y} x2={W} y2={y} stroke="#334155" strokeOpacity="0.3" strokeDasharray="3 3" />;
+        return <line key={`gridline-${y}`} x1="0" y1={y} x2={W} y2={y} stroke="#334155" strokeOpacity="0.3" strokeDasharray="3 3" />;
       })}
       {barPts.map((p, i) => (
         <rect
-          key={i}
+          key={p.d.key}
           data-month={p.d.key}
           data-value={Number(p.d.revenue) || 0}
           x={p.x - barW / 2}
@@ -77,7 +77,7 @@ const TrendChart = ({ data }) => {
       <path d={area} fill="url(#dashboard-rev)" />
       <polyline points={line} fill="none" stroke="#06b6d4" strokeWidth="3" strokeLinejoin="round" />
       {linePts.map((p, i) => (
-        <g key={i}>
+        <g key={p.d.key}>
           <circle cx={p.x} cy={p.y} r="3.5" fill="#06b6d4" data-value={Number(p.d.orders) || 0}>
             <title>{`${p.d.name}: ${p.d.orders} orders`}</title>
           </circle>
@@ -119,7 +119,7 @@ const DonutChart = ({ data }) => {
         if (sweep <= 0) return null;
         return (
           <path
-            key={i}
+            key={d.name}
             data-name={d.name}
             data-value={Number(d.value) || 0}
             d={arc(start, sweep)}
@@ -146,9 +146,9 @@ const formatCurrency = (value) => {
 };
 
 const formatDate = (value) => {
-  if (!value) return "N/A";
+  if (!value) return "No date";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? "N/A" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return Number.isNaN(d.getTime()) ? "No date" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
 
 const findField = (obj, aliases) => {
@@ -169,7 +169,7 @@ const getCustomerName = (order) => {
   const first = findField(order, ["first_name", "firstName"]);
   const last = findField(order, ["last_name", "lastName"]);
   if (first || last) return `${first || ""} ${last || ""}`.trim();
-  return "Tech Client";
+  return "No customer";
 };
 
 const getStat = (stats, aliases, fallback = 0) => {
@@ -432,7 +432,7 @@ const Dashboard = () => {
         ].map((card, idx) => {
           const Icon = card.icon;
           return (
-            <div key={idx} className="relative group bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 shadow-xl hover:border-cyan-500/40 transition-all duration-300">
+            <div key={card.label} className="relative group bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 shadow-xl hover:border-cyan-500/40 transition-all duration-300">
               <div className="absolute -inset-px bg-gradient-to-r from-cyan-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-20 blur-md transition-opacity -z-10" />
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">{card.label}</span>
@@ -493,7 +493,7 @@ const Dashboard = () => {
 
           <div className="grid grid-cols-2 gap-2 pt-4 border-t border-slate-800">
             {salesDistribution.map((item, idx) => (
-              <div key={idx} className="flex items-center space-x-2 text-xs">
+              <div key={item.name} className="flex items-center space-x-2 text-xs">
                 <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
                 <span className="text-slate-300 truncate">{item.name}</span>
               </div>
@@ -540,12 +540,12 @@ const Dashboard = () => {
                     </td>
                   </tr>
                 ) : (
-                  recentOrders.slice(0, 5).map((order, i) => {
-                    const orderNo = order.ORDER_NO || order.order_no || `ORD-00${i+1}`;
+                  recentOrders.slice(0, 5).map((order) => {
+                    const orderNo = order.ORDER_NO || order.order_no || 'No order number';
                     const amount = Number(order.AMOUNT_US || order.amount_us || order.total || 0);
-                    const status = order.STATUS || order.status || 'Completed';
+                    const status = order.STATUS || order.status || 'No status';
                     return (
-                      <tr key={i} className="hover:bg-slate-800/40 transition">
+                      <tr key={order.or_id || order.OR_ID || order.id || orderNo} className="hover:bg-slate-800/40 transition">
                         <td className="py-3.5 font-mono text-cyan-400">{orderNo}</td>
                         <td className="py-3.5 text-white font-semibold">{getCustomerName(order)}</td>
                         <td className="py-3.5 text-slate-400">{formatDate(order.ORDER_DATE || order.order_date)}</td>

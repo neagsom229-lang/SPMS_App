@@ -278,7 +278,7 @@ const SystemUsers = () => {
                   onChange={(e) => setFormData({ ...formData, fullname: e.target.value })}
                   required
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="John Doe"
+                  placeholder="Enter full name"
                 />
               </div>
 

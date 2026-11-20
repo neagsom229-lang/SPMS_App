@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Pagination from "./Pagination";
 import {
   Plus,
@@ -36,119 +37,13 @@ import { exportInvoicePDF } from "../utils/pdfExport";
 import '../styles/orders.css';
 // ✅ Shared axios instance — attaches the Authorization header from
 // localStorage on every request.
-import apiClient from '../api/client';
-import { unwrapList as extractArrayData, fetchPage } from '../api/list';
+import apiClient, { getErrorMessage } from '../api/client';
+import { unwrapList as extractArrayData, fetchPage, normalizeProduct, normalizeCustomer } from '../api/list';
 
 // ============================================
 // SHARED DATA HELPERS
 // ============================================
-// Shared list unwrapping lives in ../api/list.js
-const getFallbackCustomers = () => [
-  {
-    CUS_ID: "CUS001",
-    FIRST_NAME: "John",
-    LAST_NAME: "Doe",
-    PHONE: "555-0101",
-    E_MAIL: "john@example.com",
-    ADDRESS: "123 Main St, NY",
-    BALANCE: 150.0,
-    STATUS: "Active",
-    image_url:
-      "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop",
-  },
-  {
-    CUS_ID: "CUS002",
-    FIRST_NAME: "Jane",
-    LAST_NAME: "Smith",
-    PHONE: "555-0102",
-    E_MAIL: "jane@example.com",
-    ADDRESS: "456 Oak Ave, LA",
-    BALANCE: 0.0,
-    STATUS: "Active",
-    image_url:
-      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
-  },
-  {
-    CUS_ID: "CUS003",
-    FIRST_NAME: "Robert",
-    LAST_NAME: "Johnson",
-    PHONE: "555-0103",
-    E_MAIL: "robert@example.com",
-    ADDRESS: "789 Pine Rd, SF",
-    BALANCE: 75.5,
-    STATUS: "Active",
-    image_url:
-      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop",
-  },
-  {
-    CUS_ID: "CUS004",
-    FIRST_NAME: "Mary",
-    LAST_NAME: "Williams",
-    PHONE: "555-0104",
-    E_MAIL: "mary@example.com",
-    ADDRESS: "321 Elm St, CHI",
-    BALANCE: 200.0,
-    STATUS: "Active",
-    image_url:
-      "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop",
-  },
-];
-
-const getFallbackProducts = () => [
-  {
-    PRODUCT_ID: "PROD001",
-    NAME_EN: "Laptop Pro",
-    NAME_KH: "កុំព្យូទ័រយួរដៃ",
-    BARCODE: "LP001",
-    BRAND: "TechPro",
-    BUYIN_PRICE: 899.99,
-    SALEOUT_PRICE: 1299.99,
-    QtyInStock: 50,
-    QTY_ALERT: 10,
-    STATUS: "Active",
-    image_url: null,
-  },
-  {
-    PRODUCT_ID: "PROD002",
-    NAME_EN: "Smartphone X",
-    NAME_KH: "ទូរស័ព្ទឆ្លាត",
-    BARCODE: "SP002",
-    BRAND: "PhoneMaster",
-    BUYIN_PRICE: 599.99,
-    SALEOUT_PRICE: 899.99,
-    QtyInStock: 30,
-    QTY_ALERT: 10,
-    STATUS: "Active",
-    image_url: null,
-  },
-  {
-    PRODUCT_ID: "PROD003",
-    NAME_EN: "Wireless Mouse",
-    NAME_KH: "កណ្ដុរឥតខ្សែ",
-    BARCODE: "WM003",
-    BRAND: "Accessory",
-    BUYIN_PRICE: 15.99,
-    SALEOUT_PRICE: 29.99,
-    QtyInStock: 100,
-    QTY_ALERT: 15,
-    STATUS: "Active",
-    image_url: null,
-  },
-  {
-    PRODUCT_ID: "PROD004",
-    NAME_EN: "Keyboard Pro",
-    NAME_KH: "ក្ដារចុច",
-    BARCODE: "KP004",
-    BRAND: "Accessory",
-    BUYIN_PRICE: 45.99,
-    SALEOUT_PRICE: 79.99,
-    QtyInStock: 45,
-    QTY_ALERT: 10,
-    STATUS: "Active",
-    image_url: null,
-  },
-];
-
+// Shared list unwrapping + row normalization live in ../api/list.js
 // ============================================
 // FIXED: STOCK HELPER
 // ============================================
@@ -222,6 +117,39 @@ const Orders = () => {
   const [page, setPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
+  const queryClient = useQueryClient();
+
+  const createOrderMutation = useMutation({
+    mutationFn: async (payload) => {
+      const { data } = await apiClient.post("/orders", payload);
+      return data;
+    },
+    onSuccess: async (data, variables) => {
+      const orderNo = data?.order_no || variables.order_no;
+      setOrderId(data?.or_id ?? data?.id ?? null);
+      setSavedOrderData(data || null);
+      setPurchaseResult({
+        success: true,
+        order_no: orderNo,
+        message: "Purchase completed successfully! Stock updated.",
+      });
+      showMessage(`✅ Purchase completed! Order ${orderNo} created.`, "success");
+      setItems([]);
+      setDiscount(0);
+      setSelectedCustomer("");
+      setSelectedCustomerName("");
+      generateOrderNo();
+      await Promise.all([fetchProducts(), fetchOrders()]);
+      await queryClient.invalidateQueries({ queryKey: ["orders"] });
+      await queryClient.invalidateQueries({ queryKey: ["products"] });
+      await queryClient.invalidateQueries({ queryKey: ["stock"] });
+    },
+    onError: (error) => {
+      const errMsg = getErrorMessage(error) || "Purchase failed. Please try again.";
+      showMessage(`❌ ${errMsg}`, "error");
+    },
+  });
+
   // ===== REFS =====
   const isMounted = useRef(true);
   const itemsEndRef = useRef(null);
@@ -252,14 +180,14 @@ const Orders = () => {
       const res = await apiClient.get("/customers");
       if (!isMounted.current) return;
       const extracted = extractArrayData(res.data, ["customers", "items"]);
-      if (extracted === null) throw new Error("API not available");
-      setCustomers(extracted.length > 0 ? extracted : getFallbackCustomers());
+      const list = Array.isArray(extracted) ? extracted : [];
+      setCustomers(list.map(normalizeCustomer).filter((c) => c && c.id));
     } catch (error) {
       console.warn(
-        "⚠️ Customers API unavailable, using fallback:",
-        error.message,
+        "⚠️ Customers API unavailable:",
+        error?.message || error,
       );
-      if (isMounted.current) setCustomers(getFallbackCustomers());
+      if (isMounted.current) setCustomers([]);
     }
   }, []);
 
@@ -272,14 +200,15 @@ const Orders = () => {
         params: { page: productPage, limit: 50, q: searchTerm || undefined },
       });
       if (!isMounted.current) return;
-      setProducts(rows.length > 0 ? rows : getFallbackProducts());
+      const list = (rows || []).map(normalizeProduct).filter((p) => p && p.id);
+      setProducts(list);
       setProductPaging(pagination);
     } catch (error) {
       console.warn(
-        "⚠️ Products API unavailable, using fallback:",
-        error.message,
+        "⚠️ Products API unavailable:",
+        error?.message || error,
       );
-      if (isMounted.current) setProducts(getFallbackProducts());
+      if (isMounted.current) setProducts([]);
     }
   }, [productPage, searchTerm]);
 
@@ -291,50 +220,34 @@ const Orders = () => {
     try {
       const res = await apiClient.get("/orders");
       const extracted = extractArrayData(res.data, ["orders", "items"]);
-      if (extracted === null) throw new Error("API not available");
+      const list = Array.isArray(extracted) ? extracted : [];
 
       // Map the data to match frontend expectations
-      const mappedOrders = extracted.map((order) => ({
+      const mappedOrders = list.map((order) => ({
         id: order.or_id || order.id || order.OR_ID,
         order_no: order.order_no || order.ORDER_NO,
         date: order.order_date || order.ORDER_DATE || order.date,
         total: Number(order.amount_us || order.AMOUNT_US || order.total || 0),
-        status: order.status || order.STATUS || "Pending",
+        status: order.status || order.STATUS || "No status",
         payment_method: order.paymentmethod || order.PAYMENT_METHOD || order.payment_method,
         customer_id: order.customer_id || order.CUSTOMER_ID,
-        customer_name: order.customer_name || order.CUSTOMER_NAME || "Unknown",
+        customer_name: order.customer_name || order.CUSTOMER_NAME || "",
         items: order.items || [],
         item_count: order.item_count || order.items?.length || 0,
         discount: order.discount || order.DISCOUNT || 0,
         subtotal: order.subtotal || order.SUBTOTAL || 0,
-        saved_locally: order.saved_locally || false,
         notes: order.notes || order.NOTES || "",
       }));
 
       if (isMounted.current) {
         setSavedOrders(mappedOrders);
-        try {
-          localStorage.setItem("pos_orders_cache", JSON.stringify(mappedOrders));
-        } catch {
-          /* ignore */
-        }
       }
     } catch (error) {
       console.warn(
-        "⚠️ Orders API unavailable, using local cache:",
-        error.message,
+        "⚠️ Orders API unavailable:",
+        error?.message || error,
       );
-      try {
-        const cached = JSON.parse(
-          localStorage.getItem("pos_orders_cache") ||
-            localStorage.getItem("orders") ||
-            "[]",
-        );
-        if (isMounted.current)
-          setSavedOrders(Array.isArray(cached) ? cached : []);
-      } catch {
-        if (isMounted.current) setSavedOrders([]);
-      }
+      if (isMounted.current) setSavedOrders([]);
     } finally {
       if (isMounted.current) setOrdersLoading(false);
     }
@@ -351,14 +264,14 @@ const Orders = () => {
       // Map the response to match frontend expectations
       const customerName = data.customer
         ? `${data.customer.FIRST_NAME || data.customer.first_name || ""} ${data.customer.LAST_NAME || data.customer.last_name || ""}`.trim()
-        : data.customer_name || "Unknown";
+        : data.customer_name || "No customer";
 
       return {
         id: data.OR_ID || data.id || data.or_id,
         order_no: data.ORDER_NO || data.order_no,
         date: data.ORDER_DATE || data.order_date || data.date,
         total: Number(data.AMOUNT_US || data.amount_us || data.total || 0),
-        status: data.STATUS || data.status || "Pending",
+        status: data.STATUS || data.status || "No status",
         payment_method: data.PaymentMethod || data.payment_method,
         customer_id: data.CUSTOMER_ID || data.customer_id,
         customer_name: customerName,
@@ -379,19 +292,6 @@ const Orders = () => {
     } catch (error) {
       console.error("❌ Failed to fetch order details:", error);
       return null;
-    }
-  }, []);
-
-  // ===== PERSIST ORDER LOCALLY =====
-  const persistOrderLocally = useCallback((orderData) => {
-    try {
-      const cached = JSON.parse(localStorage.getItem("pos_orders_cache") || "[]");
-      const updated = [orderData, ...(Array.isArray(cached) ? cached : [])];
-      localStorage.setItem("pos_orders_cache", JSON.stringify(updated));
-      localStorage.setItem("orders", JSON.stringify(updated));
-      setSavedOrders(updated);
-    } catch (e) {
-      console.error("❌ Failed to persist order locally:", e);
     }
   }, []);
 
@@ -478,13 +378,11 @@ const Orders = () => {
 
           if (field === "product_id") {
             const product = products.find(
-              (p) => String(p.PRODUCT_ID || p.product_id) === String(value),
+              (p) => String(p.id) === String(value),
             );
             if (product) {
-              updated.unit_price = Number(
-                product.SALEOUT_PRICE || product.saleout_price || 0,
-              );
-              updated.product_name = product.NAME_EN || product.name_en || "";
+              updated.unit_price = Number(product.saleout_price ?? product.price ?? 0);
+              updated.product_name = product.name || product.name_en || "";
               updated.image = getProductImage(product);
               updated.stock = getProductStock(product);
             } else {
@@ -525,7 +423,7 @@ const Orders = () => {
     for (const item of items) {
       if (!item.product_id) continue;
       const product = products.find(
-        (p) => String(p.PRODUCT_ID || p.product_id) === String(item.product_id),
+        (p) => String(p.id) === String(item.product_id),
       );
       if (!product) continue;
       const available = getProductStock(product);
@@ -578,40 +476,29 @@ const Orders = () => {
     setIsProcessingPurchase(true);
 
     const purchasePayload = {
-      CUSTOMER_ID: String(selectedCustomer),
+      customer_id: selectedCustomer ? Number(selectedCustomer) : null,
       items: items.map((item) => ({
-        product_id: String(item.product_id),
+        product_id: Number(item.product_id),
         qty: Number(item.qty),
         unit_price: Number(item.unit_price),
         discount: Number(item.discount || 0),
       })),
-      DISCOUNT: Number(discount),
       discount: Number(discount),
-      PAYMENT_METHOD: paymentMethod,
       payment_method: paymentMethod,
-      STATUS: orderStatus,
-      status: orderStatus,
-      order_no: orderNo,
+      idempotency_key: crypto.randomUUID(),
     };
 
     try {
-      const response = await apiClient.post("/orders", purchasePayload);
-      const responseData = response?.data || {};
-      const finalOrderNo = responseData.order_no || orderNo;
-      const orderData = responseData.order || {
-        ...purchasePayload,
-        id: responseData.order_id || Date.now(),
-        order_no: finalOrderNo,
-        customer_name: selectedCustomerName || "Unknown",
-      };
+      const responseData = await createOrderMutation.mutateAsync(purchasePayload);
+      const finalOrderNo = responseData?.order_no || orderNo;
+      const orderData = responseData;
 
-      setOrderId(responseData.order_id || orderData.id);
+      setOrderId(responseData?.or_id || responseData?.id || null);
       setSavedOrderData(orderData);
       setPurchaseResult({
         success: true,
         order_no: finalOrderNo,
         message: "Purchase completed successfully! Stock updated.",
-        local: false,
       });
       showMessage(
         `✅ Purchase completed! Order ${finalOrderNo} created.`,
@@ -626,68 +513,25 @@ const Orders = () => {
 
       await Promise.all([fetchProducts(), fetchOrders()]);
     } catch (apiError) {
-      console.warn(
-        "⚠️ Purchase API failed, saving locally:",
-        apiError.response?.data || apiError.message,
-      );
-
-      const localOrder = {
-        ...purchasePayload,
-        id: Date.now(),
-        order_no: orderNo,
-        customer_name: selectedCustomerName || "Unknown",
-        saved_locally: true,
-        date: new Date().toISOString(),
-        total: grandTotal,
-        subtotal: subtotal,
-        items: items.map((item) => ({
-          product_id: String(item.product_id),
-          product_name: item.product_name || "Product",
-          qty: Number(item.qty),
-          unit_price: Number(item.unit_price),
-          discount: Number(item.discount || 0),
-          subtotal: Number(item.subtotal || 0),
-        })),
-      };
-      persistOrderLocally(localOrder);
-
-      setOrderId(localOrder.id);
-      setSavedOrderData(localOrder);
-      setPurchaseResult({
-        success: true,
-        order_no: orderNo,
-        message: "Order saved locally (API unavailable)",
-        local: true,
-      });
-      showMessage(
-        `✅ Purchase completed! Order ${orderNo} saved locally`,
-        "success",
-      );
-
-      setItems([]);
-      setDiscount(0);
-      setSelectedCustomer("");
-      setSelectedCustomerName("");
-      generateOrderNo();
+      // A failed purchase must never create a fake local order: surface the
+      // server's field-specific error and keep the form open.
+      const errMsg = getErrorMessage(apiError) || "Purchase failed. Please try again.";
+      showMessage(`❌ ${errMsg}`, "error");
     } finally {
       setIsProcessingPurchase(false);
     }
   }, [
     selectedCustomer,
-    selectedCustomerName,
     items,
     discount,
-    orderStatus,
     orderNo,
-    subtotal,
-    grandTotal,
     paymentMethod,
     generateOrderNo,
     showMessage,
     fetchProducts,
     fetchOrders,
     checkStockAvailability,
-    persistOrderLocally,
+    createOrderMutation,
   ]);
 
   // ============================================
@@ -710,77 +554,47 @@ const Orders = () => {
     setLoading(true);
 
     const orderPayload = {
-      CUSTOMER_ID: String(selectedCustomer),
+      customer_id: selectedCustomer ? Number(selectedCustomer) : null,
       items: items.map((item) => ({
-        product_id: String(item.product_id),
+        product_id: Number(item.product_id),
         qty: Number(item.qty),
         unit_price: Number(item.unit_price),
         discount: Number(item.discount || 0),
       })),
       discount: Number(discount),
       payment_method: paymentMethod,
-      status: orderStatus,
-      order_no: orderNo,
+      idempotency_key: crypto.randomUUID(),
     };
 
     try {
       const res = await apiClient.post("/orders", orderPayload);
-      const saved = res?.data?.order || {
-        ...orderPayload,
-        id: res?.data?.order_id || Date.now(),
-        order_no: orderNo,
-        customer_name: selectedCustomerName || "Unknown",
-      };
-      setOrderId(res?.data?.order_id || saved.id);
+      const saved = res?.data?.order || res?.data || null;
+      setOrderId(saved?.or_id || saved?.id || null);
       setSavedOrderData(saved);
       showMessage(`✅ Order ${orderNo} saved successfully!`, "success");
       await fetchOrders();
+      setItems([]);
+      setDiscount(0);
+      setSelectedCustomer("");
+      setSelectedCustomerName("");
+      generateOrderNo();
     } catch (error) {
-      console.warn("⚠️ Save via API failed, saving locally:", error.message);
-      const localOrder = {
-        ...orderPayload,
-        id: Date.now(),
-        order_no: orderNo,
-        customer_name: selectedCustomerName || "Unknown",
-        saved_locally: true,
-        date: new Date().toISOString(),
-        total: grandTotal,
-        subtotal: subtotal,
-        items: items.map((item) => ({
-          product_id: String(item.product_id),
-          product_name: item.product_name || "Product",
-          qty: Number(item.qty),
-          unit_price: Number(item.unit_price),
-          discount: Number(item.discount || 0),
-          subtotal: Number(item.subtotal || 0),
-        })),
-      };
-      persistOrderLocally(localOrder);
-      setOrderId(localOrder.id);
-      setSavedOrderData(localOrder);
-      showMessage(`✅ Order ${orderNo} saved locally (offline)`, "success");
+      const errMsg = getErrorMessage(error) || "Order save failed. Please try again.";
+      showMessage(`❌ ${errMsg}`, "error");
+      setLoading(false);
+      // Keep the draft open on failure: never store a fake local order.
+      return;
     }
-
-    setItems([]);
-    setDiscount(0);
-    setSelectedCustomer("");
-    setSelectedCustomerName("");
-    generateOrderNo();
     setLoading(false);
   }, [
     selectedCustomer,
-    selectedCustomerName,
     items,
     discount,
-    orderStatus,
     orderNo,
-    subtotal,
-    grandTotal,
     paymentMethod,
     generateOrderNo,
     showMessage,
     fetchOrders,
-    persistOrderLocally,
   ]);
 
   // ============================================
@@ -798,7 +612,7 @@ const Orders = () => {
         const pdfData = {
           order_no: source?.order_no || orderNo,
           customer_name:
-            source?.customer_name || selectedCustomerName || "Customer",
+            source?.customer_name || selectedCustomerName || "No customer",
           status: source?.status || source?.STATUS || orderStatus,
           discount: source?.discount ?? discount,
           items: source?.items || items,
@@ -861,8 +675,6 @@ const Orders = () => {
   // ============================================
   const handleDeleteOrder = useCallback(
     async (order) => {
-      if (!window.confirm("Are you sure you want to delete this order?"))
-        return;
       const id =
         order.id ||
         order._id ||
@@ -870,45 +682,23 @@ const Orders = () => {
         order.order_id ||
         order.or_id;
 
-      // If it's a local order, just remove from cache
-      if (order.saved_locally || !id) {
-        const updated = savedOrders.filter(
-          (o) => (o.id || o._id || o.ORDER_ID || o.order_id || o.or_id) !== id,
-        );
-        setSavedOrders(updated);
-        try {
-          localStorage.setItem("pos_orders_cache", JSON.stringify(updated));
-          localStorage.setItem("orders", JSON.stringify(updated));
-        } catch {
-          /* ignore */
-        }
-        showMessage("✅ Order deleted successfully!", "success");
+      if (!id) {
+        showMessage("❌ Cannot delete this order: no order id", "error");
         return;
       }
+      if (!window.confirm("Are you sure you want to delete this order?"))
+        return;
 
       try {
         await apiClient.delete(`/orders/${id}`);
         showMessage("✅ Order deleted successfully!", "success");
         await fetchOrders();
       } catch (error) {
-        console.warn(
-          "⚠️ Delete via API failed, removing from local cache:",
-          error.message,
-        );
-        const updated = savedOrders.filter(
-          (o) => (o.id || o._id || o.ORDER_ID || o.order_id || o.or_id) !== id,
-        );
-        setSavedOrders(updated);
-        try {
-          localStorage.setItem("pos_orders_cache", JSON.stringify(updated));
-          localStorage.setItem("orders", JSON.stringify(updated));
-        } catch {
-          /* ignore */
-        }
-        showMessage("✅ Order deleted from local cache", "success");
+        const errMsg = getErrorMessage(error) || "Order delete failed. Please try again.";
+        showMessage(`❌ ${errMsg}`, "error");
       }
     },
-    [savedOrders, showMessage, fetchOrders],
+    [showMessage, fetchOrders],
   );
 
   // ============================================
@@ -916,56 +706,25 @@ const Orders = () => {
   // ============================================
   const handleViewOrder = useCallback(
     async (order) => {
-      // If it's a local order or already has full details, show it directly
-      if (order.saved_locally || (order.items && order.items.length > 0)) {
-        setSelectedOrder(order);
-        setShowOrderDetail(true);
-        return;
-      }
-
-      // Otherwise fetch full details from API
       const id =
         order.id ||
         order._id ||
         order.ORDER_ID ||
         order.order_id ||
         order.or_id;
-      if (!id) {
-        setSelectedOrder(order);
-        setShowOrderDetail(true);
-        return;
+      if (id) {
+        const fullOrder = await fetchOrderDetails(id);
+        if (fullOrder) {
+          setSelectedOrder(fullOrder);
+          setShowOrderDetail(true);
+          return;
+        }
       }
-
-      const fullOrder = await fetchOrderDetails(id);
-      if (fullOrder) {
-        setSelectedOrder(fullOrder);
-        setShowOrderDetail(true);
-      } else {
-        // Fallback: show what we have
-        setSelectedOrder(order);
-        setShowOrderDetail(true);
-      }
+      setSelectedOrder(order);
+      setShowOrderDetail(true);
     },
     [fetchOrderDetails],
   );
-
-  // ===== CLEAR ALL LOCAL ORDERS =====
-  const handleClearAll = useCallback(() => {
-    if (
-      !window.confirm(
-        "Clear all locally-cached orders? Orders stored on the server will not be affected.",
-      )
-    )
-      return;
-    try {
-      localStorage.setItem("pos_orders_cache", JSON.stringify([]));
-      localStorage.setItem("orders", JSON.stringify([]));
-    } catch {
-      /* ignore */
-    }
-    fetchOrders();
-    showMessage("🗑️ Local order cache cleared!", "info");
-  }, [showMessage, fetchOrders]);
 
   // ===== ORDER STATS =====
   const orderStats = useMemo(() => {
@@ -1042,12 +801,12 @@ const Orders = () => {
     if (!searchTerm) return arr;
     const q = searchTerm.toLowerCase();
     return arr.filter((p) => {
-      const nameEn = p.NAME_EN || p.name_en || "";
-      const nameKh = p.NAME_KH || p.name_kh || "";
-      const barcode = p.BARCODE || p.barcode || "";
+      const nameEn = p.name || p.name_en || "";
+      const nameKh = p.name_kh || "";
+      const barcode = p.barcode || p.BARCODE || "";
       return (
         nameEn.toLowerCase().includes(q) ||
-        nameKh.includes(q) ||
+        nameKh.toLowerCase().includes(q) ||
         barcode.toLowerCase().includes(q)
       );
     });
@@ -1121,7 +880,7 @@ const Orders = () => {
   };
 
   const formatDate = (dateStr) => {
-    if (!dateStr) return "N/A";
+    if (!dateStr) return "No date";
     try {
       return new Date(dateStr).toLocaleDateString("en-US", {
         year: "numeric",
@@ -1131,7 +890,7 @@ const Orders = () => {
         minute: "2-digit",
       });
     } catch {
-      return dateStr || "N/A";
+      return "";
     }
   };
 
@@ -1172,7 +931,7 @@ const Orders = () => {
   const selectedCustomerObj = useMemo(
     () =>
       customers.find(
-        (c) => String(c.CUS_ID || c.cus_id) === String(selectedCustomer),
+        (c) => String(c.id) === String(selectedCustomer),
       ),
     [customers, selectedCustomer],
   );
@@ -1410,16 +1169,14 @@ const Orders = () => {
                     const val = e.target.value;
                     setSelectedCustomer(val);
                     const customer = customers.find(
-                      (c) => String(c.CUS_ID || c.cus_id) === String(val),
+                      (c) => String(c.id) === String(val),
                     );
                     if (customer) {
-                      const firstName =
-                        customer.FIRST_NAME || customer.first_name || "";
-                      const lastName =
-                        customer.LAST_NAME || customer.last_name || "";
-                      setSelectedCustomerName(
-                        `${firstName} ${lastName}`.trim() || "Customer",
-                      );
+                      const fullName =
+                        `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
+                        customer.name ||
+                        "Customer";
+                      setSelectedCustomerName(fullName);
                     } else {
                       setSelectedCustomerName("");
                     }
@@ -1428,16 +1185,14 @@ const Orders = () => {
                 >
                   <option value="">🔍 Select a customer...</option>
                   {customers.map((customer) => {
-                    const cId = customer.CUS_ID || customer.cus_id;
-                    const firstName =
-                      customer.FIRST_NAME || customer.first_name || "";
-                    const lastName =
-                      customer.LAST_NAME || customer.last_name || "";
-                    const phone = customer.PHONE || customer.phone || "";
+                    const cId = customer.id;
                     const fullName =
-                      `${firstName} ${lastName}`.trim() || "Customer";
+                      `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
+                      customer.name ||
+                      "Customer";
+                    const phone = customer.phone || "";
                     return (
-                      <option key={cId} value={cId}>
+                      <option key={cId} value={String(cId)}>
                         {fullName} {phone ? `— ${phone}` : ""}
                       </option>
                     );
@@ -1622,25 +1377,20 @@ const Orders = () => {
                                   <option value="">Select Product</option>
                                   
                                   {filteredProducts.map((product) => {
-                                    const pId =
-                                      product.PRODUCT_ID || product.product_id;
+                                    const pId = product.id;
                                     const name =
-                                      product.NAME_EN ||
-                                      product.name_en ||
-                                      "Unknown";
+                                      product.name || product.name_en || "";
                                     const price =
-                                      product.SALEOUT_PRICE ||
-                                      product.saleout_price ||
-                                      0;
+                                      product.saleout_price ?? product.price ?? 0;
                                     const stock = getProductStock(product);
-                                    
+
                                     return (
-                                      <option key={pId} value={pId} disabled={stock === 0}>
+                                      <option key={pId} value={String(pId)} disabled={stock === 0}>
                                         {name} - ${Number(price).toFixed(2)}
-                                        {/* FIX: Only show status if stock exists */}
+                                        {/* Only show stock when it exists */}
                                         {stock !== undefined && (
-                                          stock > 0 
-                                            ? ` (${stock} in stock)` 
+                                          stock > 0
+                                            ? ` (${stock} in stock)`
                                             : ` ⚠️ Out of stock`
                                         )}
                                       </option>
@@ -1830,13 +1580,6 @@ const Orders = () => {
                           </span>
                         </p>
                       )}
-                      {purchaseResult.local && (
-                        <p className="orders-result-local">
-                          <AlertTriangle className="w-3 h-3" />
-                          Saved locally. It will sync automatically once the
-                          server is reachable.
-                        </p>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1956,25 +1699,20 @@ const Orders = () => {
                 </thead>
                 <tbody className="orders-list-tbody">
                   {paginatedOrders.map((order, index) => {
-                    const status = order.status || order.STATUS || "Pending";
+                    const status = order.status || order.STATUS || "No status";
                     const itemCount =
                       order.items?.length || order.item_count || 0;
                     return (
                       <tr
-                        key={order.id || order.order_no || index}
+                        key={order.id || order.order_no}
                         className="orders-list-tr"
                         style={{ animationDelay: `${index * 0.04}s` }}
                       >
                         <td className="orders-list-td orders-list-order-no">
                           {order.order_no}
-                          {order.saved_locally && (
-                            <span className="orders-list-offline-badge">
-                              offline
-                            </span>
-                          )}
                         </td>
                         <td className="orders-list-td hidden sm:table-cell">
-                          {order.customer_name || "Unknown"}
+                          {order.customer_name || "No customer"}
                         </td>
                         <td className="orders-list-td hidden md:table-cell text-gray-500 dark:text-gray-400">
                           {formatDate(order.date || order.order_date)}
@@ -2034,20 +1772,6 @@ const Orders = () => {
           {/* Footer */}
           <div className="orders-list-footer">
             <span>Total: {filteredOrders.length} orders</span>
-            <span className="orders-list-footer-sync">
-              <span>
-                🔄 Synced with server when available, cached locally when
-                offline
-              </span>
-              {savedOrders.length > 0 && (
-                <button
-                  onClick={handleClearAll}
-                  className="orders-list-clear-cache"
-                >
-                  Clear local cache
-                </button>
-              )}
-            </span>
           </div>
         </div>
       )}
@@ -2079,7 +1803,7 @@ const Orders = () => {
                 <div className="orders-modal-info-item">
                   <p className="orders-modal-info-label">Customer</p>
                   <p className="orders-modal-info-value">
-                    {selectedOrder.customer_name || "Unknown"}
+                    {selectedOrder.customer_name || "No customer"}
                   </p>
                 </div>
                 <div className="orders-modal-info-item">
@@ -2096,7 +1820,7 @@ const Orders = () => {
                     {getStatusIcon(
                       selectedOrder.status || selectedOrder.STATUS,
                     )}
-                    {selectedOrder.status || selectedOrder.STATUS || "Pending"}
+                    {selectedOrder.status || selectedOrder.STATUS || "No status"}
                   </span>
                 </div>
                 <div className="orders-modal-info-item">
@@ -2104,7 +1828,7 @@ const Orders = () => {
                   <p className="orders-modal-info-value">
                     {selectedOrder.payment_method ||
                       selectedOrder.PAYMENT_METHOD ||
-                      "N/A"}
+                      "No payment recorded"}
                   </p>
                 </div>
               </div>
@@ -2125,9 +1849,9 @@ const Orders = () => {
                     </tr>
                   </thead>
                   <tbody className="orders-modal-items-tbody">
-                    {selectedOrder.items?.map((item, index) => (
+                    {selectedOrder.items?.map((item) => (
                       <tr
-                        key={index}
+                        key={String(item.product_id ?? item.id ?? item.order_id)}
                         className="orders-modal-items-tr"
                       >
                         <td className="orders-modal-items-td">

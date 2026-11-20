@@ -126,7 +126,7 @@ const Reports = () => {
       case 'customers':
         return rawData.map(c => ({
           ID: c.CUS_ID || c.cus_id || c.ID,
-          NAME: `${c.FIRST_NAME || c.first_name || ''} ${c.LAST_NAME || c.last_name || ''}`.trim() || 'Unknown',
+          NAME: `${c.FIRST_NAME || c.first_name || ''} ${c.LAST_NAME || c.last_name || ''}`.trim() || 'No name recorded',
           PHONE: c.PHONE || c.phone || '',
           EMAIL: c.E_MAIL || c.e_mail || c.email || '',
           ADDRESS: c.ADDRESS || c.address || '',
@@ -138,7 +138,7 @@ const Reports = () => {
       case 'products':
         return rawData.map(p => ({
           ID: p.PRODUCT_ID || p.product_id || p.ID,
-          NAME_EN: p.NAME_EN || p.name_en || 'Unknown',
+          NAME_EN: p.NAME_EN || p.name_en || 'Unnamed product',
           NAME_KH: p.NAME_KH || p.name_kh || '',
           BARCODE: p.BARCODE || p.barcode || '',
           BRAND: p.BRAND || p.brand || '',
@@ -153,19 +153,19 @@ const Reports = () => {
       case 'orders':
         return rawData.map(o => ({
           ID: o.OR_ID || o.or_id || o.id || o.ID,
-          ORDER_NO: o.ORDER_NO || o.order_no || `ORD-${o.id || o.ID || ''}`,
+          ORDER_NO: o.ORDER_NO || o.order_no || 'No order number',
           DATE: o.ORDER_DATE || o.order_date || o.date || '',
-          CUSTOMER: o.customer_name || o.CUSTOMER_NAME || o.customer || 'Unknown',
+          CUSTOMER: o.customer_name || o.CUSTOMER_NAME || o.customer || 'No customer',
           TOTAL: Number(o.AMOUNT_US || o.amount_us || o.total || 0),
-          STATUS: o.STATUS || o.status || 'Pending',
-          PAYMENT: o.PAYMENT_METHOD || o.payment_method || o.PaymentMethod || 'N/A',
+          STATUS: o.STATUS || o.status || 'No status',
+          PAYMENT: o.PAYMENT_METHOD || o.payment_method || o.PaymentMethod || 'No payment recorded',
           ITEMS: o.items?.length || o.item_count || 0
         }));
 
       case 'stock':
         return rawData.map(s => ({
           ID: s.STOCKID || s.stockid || s.PRODUCT_ID || s.product_id || s.ID,
-          PRODUCT: s.NAME_EN || s.name_en || s.PRODUCT_NAME || s.product_name || 'Unknown',
+          PRODUCT: s.NAME_EN || s.name_en || s.PRODUCT_NAME || s.product_name || 'Unnamed product',
           IN_STOCK: Number(s.QtyInStock || s.qty_instock || s.in_stock || 0),
           RESERVED: Number(s.QtyReserved || s.qty_reserved || s.reserved || 0),
           AVAILABLE: Number(s.QtyAvailable || s.qty_available || s.available || 0),
@@ -177,7 +177,7 @@ const Reports = () => {
       case 'suppliers':
         return rawData.map(s => ({
           ID: s.SUP_ID || s.sup_id || s.ID,
-          NAME: s.SUP_NAME || s.sup_name || s.name || 'Unknown',
+          NAME: s.SUP_NAME || s.sup_name || s.name || 'Unnamed supplier',
           CONTACT: s.CONTACT_PERSON || s.contact_person || s.contact || '',
           PHONE: s.PHONE || s.phone || '',
           EMAIL: s.EMAIL || s.email || '',
@@ -461,14 +461,14 @@ const Reports = () => {
     const color = getStatusColor(status);
     return (
       <span className={`status-badge ${color}`}>
-        {status || 'N/A'}
+        {status || 'No status'}
       </span>
     );
   }, [getStatusColor]);
 
   // ===== FORMAT DATE =====
   const formatDate = useCallback((dateValue) => {
-    if (!dateValue) return 'N/A';
+    if (!dateValue) return 'No date';
     try {
       const date = new Date(dateValue);
       if (isNaN(date.getTime())) return dateValue;
@@ -484,7 +484,7 @@ const Reports = () => {
 
   // ===== FORMAT CURRENCY =====
   const formatCurrency = useCallback((value) => {
-    if (value === undefined || value === null || isNaN(value)) return 'N/A';
+    if (value === undefined || value === null || isNaN(value)) return 'No value';
     const num = Number(value);
     if (isNaN(num)) return value;
     return new Intl.NumberFormat('en-US', {
@@ -648,7 +648,7 @@ const Reports = () => {
         {data && data.length > 0 && (
           <div className="reports-stats">
             {statsCards.map((stat, index) => (
-              <div key={index} className="reports-stat-card" style={{ animationDelay: `${index * 0.1}s` }}>
+              <div key={stat.label} className="reports-stat-card" style={{ animationDelay: `${index * 0.1}s` }}>
                 <div className="reports-stat-header">
                   {getStatIcon(stat.icon)}
                   <p className="reports-stat-label">{stat.label}</p>
@@ -880,7 +880,7 @@ const Reports = () => {
                         }
                         else if (key.toLowerCase().includes('status') || key.toLowerCase().includes('type')) {
                           return (
-                            <td key={i} className="reports-td">
+                            <td key={key} className="reports-td">
                               {renderStatusBadge(value)}
                             </td>
                           );
@@ -892,7 +892,7 @@ const Reports = () => {
                         }
                         
                         return (
-                          <td key={i} className="reports-td" title={displayValue}>
+                          <td key={key} className="reports-td" title={displayValue}>
                             {displayValue}
                           </td>
                         );
@@ -1006,7 +1006,7 @@ const Reports = () => {
             <div className="reports-modal-body">
               <div className="reports-modal-grid">
                 {Object.entries(selectedDetail).map(([key, value]) => {
-                  let displayValue = value !== null && value !== undefined ? String(value) : 'N/A';
+                  let displayValue = value !== null && value !== undefined ? String(value) : 'No value';
                   
                   if (key.toLowerCase().includes('date') && value) {
                     displayValue = formatDate(value);

@@ -8,7 +8,7 @@
 //    POST/PUT (sending { company, phone, e_mail... } which the backend never reads,
 //    causing "Supplier name is required" on every submit) and through
 //    mapDbToFrontend() after GET (expecting { company, sup_id, first_name... } which
-//    the backend never sends, causing every row to show as "Unknown" / "No contact").
+//    the backend never sends, causing every row to show as a blank name / contact).
 // 2. Both mapping functions removed. Data is now sent/received as-is, with a light
 //    normalize() step on read to guarantee safe defaults for missing fields.
 // ============================================
@@ -38,7 +38,7 @@ const normalizeSupplier = (item, index) => {
   if (!item) return null;
   return {
     SUP_ID: item.SUP_ID || `TEMP-${Date.now()}-${index}`,
-    SUP_NAME: item.SUP_NAME || 'Unknown',
+    SUP_NAME: item.SUP_NAME || 'Unnamed supplier',
     CONTACT_PERSON: item.CONTACT_PERSON || '',
     PHONE: item.PHONE || '',
     EMAIL: item.EMAIL || '',
@@ -440,7 +440,7 @@ const Suppliers = () => {
 
   // ===== GET INITIALS =====
   const getInitials = useCallback((name) => {
-    if (!name || name === 'Unknown') return '?';
+    if (!name || name === 'Unnamed supplier') return '?';
     const parts = name.split(' ');
     if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
     return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
@@ -673,7 +673,7 @@ const Suppliers = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredSuppliers.map((supplier, index) => {
             const id = supplier.SUP_ID || `supplier-${index}`;
-            const name = supplier.SUP_NAME || 'Unknown';
+            const name = supplier.SUP_NAME || 'Unnamed supplier';
             const contact = supplier.CONTACT_PERSON || '';
             const phone = supplier.PHONE || '';
             const email = supplier.EMAIL || '';
@@ -816,7 +816,7 @@ const Suppliers = () => {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {filteredSuppliers.map((supplier, index) => {
                   const id = supplier.SUP_ID || `supplier-${index}`;
-                  const name = supplier.SUP_NAME || 'Unknown';
+                  const name = supplier.SUP_NAME || 'Unnamed supplier';
                   const contact = supplier.CONTACT_PERSON || '';
                   const phone = supplier.PHONE || '';
                   const email = supplier.EMAIL || '';
@@ -930,11 +930,11 @@ const Suppliers = () => {
 
             <div className="p-6 space-y-4">
               <div className="flex items-center gap-4 pb-4 border-b border-gray-100 dark:border-gray-700">
-                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-2xl ${getAvatarColor(selectedSupplierDetail.SUP_NAME || 'Unknown')}`}>
-                  {getInitials(selectedSupplierDetail.SUP_NAME || 'Unknown')}
+                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-2xl ${getAvatarColor(selectedSupplierDetail.SUP_NAME || 'Unnamed supplier')}`}>
+                  {getInitials(selectedSupplierDetail.SUP_NAME || 'Unnamed supplier')}
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold dark:text-white">{selectedSupplierDetail.SUP_NAME || 'Unknown'}</h3>
+                  <h3 className="text-lg font-bold dark:text-white">{selectedSupplierDetail.SUP_NAME || 'Unnamed supplier'}</h3>
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(selectedSupplierDetail.STATUS || 'Active')}`}>
                     {selectedSupplierDetail.STATUS || 'Active'}
                   </span>

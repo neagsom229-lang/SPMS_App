@@ -4,7 +4,7 @@ import { useParams, Link } from 'react-router-dom';
 import apiClient, { getErrorMessage } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { DEFAULT_STORE_SLUG } from '../config/store';
-import { PRODUCTS, CATEGORIES, EXCHANGE_RATE, barcodeFor } from '../data/products';
+import { EXCHANGE_RATE } from '../data/products';
 import { useQueryClient } from '@tanstack/react-query';
 import { 
   ShoppingCart, Globe, Phone, MapPin, Clock, CheckCircle, 
@@ -44,10 +44,10 @@ function ProductCard({ product, lang, exchangeRate, addToCart, setSelectedProduc
   };
 
   const displayName = product.name;
-  const displayDesc = product.shortDescription;
+  const displayDesc = product.description_en || product.shortDescription || '';
   const productImage = product.image || product.image_url;
-  const isOut = product.stockStatus === 'out' || product.inStock === false;
-  const isLow = product.stockStatus === 'low';
+  const isOut = product.stock_status === 'out';
+  const isLow = product.stock_status === 'low';
 
   return (
     <div
@@ -139,7 +139,7 @@ function ProductCard({ product, lang, exchangeRate, addToCart, setSelectedProduc
         <div className="mt-6 flex items-center justify-between pt-4 border-t border-slate-800/80">
           <div>
             <span className="text-xl font-black text-cyan-400 tracking-tight">${product.price.toFixed(2)}</span>
-            <span className="block text-[11px] text-slate-500 font-medium">៛{(product.price * exchangeRate).toLocaleString()}</span>
+            <span className="block text-[11px] text-slate-500 font-medium">៛{Math.round(product.price * exchangeRate).toLocaleString()}</span>
           </div>
 
           <button
@@ -166,9 +166,9 @@ export default function Storefront() {
   const queryClient = useQueryClient();
 
   const [store, setStore] = useState(null);
-  const [dbIdByBarcode, setDbIdByBarcode] = useState({}); // SKU -> real tbl_products.id
-  const categories = CATEGORIES; // derived automatically from the product data file
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [categories, setCategories] = useState([]); // from GET /public/store/:slug/categories
+  const [products, setProducts] = useState([]); // from GET /public/store/:slug/menu
+  const [selectedCategory, setSelectedCategory] = useState(''); // category name, '' = all
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('default');
@@ -209,22 +209,22 @@ export default function Storefront() {
       setStore(storeRes.data.store);
     } catch (err) {
       toast.error(getErrorMessage(err));
-    } finally {
-      setLoading(false);
     }
 
-    // Resolve the public catalog SKU (SKU-0001 .. SKU-0020) to the real
-    // database row id the card maps to, so checkout always orders the row the
-    // customer actually saw on the card.
+    // Catalog comes from the tenant's own database rows via the public menu and
+    // categories endpoints, so each tenant sees its own products, prices and
+    // stock. Filtering + sorting run client-side over this list.
     try {
-      const menuRes = await apiClient.get(`/public/store/${storeSlug}/menu`);
-      const map = {};
-      for (const row of menuRes.data?.products || []) {
-        if (row.barcode) map[row.barcode] = row.id;
-      }
-      setDbIdByBarcode(map);
+      const [catRes, menuRes] = await Promise.all([
+        apiClient.get(`/public/store/${storeSlug}/categories`),
+        apiClient.get(`/public/store/${storeSlug}/menu`),
+      ]);
+      setCategories(catRes.data?.categories || []);
+      setProducts(menuRes.data?.products || []);
     } catch {
-      // Non-fatal: checkout falls back to the catalog id until the menu loads.
+      // Non-fatal: the storefront shows an empty catalog until the API recovers.
+    } finally {
+      setLoading(false);
     }
   }, [storeSlug]);
 
@@ -232,21 +232,21 @@ export default function Storefront() {
     fetchStoreData();
   }, [fetchStoreData]);
 
-  // Catalog lives in one data file, so filtering + sorting are instant and
-  // never trigger a network request or a full re-render of unrelated state.
+  const exchangeRate = Number(store?.exchange_rate) > 0 ? Number(store.exchange_rate) : EXCHANGE_RATE;
+
   const filteredProducts = useMemo(() => {
-    let list = PRODUCTS.slice();
+    let list = products.slice();
 
     if (selectedCategory) {
-      list = list.filter(p => p.category === selectedCategory);
+      list = list.filter(p => (p.category_name || '') === selectedCategory);
     }
 
     const q = searchQuery.trim().toLowerCase();
     if (q) {
       list = list.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.shortDescription.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.description_en || p.description_kh || '').toLowerCase().includes(q) ||
+        (p.category_name || '').toLowerCase().includes(q)
       );
     }
 
@@ -257,10 +257,10 @@ export default function Storefront() {
 
     if (sortBy === 'price_asc') list.sort((a, b) => a.price - b.price);
     else if (sortBy === 'price_desc') list.sort((a, b) => b.price - a.price);
-    else if (sortBy === 'name') list.sort((a, b) => a.name.localeCompare(b.name));
+    else if (sortBy === 'name') list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     return list;
-  }, [selectedCategory, searchQuery, priceRange, sortBy]);
+  }, [products, selectedCategory, searchQuery, priceRange, sortBy]);
 
   useEffect(() => {
     setVisibleCount(12); // reset pagination when the filter result set changes
@@ -271,7 +271,7 @@ export default function Storefront() {
   }, [filteredProducts, visibleCount]);
 
   const addToCart = (product, qty = 1) => {
-    if (product.stockStatus === 'out' || product.inStock === false) {
+    if (product.stock_status === 'out') {
       toast.error('Product is out of stock');
       return;
     }
@@ -299,7 +299,6 @@ export default function Storefront() {
   const taxRate = store?.tax_rate ? parseFloat(store.tax_rate) : 0;
   const taxAmount = (cartSubtotal * taxRate) / 100;
   const cartTotal = cartSubtotal + taxAmount;
-  const exchangeRate = EXCHANGE_RATE; // canonical 1 USD = 4,000 KHR
 
   const handleCheckout = async (e) => {
     e.preventDefault();
@@ -320,10 +319,7 @@ export default function Storefront() {
         delivery_address: deliveryAddress,
         notes,
         payment_method: paymentMethod,
-        items: cart.map(i => {
-          const productid = dbIdByBarcode[barcodeFor(i)] || i.id;
-          return { productid, product_id: productid, qty: i.qty, price: i.price };
-        }),
+        items: cart.map(i => ({ productid: i.id, product_id: i.id, qty: i.qty, price: i.price })),
         idempotency_key: idempotencyKey
       };
 
@@ -458,7 +454,7 @@ export default function Storefront() {
         <div className="max-w-5xl mx-auto text-center relative z-10">
           <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold uppercase tracking-widest mb-6 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{lang === 'en' ? `${PRODUCTS.length} Pro Hardware Items Available` : `ផលិតផល ${PRODUCTS.length} មុខមានក្នុងស្តុក`}</span>
+            <span>{lang === 'en' ? `${products.length} Pro Hardware Items Available` : `ផលិតផល ${products.length} មុខមានក្នុងស្តុក`}</span>
           </div>
 
           <h2 className="text-4xl md:text-6xl font-black tracking-tight mb-6 text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-cyan-400 leading-tight">
@@ -507,12 +503,12 @@ export default function Storefront() {
               <Cpu className="w-4 h-4" />
               <span>{lang === 'en' ? 'All Categories' : 'គ្រប់ប្រភេទ'}</span>
             </button>
-            {categories.map(cat => (
+            {categories.filter(cat => (cat.product_count || 0) > 0).map(cat => (
               <button
                 key={cat.id}
-                onClick={() => setSelectedCategory(String(cat.id))}
+                onClick={() => setSelectedCategory(cat.name)}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold tracking-wider uppercase transition-all whitespace-nowrap flex items-center space-x-2 ${
-                  selectedCategory === String(cat.id)
+                  selectedCategory === cat.name
                     ? 'bg-gradient-to-r from-cyan-500 to-cyan-600 text-slate-950 shadow-[0_0_20px_rgba(6,182,212,0.4)] border border-cyan-400'
                     : 'bg-slate-900/90 text-slate-300 border border-slate-800 hover:border-slate-700'
                 }`}
@@ -533,7 +529,7 @@ export default function Storefront() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder={lang === 'en' ? `Search ${PRODUCTS.length} hardware items...` : 'ស្វែងរកផ្នែករឹង...'}
+                placeholder={lang === 'en' ? `Search ${products.length} hardware items...` : 'ស្វែងរកផ្នែករឹង...'}
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-900/90 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 shadow-[0_0_15px_rgba(0,0,0,0.5)] transition"
               />
             </div>
@@ -680,7 +676,7 @@ export default function Storefront() {
                       <span>Total</span>
                       <span className="text-cyan-400 text-base">${cartTotal.toFixed(2)}</span>
                     </div>
-                    <div className="text-right text-[11px] text-slate-500">៛{(cartTotal * exchangeRate).toLocaleString()}</div>
+                    <div className="text-right text-[11px] text-slate-500">៛{Math.round(cartTotal * exchangeRate).toLocaleString()}</div>
                   </div>
 
                   <button
@@ -829,8 +825,8 @@ export default function Storefront() {
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setSelectedProduct(null)} />
           <div className="relative bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden z-10">
             <div className="relative h-64 bg-slate-950 flex items-center justify-center p-6 border-b border-slate-800">
-              {selectedProduct.image ? (
-                <img src={selectedProduct.image} alt={selectedProduct.name} loading="lazy" className="w-full h-full object-contain filter drop-shadow-[0_10px_20px_rgba(6,182,212,0.3)]" />
+              {selectedProduct.image || selectedProduct.image_url ? (
+                <img src={selectedProduct.image || selectedProduct.image_url} alt={selectedProduct.name} loading="lazy" className="w-full h-full object-contain filter drop-shadow-[0_10px_20px_rgba(6,182,212,0.3)]" />
               ) : (
                 <div className="w-24 h-24 border-2 border-cyan-400/80 rounded-2xl bg-slate-900 shadow-[0_0_25px_rgba(6,182,212,0.5)] flex items-center justify-center">
                   <Cpu className="w-12 h-12 text-cyan-400" />
@@ -846,12 +842,12 @@ export default function Storefront() {
             <div className="p-6">
               <h3 className="text-xl font-black text-white mb-2">{selectedProduct.name}</h3>
               <p className="text-sm text-slate-400 mb-6 leading-relaxed">
-                {selectedProduct.shortDescription}
+                {selectedProduct.description_en || selectedProduct.shortDescription || ''}
               </p>
               <div className="flex items-center justify-between pt-4 border-t border-slate-800">
                 <div>
                   <span className="text-2xl font-black text-cyan-400">${selectedProduct.price.toFixed(2)}</span>
-                  <span className="block text-xs text-slate-500 font-medium">៛{(selectedProduct.price * exchangeRate).toLocaleString()}</span>
+                  <span className="block text-xs text-slate-500 font-medium">៛{Math.round(selectedProduct.price * exchangeRate).toLocaleString()}</span>
                 </div>
                 <button
                   onClick={() => {

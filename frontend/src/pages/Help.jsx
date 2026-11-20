@@ -375,8 +375,8 @@ const Help = () => {
         priority: contactForm.priority,
         to_email: EMAILJS_CONFIG.TO_EMAIL,
         reply_to: contactForm.email,
-        user_role: user?.role || 'User',
-        user_username: user?.username || 'Guest',
+        user_role: user?.role || 'Not signed in',
+        user_username: user?.username || 'Not signed in',
         timestamp: new Date().toLocaleString()
       };
 
@@ -639,7 +639,7 @@ const Help = () => {
                   const feedbackType = feedback[faqId];
                   
                   return (
-                    <div key={index} className="group">
+                    <div key={`${faq.id}-${item.q}`} className="group">
                       <button
                         onClick={() => toggleFaq(faqId)}
                         className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors text-left"
@@ -774,7 +774,7 @@ const Help = () => {
           const Icon = option.icon;
           return (
             <motion.a
-              key={index}
+              key={option.label}
               whileHover={{ y: -4, scale: 1.02 }}
               href={option.action}
               onClick={(e) => {

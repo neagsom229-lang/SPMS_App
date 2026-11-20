@@ -506,7 +506,7 @@ const Users = () => {
 
   // ===== FORMAT DATE =====
   const formatDate = useCallback((dateValue) => {
-    if (!dateValue) return 'N/A';
+    if (!dateValue) return 'No date';
     try {
       const date = new Date(dateValue);
       if (isNaN(date)) return dateValue;
@@ -743,7 +743,7 @@ const Users = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredUsers.map((user, index) => {
             const id = user.user_id ?? user.id ?? `row-${index}`;
-            const username = user.username || 'Unknown';
+            const username = user.username || 'No username';
             const fullname = user.fullname || '';
             const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');
             const roleId = user.role_id || (role === 'Admin' ? 1 : role === 'Cashier' ? 2 : 3);
@@ -893,7 +893,7 @@ const Users = () => {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {filteredUsers.map((user, index) => {
                   const id = user.user_id ?? user.id ?? `row-${index}`;
-                  const username = user.username || 'Unknown';
+                  const username = user.username || 'No username';
                   const fullname = user.fullname || '';
                   const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');
                   const roleId = user.role_id || (role === 'Admin' ? 1 : role === 'Cashier' ? 2 : 3);

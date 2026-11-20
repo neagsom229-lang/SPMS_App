@@ -228,7 +228,7 @@ const Warranty = () => {
       parseInt(c.cus_id) === item.customerid ||
       parseInt(c.id) === item.CustomerID
     );
-    return customer ? `${customer.first_name || customer.FIRST_NAME || ''} ${customer.last_name || customer.LAST_NAME || ''}`.trim() || 'Unknown' : 'Unknown';
+    return customer ? `${customer.first_name || customer.FIRST_NAME || ''} ${customer.last_name || customer.LAST_NAME || ''}`.trim() || 'No customer recorded' : 'No customer recorded';
   }, [customers]);
 
   const getProductName = useCallback((item) => {
@@ -239,21 +239,21 @@ const Warranty = () => {
       parseInt(p.product_id) === item.productid ||
       parseInt(p.id) === item.ProductID
     );
-    return product?.name_en || product?.NAME_EN || 'Unknown';
+    return product?.name_en || product?.NAME_EN || 'Unnamed product';
   }, [products]);
 
   const formatDate = useCallback((dateValue) => {
-    if (!dateValue) return 'N/A';
+    if (!dateValue) return 'No date';
     try {
       const date = new Date(dateValue);
-      if (isNaN(date)) return 'N/A';
+      if (isNaN(date)) return 'No date';
       return date.toLocaleDateString('en-US', { 
         year: 'numeric', 
         month: 'short', 
         day: 'numeric' 
       });
     } catch {
-      return 'N/A';
+      return 'No date';
     }
   }, []);
 
@@ -1070,7 +1070,7 @@ const Warranty = () => {
                     <div className="grid-card-details">
                       <div className="grid-card-detail">
                         <ClipboardList className="w-3.5 h-3.5 text-gray-400" />
-                        <span>{item.serialnumber || item.SerialNumber || 'N/A'}</span>
+                        <span>{item.serialnumber || item.SerialNumber || 'No serial'}</span>
                       </div>
                       {activeTab === 'warranty' ? (
                         <>
@@ -1091,7 +1091,7 @@ const Warranty = () => {
                           </div>
                           <div className="grid-card-detail">
                             <Briefcase className="w-3.5 h-3.5 text-amber-500" />
-                            <span>{item.servicetype || item.ServiceType || 'N/A'}</span>
+                            <span>{item.servicetype || item.ServiceType || 'Not specified'}</span>
                           </div>
                           <div className="grid-card-detail">
                             <Calendar className="w-3.5 h-3.5 text-purple-500" />
@@ -1298,13 +1298,13 @@ const Warranty = () => {
               <div className="detail-grid">
                 <div className="detail-item">
                   <p className="detail-label">Serial Number</p>
-                  <p className="detail-value font-mono">{selectedItem.serialnumber || selectedItem.SerialNumber || 'N/A'}</p>
+                  <p className="detail-value font-mono">{selectedItem.serialnumber || selectedItem.SerialNumber || 'No serial'}</p>
                 </div>
                 {activeTab === 'warranty' ? (
                   <>
                     <div className="detail-item">
                       <p className="detail-label">Period</p>
-                      <p className="detail-value">{selectedItem.warrantyperiod || selectedItem.WarrantyPeriod || 'N/A'} months</p>
+                      <p className="detail-value">{selectedItem.warrantyperiod || selectedItem.WarrantyPeriod ? `${selectedItem.warrantyperiod || selectedItem.WarrantyPeriod} months` : 'Not specified'}</p>
                     </div>
                     <div className="detail-item">
                       <p className="detail-label">Start Date</p>
@@ -1319,11 +1319,11 @@ const Warranty = () => {
                   <>
                     <div className="detail-item col-span-2">
                       <p className="detail-label">Issue Description</p>
-                      <p className="detail-value">{selectedItem.issuedescription || selectedItem.IssueDescription || 'N/A'}</p>
+                      <p className="detail-value">{selectedItem.issuedescription || selectedItem.IssueDescription || 'Not specified'}</p>
                     </div>
                     <div className="detail-item">
                       <p className="detail-label">Service Type</p>
-                      <p className="detail-value">{selectedItem.servicetype || selectedItem.ServiceType || 'N/A'}</p>
+                      <p className="detail-value">{selectedItem.servicetype || selectedItem.ServiceType || 'Not specified'}</p>
                     </div>
                     <div className="detail-item">
                       <p className="detail-label">Received Date</p>

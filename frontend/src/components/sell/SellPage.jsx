@@ -194,7 +194,7 @@ const SellPage = () => {
       toast.error('Cart is empty');
       return;
     }
-    setHeldOrders(prev => [...prev, { cart, discount, selectedCustomer, total }]);
+    setHeldOrders(prev => [...prev, { id: crypto.randomUUID(), cart, discount, selectedCustomer, total }]);
     setCart([]);
     setDiscount(0);
     toast.success('Order placed on hold');

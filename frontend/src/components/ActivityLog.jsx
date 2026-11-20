@@ -261,9 +261,9 @@ const ActivityLog = () => {
     const tableCounts = {};
 
     logs.forEach(log => {
-      const action = log.action || 'Unknown';
-      const user = log.username || 'Unknown';
-      const table = log.table_name || 'Unknown';
+      const action = log.action || 'Not recorded';
+      const user = log.username || 'System';
+      const table = log.table_name || 'Not recorded';
       
       actionCounts[action] = (actionCounts[action] || 0) + 1;
       userCounts[user] = (userCounts[user] || 0) + 1;
@@ -327,7 +327,7 @@ const ActivityLog = () => {
 
   // ===== FORMAT DATE =====
   const formatDate = (dateStr) => {
-    if (!dateStr) return 'N/A';
+    if (!dateStr) return 'No date';
     try {
       const date = new Date(dateStr);
       if (isNaN(date)) return dateStr;
@@ -346,7 +346,7 @@ const ActivityLog = () => {
 
   // ===== TIME AGO =====
   const timeAgo = (dateStr) => {
-    if (!dateStr) return 'N/A';
+    if (!dateStr) return 'No date';
     try {
       const date = new Date(dateStr);
       const now = new Date();
@@ -405,7 +405,7 @@ const ActivityLog = () => {
       filteredLogs.forEach(log => {
         const row = [
           log.log_id || '',
-          `"${log.username || 'Unknown'}"`,
+          `"${log.username || 'System'}"`,
           `"${log.action || ''}"`,
           `"${log.table_name || ''}"`,
           log.record_id || '',
@@ -690,7 +690,7 @@ const ActivityLog = () => {
                   const id = log.log_id;
                   const isSelected = selectedLogs.includes(id);
                   const actionEmoji = getActionEmoji(log.action);
-                  const username = log.username || 'Unknown';
+                  const username = log.username || 'System';
 
                   return (
                     <tr 
@@ -719,7 +719,7 @@ const ActivityLog = () => {
                       <td className="activitylog-list-td">
                         <span className={getActionBadge(log.action)}>
                           <span className="activitylog-action-emoji">{actionEmoji}</span>
-                          {log.action || 'Unknown'}
+                          {log.action || 'Not recorded'}
                         </span>
                       </td>
                       <td className="activitylog-list-td hidden md:table-cell">
@@ -754,7 +754,7 @@ const ActivityLog = () => {
             const id = log.log_id;
             const isSelected = selectedLogs.includes(id);
             const actionEmoji = getActionEmoji(log.action);
-            const username = log.username || 'Unknown';
+            const username = log.username || 'System';
 
             return (
               <div
@@ -792,7 +792,7 @@ const ActivityLog = () => {
 
                   <div className="activitylog-grid-card-action-badge">
                     <span className={getActionBadge(log.action)}>
-                      {log.action || 'Unknown'}
+                      {log.action || 'Not recorded'}
                     </span>
                   </div>
 
@@ -863,10 +863,10 @@ const ActivityLog = () => {
                 </div>
                 <div>
                   <p className="activitylog-modal-username">
-                    {selectedLogDetail.username || 'Unknown'}
+                    {selectedLogDetail.username || 'System'}
                   </p>
                   <p className="activitylog-modal-userid">
-                    User ID: {selectedLogDetail.user_id ?? 'N/A'}
+                    User ID: {selectedLogDetail.user_id ?? 'System'}
                   </p>
                 </div>
               </div>
@@ -881,7 +881,7 @@ const ActivityLog = () => {
                     {getActionEmoji(selectedLogDetail.action)}
                   </span>
                   <span className={`activitylog-modal-action-text ${getActionColor(selectedLogDetail.action)}`}>
-                    {selectedLogDetail.action || 'Unknown'}
+                    {selectedLogDetail.action || 'Not recorded'}
                   </span>
                 </div>
                 {selectedLogDetail.table_name && (

@@ -18,5 +18,7 @@ module.exports = {
     'react-hooks/exhaustive-deps': 'warn',
     'react/prop-types': 'off',
     'react/react-in-jsx-scope': 'off',
+    'react/jsx-key': 'error',
+    'react/no-array-index-key': 'warn',
   },
 };

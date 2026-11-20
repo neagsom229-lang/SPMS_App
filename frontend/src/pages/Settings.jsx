@@ -604,7 +604,7 @@ const Settings = () => {
               <div className="flex flex-wrap gap-2">
                 {aiSuggestions.map((suggestion, index) => (
                   <button
-                    key={index}
+                    key={suggestion}
                     onClick={() => handleAiSuggestionClick(suggestion)}
                     className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                   >

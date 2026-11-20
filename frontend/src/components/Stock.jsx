@@ -298,7 +298,7 @@ const Stock = () => {
     const productId = item.productid || item.PRODUCTID || '';
     setFormData({
       productId: productId,
-      productName: item.name_en || item.NAME_EN || 'Unknown',
+      productName: item.name_en || item.NAME_EN || 'Unnamed product',
       qtyInStock: getStockValue(item, "qtyinstock"),
       qtyAvailable: getStockValue(item, "qtyavailable"),
       qtyReserved: getStockValue(item, "qtyreserved"),
@@ -510,7 +510,7 @@ const Stock = () => {
             { label: "Out of Stock", value: stats.outOfStock, icon: "outOfStock" },
             { label: "Total Value", value: `$${stats.totalValue.toFixed(2)}`, icon: "totalValue" },
           ].map((stat, index) => (
-            <div key={index} className="stock-stat-card" style={{ animationDelay: `${index * 0.08}s` }}>
+            <div key={stat.icon} className="stock-stat-card" style={{ animationDelay: `${index * 0.08}s` }}>
               <div className="stock-stat-header">
                 {getStatIcon(stat.icon)}
                 <p className="stock-stat-label">{stat.label}</p>
@@ -601,7 +601,7 @@ const Stock = () => {
         <div className="stock-grid">
           {filteredStock.map((item, index) => {
             const productId = item.product_code || item.PRODUCT_CODE || '';
-            const productName = item.name_en || item.NAME_EN || 'Unknown';
+            const productName = item.name_en || item.NAME_EN || 'Unnamed product';
             const productNameKh = item.name_kh || item.NAME_KH || '';
             const qtyInStock = getStockValue(item, "qtyinstock");
             const qtyReserved = getStockValue(item, "qtyreserved");
@@ -707,7 +707,7 @@ const Stock = () => {
               </thead>
               <tbody className="stock-list-tbody">
                 {filteredStock.map((item, index) => {
-                  const productName = item.name_en || item.NAME_EN || 'Unknown';
+                  const productName = item.name_en || item.NAME_EN || 'Unnamed product';
                   const qtyInStock = getStockValue(item, "qtyinstock");
                   const qtyReserved = getStockValue(item, "qtyreserved");
                   const qtyAvailable = getStockValue(item, "qtyavailable");
@@ -793,7 +793,7 @@ const Stock = () => {
               <div className="stock-modal-product-info">
                 <div className="stock-modal-product-name">
                   <p className="stock-modal-product-label">Product</p>
-                  <p className="stock-modal-product-value">{selectedProduct.name_en || selectedProduct.NAME_EN || 'Unknown'}</p>
+                  <p className="stock-modal-product-value">{selectedProduct.name_en || selectedProduct.NAME_EN || 'Unnamed product'}</p>
                   {(selectedProduct.name_kh || selectedProduct.NAME_KH) && (
                     <p className="stock-modal-product-name-kh">{selectedProduct.name_kh || selectedProduct.NAME_KH}</p>
                   )}

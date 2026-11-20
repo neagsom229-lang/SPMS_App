@@ -177,9 +177,9 @@ const FloatingIcons = () => {
 
   return (
     <div className="analytics-floating-icons">
-      {icons.map(({ Icon, delay, x, y }, i) => (
+      {icons.map(({ Icon, delay, x, y }) => (
         <div
-          key={i}
+          key={Icon.name}
           className="floating-icon"
           style={{
             animationDelay: `${delay}s`,
@@ -784,8 +784,8 @@ const Analytics = () => {
               <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => name === 'Orders' ? value : formatCurrency(value)} />
               <Legend />
               <Bar yAxisId="left" dataKey="revenue" fill="#6366f1" name="Revenue" radius={[4, 4, 0, 0]}>
-                {monthlyChartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                {monthlyChartData.map((entry) => (
+                  <Cell key={entry.month} fill={COLORS[Number(entry.month) % COLORS.length]} />
                 ))}
               </Bar>
               <Bar yAxisId="left" dataKey="profit" fill="#10b981" name="Profit" radius={[4, 4, 0, 0]} />
@@ -811,7 +811,7 @@ const Analytics = () => {
             <p className="metric-tile-label">Top Product</p>
             <p className="metric-tile-value text-sm flex items-center gap-1">
               <Crown className="w-4 h-4 text-yellow-500" />
-              {productPerformance[0]?.product_name || 'N/A'}
+              {productPerformance[0]?.product_name || 'No product sales yet'}
             </p>
           </div>
           <div className="metric-tile metric-tile-green">
@@ -834,8 +834,8 @@ const Analytics = () => {
               <Tooltip contentStyle={chartTooltipStyle} />
               <Legend />
               <Bar dataKey="total_sold" fill="#6366f1" name="Units Sold" radius={[0, 4, 4, 0]}>
-                {top10.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                {top10.map((entry) => (
+                  <Cell key={String(entry.product_id)} fill={COLORS[(Number(entry.product_id) || 0) % COLORS.length]} />
                 ))}
               </Bar>
             </BarChart>
@@ -943,7 +943,7 @@ const Analytics = () => {
       <div className="report-content-area">
         <div className="metric-grid-3">
           {metrics.map((m, i) => (
-            <div key={i} className={`metric-tile ${m.bgColor}`}>
+            <div key={m.label} className={`metric-tile ${m.bgColor}`}>
               <div className="flex items-center gap-2 mb-1">
                 <m.icon className={`w-4 h-4 ${m.color}`} />
                 <p className="metric-tile-label">{m.label}</p>
@@ -954,7 +954,7 @@ const Analytics = () => {
         </div>
         <div className="metric-grid-3 mt-4">
           {growthMetrics.map((m, i) => (
-            <div key={i} className="metric-tile bg-gray-50 dark:bg-gray-700/50">
+            <div key={m.label} className="metric-tile bg-gray-50 dark:bg-gray-700/50">
               <p className="metric-tile-label">{m.label}</p>
               {m.value === null ? (
                 <p className="text-sm text-gray-400">No prior-period data</p>
@@ -975,13 +975,13 @@ const Analytics = () => {
           <div className="metric-tile bg-yellow-50 dark:bg-yellow-900/20">
             <p className="metric-tile-label">🏆 Top Product</p>
             <p className="text-lg font-bold text-yellow-700 dark:text-yellow-300">
-              {productPerformance[0]?.product_name || 'N/A'}
+              {productPerformance[0]?.product_name || 'No product sales yet'}
             </p>
           </div>
           <div className="metric-tile bg-pink-50 dark:bg-pink-900/20">
             <p className="metric-tile-label">⭐ Top Customer</p>
             <p className="text-lg font-bold text-pink-700 dark:text-pink-300">
-              {customerAnalytics[0]?.name || 'N/A'}
+              {customerAnalytics[0]?.name || 'No customers yet'}
             </p>
           </div>
         </div>
@@ -1222,8 +1222,8 @@ const Analytics = () => {
                     <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => name === 'Orders' ? value : formatCurrency(value)} />
                     <Legend />
                     <Bar yAxisId="left" dataKey="revenue" fill="#6366f1" name="Revenue ($)" radius={[4, 4, 0, 0]}>
-                      {monthlyChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      {monthlyChartData.map((entry) => (
+                        <Cell key={entry.month} fill={COLORS[Number(entry.month) % COLORS.length]} />
                       ))}
                     </Bar>
                     <Line yAxisId="right" type="monotone" dataKey="orders" stroke="#8b5cf6" name="Orders" strokeWidth={3} dot={{ r: 4 }} />
@@ -1252,8 +1252,8 @@ const Analytics = () => {
                       outerRadius={80}
                       paddingAngle={2}
                     >
-                      {monthlyChartData.filter(d => d.revenue > 0).map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      {monthlyChartData.filter(d => d.revenue > 0).map((entry) => (
+                        <Cell key={entry.month} fill={COLORS[Number(entry.month) % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => formatCurrency(value)} />
@@ -1284,8 +1284,8 @@ const Analytics = () => {
                   <YAxis stroke="#9ca3af" fontSize={12} />
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => formatCurrency(value)} />
                   <Area type="monotone" dataKey="revenue" stroke="#6366f1" fill="#818cf8" fillOpacity={0.3}>
-                    {yearlyChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    {yearlyChartData.map((entry) => (
+                      <Cell key={String(entry.year)} fill={COLORS[Number(entry.year) % COLORS.length]} />
                     ))}
                   </Area>
                 </AreaChart>
@@ -1341,8 +1341,8 @@ const Analytics = () => {
                   <YAxis type="category" dataKey="product_name" stroke="#9ca3af" fontSize={12} width={100} />
                   <Tooltip contentStyle={chartTooltipStyle} />
                   <Bar dataKey="total_sold" fill="#6366f1" radius={[0, 4, 4, 0]}>
-                    {[...filteredProducts].sort((a, b) => b.total_sold - a.total_sold).slice(0, 15).map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    {[...filteredProducts].sort((a, b) => b.total_sold - a.total_sold).slice(0, 15).map((entry) => (
+                      <Cell key={String(entry.product_id)} fill={COLORS[(Number(entry.product_id) || 0) % COLORS.length]} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -1411,7 +1411,7 @@ const Analytics = () => {
               <option value="">Select a customer</option>
               {customers.map((c) => {
                 const id = c.id ?? c.cus_id;
-                const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
+                const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'No name recorded';
                 const phone = c.phone || '';
                 return (
                   <option key={id} value={id}>
@@ -1436,7 +1436,7 @@ const Analytics = () => {
                       {(() => {
                         const firstName = selectedCustomerRecord?.first_name || '';
                         const lastName = selectedCustomerRecord?.last_name || '';
-                        return `${firstName} ${lastName}`.trim() || 'Unknown';
+                        return `${firstName} ${lastName}`.trim() || 'No name recorded';
                       })()}
                     </p>
                     <p className="customer-id">ID: {selectedCustomer}</p>
@@ -1482,14 +1482,14 @@ const Analytics = () => {
                   </thead>
                   <tbody className="history-tbody">
                     {customerHistory.map((order, index) => {
-                      const status = order.status || 'Pending';
+                      const status = order.status || 'No status';
                       return (
                         <tr key={order.id ?? order.order_no ?? `order-${index}`} className="history-tr" style={{ animationDelay: `${index * 50}ms` }}>
-                          <td className="history-td order-id">{order.order_no || 'N/A'}</td>
+                          <td className="history-td order-id">{order.order_no || 'No order number'}</td>
                           <td className="history-td order-date">
                             {order.order_date || order.ORDER_DATE || order.date
                               ? new Date(order.order_date || order.ORDER_DATE || order.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-                              : 'N/A'}
+                              : 'No date'}
                           </td>
                           <td className="history-td text-right order-amount">{formatCurrency(order.total)}</td>
                           <td className="history-td text-center">

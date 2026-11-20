@@ -366,12 +366,12 @@ router.post('/', authenticate, async (req, res) => {
       const customerNum = Number(customer_id);
       if (!Number.isInteger(customerNum) || customerNum < 1) {
         client.release();
-        return res.status(400).json({ error: 'Invalid customer' });
+        return res.status(400).json({ error: 'customer_id must be a positive integer' });
       }
       const customerRes = await client.query('SELECT id FROM tbl_customers WHERE id = $1 AND tenant_id = $2', [customerNum, tenantId]);
       if (customerRes.rowCount === 0) {
         client.release();
-        return res.status(400).json({ error: 'Customer not found' });
+        return res.status(400).json({ error: `customer_id ${customerNum} was not found in this tenant` });
       }
       customer_id = customerNum;
     }
@@ -402,8 +402,9 @@ router.post('/', authenticate, async (req, res) => {
     const seenProds = new Set();
     // Aggregate cart lines by product_id
     const aggregatedMap = new Map();
-    for (const item of items) {
-      const prodId = Number(item.product_id || item.id);
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i] || {};
+      const prodId = Number(item.product_id ?? item.productId ?? item.id);
       if (seenProds.has(prodId)) {
         await client.query('ROLLBACK');
         client.release();
@@ -412,10 +413,20 @@ router.post('/', authenticate, async (req, res) => {
       seenProds.add(prodId);
 
       const rawQty = Number(item.quantity !== undefined ? item.quantity : item.qty);
-      if (!prodId || isNaN(prodId) || !Number.isInteger(rawQty) || rawQty < 1 || rawQty > 100000) {
+      if (Number.isInteger(prodId) && prodId > 0 && !Number.isInteger(rawQty)) {
         await client.query('ROLLBACK');
         client.release();
-        return res.status(400).json({ error: 'Invalid product ID or quantity' });
+        return res.status(400).json({ error: `items[${i}].qty must be a whole number` });
+      }
+      if (!Number.isInteger(prodId) || prodId < 1) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: `items[${i}].product_id must be a positive integer` });
+      }
+      if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 100000) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({ error: `items[${i}].qty must be a positive integer between 1 and 100000` });
       }
       aggregatedMap.set(prodId, (aggregatedMap.get(prodId) || 0) + rawQty);
     }
@@ -479,7 +490,7 @@ router.post('/', authenticate, async (req, res) => {
     if (!Number.isFinite(discountNum) || discountNum < 0 || discountNum > calculatedSubtotal) {
       await client.query('ROLLBACK');
       client.release();
-      return res.status(400).json({ error: 'Discount must be between 0 and the order subtotal' });
+      return res.status(400).json({ error: 'discount must be between 0 and the order subtotal' });
     }
     const finalDiscount = Number(discountNum.toFixed(2));
     const finalTotal = Number(Math.max(0, calculatedSubtotal - finalDiscount).toFixed(2));
@@ -564,7 +575,8 @@ router.post('/', authenticate, async (req, res) => {
     if (error.code === '23505') {
       return res.status(200).json({ error: 'Idempotency conflict / duplicate order' });
     }
-    res.status(500).json({ error: error.message || 'Failed to create order' });
+    // Never leak internals through the API error surface.
+    res.status(500).json({ error: 'Failed to create order' });
   }
 });
 
@@ -697,7 +709,7 @@ router.post('/:id/cancel', authenticate, async (req, res) => {
       return res.status(error.status).json({ error: error.message });
     }
     console.error('❌ Cancel order error:', error);
-    res.status(500).json({ error: error.message || 'Failed to process order cancellation' });
+    res.status(500).json({ error: 'Failed to process order cancellation' });
   } finally {
     client.release();
   }
@@ -740,7 +752,7 @@ router.post('/:id/refund', authenticate, async (req, res) => {
       return res.status(error.status).json({ error: error.message });
     }
     console.error('❌ Refund order error:', error);
-    res.status(500).json({ error: error.message || 'Failed to process refund' });
+    res.status(500).json({ error: 'Failed to process refund' });
   } finally {
     client.release();
   }
@@ -861,7 +873,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
       return res.status(error.status).json({ error: error.message });
     }
     console.error('❌ Update order status error:', error);
-    res.status(500).json({ error: error.message || 'Failed to update order status' });
+    res.status(500).json({ error: 'Failed to update order status' });
   } finally {
     client.release();
   }
@@ -908,7 +920,7 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(error.status).json({ error: error.message });
     }
     console.error('❌ Delete/void order error:', error);
-    res.status(500).json({ error: error.message || 'Failed to void order' });
+    res.status(500).json({ error: 'Failed to void order' });
   } finally {
     client.release();
   }

@@ -136,8 +136,8 @@ const OnlineOrders = () => {
           <h3>Order #${order.order_no}</h3>
           <div class="center">${new Date(order.created_at || Date.now()).toLocaleString()}</div>
           <div class="divider"></div>
-          <div><strong>Customer:</strong> ${order.customer_name || 'Walk-in'}</div>
-          <div><strong>Phone:</strong> ${order.customer_phone || 'N/A'}</div>
+          <div><strong>Customer:</strong> ${order.customer_name || 'No customer'}</div>
+          <div><strong>Phone:</strong> ${order.customer_phone || 'No phone on file'}</div>
           <div><strong>Type:</strong> ${(order.delivery_type || 'pickup').toUpperCase()}</div>
           ${order.delivery_address ? `<div><strong>Address:</strong> ${order.delivery_address}</div>` : ''}
           ${order.notes ? `<div><strong>Notes:</strong> ${order.notes}</div>` : ''}
@@ -284,7 +284,7 @@ const OnlineOrders = () => {
                 <div className="p-5 border-b border-gray-100 dark:border-gray-700/60 flex justify-between items-start">
                   <div>
                     <span className="text-xs font-mono font-semibold text-gray-400 dark:text-gray-500">#{order.order_no}</span>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">{order.customer_name || 'Customer'}</h3>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">{order.customer_name || 'No customer'}</h3>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'}`}>
                     {order.status}
@@ -331,7 +331,7 @@ const OnlineOrders = () => {
                     <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Items ({order.items?.length || 0})</p>
                     <div className="max-h-32 overflow-y-auto space-y-1.5 scrollbar-thin">
                       {(order.items || []).map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-xs text-gray-700 dark:text-gray-300">
+                        <div key={item.product_id ?? item.id ?? item.name} className="flex justify-between items-center text-xs text-gray-700 dark:text-gray-300">
                           <span className="truncate pr-2">{item.qty}x {item.product_name || item.name}</span>
                           <span className="font-mono font-medium">${Number(item.subtotal || (item.qty * item.unit_price)).toFixed(2)}</span>
                         </div>

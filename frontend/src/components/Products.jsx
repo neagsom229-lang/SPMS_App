@@ -35,7 +35,7 @@ const getField = (obj, ...keys) => {
 };
 const getId = (p) => getField(p, 'PRODUCT_ID', 'product_id');
 const getNumericId = (p) => getField(p, 'id', 'ID');  // numeric id from DB
-const getName = (p) => getField(p, 'NAME_EN', 'name_en') || 'Unknown';
+const getName = (p) => getField(p, 'NAME_EN', 'name_en') || 'Unnamed product';
 const getNameKh = (p) => getField(p, 'NAME_KH', 'name_kh') || '';
 const getBarcode = (p) => getField(p, 'BARCODE', 'barcode') || '-';
 const getBrand = (p) => getField(p, 'BRAND', 'brand') || '';
@@ -556,7 +556,7 @@ const Products = () => {
             { label: 'Active Products', value: productStats.active, icon: 'active' },
             { label: 'Inventory Value', value: `$${productStats.totalValue.toFixed(2)}`, icon: 'totalValue' }
           ].map((stat, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
+            <div key={stat.icon} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
               <div className="flex items-center gap-2">
                 {getStatIcon(stat.icon)}
                 <p className="text-xs text-indigo-200">{stat.label}</p>

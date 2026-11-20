@@ -334,7 +334,7 @@ const Profile = () => {
       // First try to get from Auth context
       if (user) {
         const userData = {
-          username: user.username || user.USERNAME || 'Unknown',
+          username: user.username || user.USERNAME || 'No username',
           email: user.email || user.E_MAIL || 'user@example.com',
           fullname: user.fullname || user.FULLNAME || user.username || 'User',
           phone: user.phone || user.PHONE || '',
@@ -382,7 +382,7 @@ const Profile = () => {
       if (isMounted.current) {
         setProfile(prev => ({
           ...prev,
-          username: user?.username || 'Unknown',
+          username: user?.username || 'No username',
           fullname: user?.fullname || user?.username || 'User',
           role: user?.role || user?.role_name || 'User',
           status: user?.status || 'Active'
@@ -522,10 +522,10 @@ const Profile = () => {
 
   // ===== FORMAT DATE =====
   const formatDate = useCallback((dateStr) => {
-    if (!dateStr) return 'N/A';
+    if (!dateStr) return 'No date';
     try {
       const date = new Date(dateStr);
-      if (isNaN(date)) return 'N/A';
+      if (isNaN(date)) return 'No date';
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',

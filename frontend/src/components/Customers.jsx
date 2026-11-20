@@ -499,7 +499,7 @@ const Customers = () => {
   const getFullName = (customer) => {
     const firstName = customer.FIRST_NAME || customer.first_name || '';
     const lastName = customer.LAST_NAME || customer.last_name || '';
-    return `${firstName} ${lastName}`.trim() || 'Unknown';
+    return `${firstName} ${lastName}`.trim() || 'No name recorded';
   };
 
   const getAvatarColor = (name) => {
@@ -679,7 +679,7 @@ const Customers = () => {
             { label: 'With Phone', value: customerStats.withPhone, icon: 'withPhone' },
             { label: 'Total Balance', value: `$${customerStats.totalBalance.toFixed(2)}`, icon: 'totalBalance' }
           ].map((stat, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
+            <div key={stat.icon} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
               <div className="flex items-center gap-2">
                 {getStatIcon(stat.icon)}
                 <p className="text-xs text-indigo-200">{stat.label}</p>
