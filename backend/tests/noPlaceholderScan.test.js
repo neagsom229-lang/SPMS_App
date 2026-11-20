@@ -1,8 +1,8 @@
 // backend/tests/noPlaceholderScan.test.js
 //
-// The purchase/offline-fallback and "Unknown/N/A" placeholder fixes must not
-// regress. This scan runs against the frontend source tree that ships in the
-// app (not generated output) and fails if any banned token reappears.
+// Source-scan guard: the purchase/offline-fallback and placeholder fixes must
+// not regress. Keeps the source scan and is complemented by the rendered-DOM
+// placeholder scan performed per route in `npm run test:dev-smoke`.
 const fs = require('fs');
 const path = require('path');
 
@@ -22,6 +22,7 @@ const BANNED_PATTERNS = [
   { label: 'demo placeholder name "John Doe"', re: /John Doe/ },
   { label: 'demo placeholder name "Jane Doe"', re: /Jane Doe/ },
   { label: 'lorem placeholder copy', re: /\blorem\b/i },
+  { label: 'demo placeholder product name', re: /Demo Product/i },
 ];
 
 function walk(dir) {

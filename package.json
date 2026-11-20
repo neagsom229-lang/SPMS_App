@@ -11,7 +11,7 @@
     "db:dev:seed": "node backend/scripts/dev-db.js seed",
     "db:reset:local": "node backend/scripts/reset-local.js",
     "smoke:local": "node backend/scripts/smoke-local.js",
-    "test:dev-smoke": "node backend/scripts/smoke-local.js",
+    "test:dev-smoke": "node backend/scripts/dev-smoke.js",
     "verify": "node backend/scripts/verify.js && node scripts/verify-store.js",
     "verify:store": "node scripts/verify-store.js",
     "gen:images": "node scripts/gen-images.js",

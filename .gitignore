@@ -65,3 +65,8 @@ temp/
 *.key
 *.crt
 *.p12
+
+e2e-*.txt
+dev-smoke-run*.txt
+verify-final.txt
+backend/tests/expected-names.proposed.counts.txt
