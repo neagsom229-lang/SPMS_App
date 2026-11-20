@@ -71,6 +71,21 @@ backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Pub
 backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Overselling returns 409 conflict
 backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Pending public order expiry restores stock correctly
 backend/tests/extendedCoverage.test.js	Extended Coverage: Void, Overselling, Public-Menu Leak, and AdminB Isolation Tests > Public-menu leak test: Tenant B cannot access Tenant A store catalog or public store data improperly
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Advancing a confirmed online order to Completed records its payment row
+backend/tests/flowVerification.test.js	Flow verification against real database rows > An order cannot be created with a customer that belongs to another tenant
+backend/tests/flowVerification.test.js	Flow verification against real database rows > An order created in another tenant is not readable by this tenant
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Confirming a pending online order advances its status without touching stock again
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Orders page purchase decrements available stock and records the sale in the stock log
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Orders page purchase persists the order and its line items in the database
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Orders page purchase records a completed payment row for the order
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Public checkout records an ONLINE_ORDER row in the stock log
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Public checkout stores a pending online order and decrements stock once
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Refunding an order marks its payment row as refunded
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Refunding an order restores the stock the sale decremented
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Replaying an idempotency key returns the original order without a second stock decrement
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Supplier stock receive increases the product quantity in the database
+backend/tests/flowVerification.test.js	Flow verification against real database rows > Supplier stock receive writes a RESTOCK row into the stock log
+backend/tests/noPlaceholderScan.test.js	Frontend no-placeholder scan > Banned offline-fallback and placeholder tokens are absent from frontend source
 backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Admin B cannot access Tenant A product by GET/PUT/DELETE
 backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Admin B cannot adjust a Tenant A product stock
 backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Admin B cannot create an order with Tenant A's customer id
@@ -175,6 +190,12 @@ backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate L
 backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store order rejects line item quantity exceeding 50 units
 backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store pending order expiry restores stock correctly
 backend/tests/publicStore.test.js	Public Store Caps, Phone Normalization, Rate Limit, and Pending Expiry Tests > Public store phone normalization treats "+855 12 345 678", "012345678" and "012 345 678" as the same phone number for rate limiting
+backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a customer id that does not belong to this tenant
+backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a discount larger than the subtotal with a field-specific error
+backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a non-integer customer id with a field-specific error
+backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a non-integer product id with a field-specific error
+backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a non-integer quantity with a field-specific error
+backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a quantity outside the allowed range with a field-specific error
 backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant DELETE /api/Orders/:id returns 403
 backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/%75sers returns 403 or 404
 backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/REPORTS returns 403
