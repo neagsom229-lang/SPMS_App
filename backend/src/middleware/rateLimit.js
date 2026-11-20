@@ -31,9 +31,13 @@ const authLimiter = rateLimit({
 });
 
 // Registration limiter. Counts every attempt to stop tenant spam.
+// In the disposable test environment (e2e/jest use SPMS_DB_MODE=test with a
+// loopback *_test database) the limit is raised so scripted multi-tenant flows
+// are not blocked; production keeps the strict default.
+const isTestMode = process.env.SPMS_DB_MODE === 'test';
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 20,
+  max: isTestMode ? 1000 : 20,
   message: {
     error: "Too many sign-ups from this address, please try again later.",
     retryAfter: "1 hour",
