@@ -5,6 +5,8 @@ import Pagination from './Pagination';
 import apiClient from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { fetchPage } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isViewerRole } from '../utils/roles';
 import {
   Search, Plus, Edit2, Trash2, Package, X, Save,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
@@ -87,6 +89,8 @@ const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
 // ============================================
 const Products = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const viewer = isViewerRole(user);
 
   // ===== UI STATE =====
   const [search, setSearch] = useState('');
@@ -194,6 +198,7 @@ const Products = () => {
     queryKey: ['productStats', statsParams],
     queryFn: async () => (await apiClient.get('/products/stats', { params: statsParams })).data,
     staleTime: 30_000,
+    enabled: !viewer,
   });
 
   // ============================================

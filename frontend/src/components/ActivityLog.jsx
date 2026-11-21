@@ -10,6 +10,8 @@ import {
 import '../styles/activitylog.css';
 import apiClient from '../api/client';
 import { unwrapList as extractArrayData } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isAdminRole } from '../utils/roles';
 
 // ============================================
 // SHARED DATA HELPERS
@@ -19,6 +21,8 @@ import { unwrapList as extractArrayData } from '../api/list';
 // MAIN ACTIVITYLOG COMPONENT
 // ============================================
 const ActivityLog = () => {
+  const { user } = useAuth();
+  const canViewUsers = isAdminRole(user);
   // ===== STATE =====
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
@@ -125,6 +129,10 @@ const ActivityLog = () => {
 
   // ===== FETCH USERS =====
   const fetchUsers = useCallback(async () => {
+    if (!canViewUsers) {
+      if (isMounted.current) setUsers([]);
+      return;
+    }
     try {
       const res = await apiClient.get('/users');
       if (isMounted.current) {
@@ -133,12 +141,14 @@ const ActivityLog = () => {
         setUsers(usersArray);
       }
     } catch (error) {
-      console.error('❌ Error fetching users:', error);
+      if (error?.response?.status !== 403) {
+        console.error('❌ Error fetching users:', error);
+      }
       if (isMounted.current) {
         setUsers([]);
       }
     }
-  }, []);
+  }, [canViewUsers]);
 
   // ===== INITIAL LOAD =====
   useEffect(() => {

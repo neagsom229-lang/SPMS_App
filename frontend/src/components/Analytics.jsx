@@ -179,7 +179,7 @@ const FloatingIcons = () => {
     <div className="analytics-floating-icons">
       {icons.map(({ Icon, delay, x, y }) => (
         <div
-          key={Icon.name}
+          key={`${Icon.displayName || Icon.name || 'icon'}-${x}-${y}`}
           className="floating-icon"
           style={{
             animationDelay: `${delay}s`,
