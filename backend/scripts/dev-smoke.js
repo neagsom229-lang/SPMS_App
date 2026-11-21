@@ -29,7 +29,11 @@ const API_ORIGIN = `http://127.0.0.1:${BACKEND_PORT}`;
 const API = `${API_ORIGIN}/api`;
 const WEB = `http://127.0.0.1:${FRONTEND_PORT}`;
 
-const DEMO = { username: 'demo_admin', password: 'Demo1234!' };
+const USERS = {
+  admin: { username: 'demo_admin', password: 'Demo1234!' },
+  staff: { username: 'demo_staff', password: 'Demo1234!' },
+  viewer: { username: 'demo_viewer', password: 'Demo1234!' },
+};
 const PLACEHOLDER_BAD = [
   /\bUnknown\b/,
   /\bN\/A\b/,
@@ -72,6 +76,41 @@ function testDbReachable() {
   });
 }
 
+async function ensureViewerUser() {
+  const { Client } = require('pg');
+  const bcrypt = require('bcryptjs');
+  const client = new Client({ connectionString: testDatabaseUrl() });
+  await client.connect();
+  try {
+    const tenantRes = await client.query("SELECT id FROM tenants WHERE subdomain = 'demo'");
+    const tenantId = tenantRes.rows[0] && tenantRes.rows[0].id;
+    if (!tenantId) throw new Error('demo tenant not found after seed');
+    const existing = await client.query(
+      'SELECT userid FROM tbl_users WHERE username = $1 AND tenant_id = $2',
+      [USERS.viewer.username, tenantId]
+    );
+    if (existing.rows.length === 0) {
+      await client.query(
+        `INSERT INTO tbl_users (username, email, password, fullname, role, status, tenant_id, must_change_password)
+         VALUES ($1, $2, $3, $4, $5, 'ACTIVE', $6, FALSE)`,
+        [
+          USERS.viewer.username,
+          `${USERS.viewer.username}@demo.test`,
+          bcrypt.hashSync(USERS.viewer.password, 10),
+          'Demo Viewer',
+          'Viewer',
+          tenantId,
+        ]
+      );
+      console.log('dev-smoke: created demo_viewer user');
+    } else {
+      console.log('dev-smoke: demo_viewer user already present');
+    }
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 async function ensureTestDb() {
   if (await testDbReachable()) {
     console.log('dev-smoke: test database reachable');
@@ -85,6 +124,7 @@ async function ensureTestDb() {
   console.log('dev-smoke: seeding demo shop...');
   const { seed } = require('./seed-demo');
   await seed();
+  await ensureViewerUser();
 }
 
 async function waitFor(url, label, timeoutMs = 120000) {
@@ -147,14 +187,16 @@ function startServers() {
   return { backend, frontend };
 }
 
-async function login(page) {
+async function login(page, user) {
   await page.goto(`${WEB}/login`, { waitUntil: 'domcontentloaded' });
-  await page.locator('input[name="username"]').fill(DEMO.username);
-  await page.locator('input[name="password"]').fill(DEMO.password);
+  await page.locator('input[name="username"]').fill(user.username);
+  await page.locator('input[name="password"]').fill(user.password);
   await page.getByRole('button', { name: /sign in/i }).click();
   await page.waitForURL(/\/dashboard/, { timeout: 30000 });
   const welcome = page.getByRole('button', { name: /Enter Control Center/i });
   if (await welcome.isVisible().catch(() => false)) await welcome.click();
+  // dismiss toasts/overlays that can intercept clicks
+  await page.keyboard.press('Escape').catch(() => {});
 }
 
 function attachCollectors(page, failures, routeLabel) {
@@ -262,16 +304,101 @@ async function openCreateEditModals(page, failures, routeLabel) {
   }
 }
 
-async function visitRoute(page, route, failures, setRoute) {
-  const label = route;
+async function waitForRouteData(page, route) {
+  if (route === '/reports') {
+    // Wait for a real reports data request or a visible data row before scanning.
+    const responseWait = page.waitForResponse(
+      (res) => {
+        const url = res.url();
+        return url.includes('/api/reports') && res.status() < 400;
+      },
+      { timeout: 20000 }
+    ).catch(() => null);
+    const rowWait = page.locator('table tbody tr, .report-row, [class*="report"] tbody tr').first()
+      .waitFor({ state: 'visible', timeout: 20000 }).catch(() => null);
+    await Promise.race([responseWait, rowWait]);
+    return;
+  }
+  if (route === '/analytics') {
+    // Wait for a real analytics data request or a visible data row before scanning.
+    const responseWait = page.waitForResponse(
+      (res) => {
+        const url = res.url();
+        return (url.includes('/api/dashboard/analytics-summary') || url.includes('/api/analytics')) && res.status() < 400;
+      },
+      { timeout: 20000 }
+    ).catch(() => null);
+    const rowWait = page.locator('table tbody tr, .analytics-table tbody tr, [class*="chart"], canvas, svg.recharts-surface').first()
+      .waitFor({ state: 'visible', timeout: 20000 }).catch(() => null);
+    await Promise.race([responseWait, rowWait]);
+    return;
+  }
+}
+
+async function visitRoute(page, route, failures, setRoute, options = {}) {
+  const label = options.label || route;
   if (setRoute) setRoute(label);
   const url = `${WEB}${route}`;
+
+  // For routes that need data-wait, arm the wait before navigation when possible.
+  let dataWaitPromise = null;
+  if (route === '/reports' || route === '/analytics') {
+    dataWaitPromise = waitForRouteData(page, route);
+  }
+
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => {
     failures.push({ route: label, kind: 'navigation', detail: String(e.message || e) });
   });
+
+  // Handle expected viewer redirects away from restricted routes.
+  if (options.expectRedirectTo) {
+    await page.waitForURL(options.expectRedirectTo, { timeout: 15000 }).catch(e => {
+      failures.push({ route: label, kind: 'redirect', detail: `expected redirect to ${options.expectRedirectTo}, got ${page.url()} (${String(e.message || e)})` });
+    });
+    await page.waitForTimeout(800);
+    return;
+  }
+
+  if (dataWaitPromise) await dataWaitPromise;
   await page.waitForTimeout(1500);
   await scanPlaceholders(page, failures, label);
   await openCreateEditModals(page, failures, label);
+}
+
+async function runRolePass(browser, roleName, user, routesConfig, failures) {
+  console.log(`dev-smoke: role pass ${roleName} (${user.username})`);
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  let currentRoute = `${roleName}:global`;
+  const setRoute = (r) => { currentRoute = `${roleName}:${r}`; };
+
+  page.on('console', msg => {
+    const type = msg.type();
+    if (type === 'error' || type === 'warning') {
+      failures.push({ route: currentRoute, kind: `console.${type}`, detail: msg.text() });
+    }
+  });
+  page.on('pageerror', err => {
+    failures.push({ route: currentRoute, kind: 'pageerror', detail: String(err && err.message || err) });
+  });
+  page.on('response', res => {
+    const status = res.status();
+    if (status >= 400) {
+      const url = res.url();
+      if (url.includes('.map') || url.endsWith('/favicon.ico') || url.includes('__vite') || url.includes('hot-update')) return;
+      failures.push({ route: currentRoute, kind: `http${status}`, detail: `${status} ${url}` });
+    }
+  });
+
+  await login(page, user);
+  for (const route of routesConfig) {
+    const path = typeof route === 'string' ? route : route.path;
+    const opts = typeof route === 'string' ? {} : route;
+    console.log(`dev-smoke: [${roleName}] visiting ${path}${opts.expectRedirectTo ? ' (expect redirect)' : ''}`);
+    await visitRoute(page, path, failures, setRoute, opts);
+  }
+
+  await context.close();
 }
 
 async function main() {
@@ -306,33 +433,9 @@ async function main() {
       }
     }
     const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
-    const page = await context.newPage();
     const failures = [];
-    // attach collectors with route updated dynamically
-    let currentRoute = 'global';
-    page.on('console', msg => {
-      const type = msg.type();
-      if (type === 'error' || type === 'warning') {
-        failures.push({ route: currentRoute, kind: `console.${type}`, detail: msg.text() });
-      }
-    });
-    page.on('pageerror', err => {
-      failures.push({ route: currentRoute, kind: 'pageerror', detail: String(err && err.message || err) });
-    });
-    page.on('response', res => {
-      const status = res.status();
-      if (status >= 400) {
-        const url = res.url();
-        if (url.includes('.map') || url.endsWith('/favicon.ico') || url.includes('__vite') || url.includes('hot-update')) return;
-        failures.push({ route: currentRoute, kind: `http${status}`, detail: `${status} ${url}` });
-      }
-    });
 
-    await login(page);
-    const setRoute = (r) => { currentRoute = r; };
-
-    const routes = [
+    const adminRoutes = [
       '/dashboard',
       '/orders',
       '/sell',
@@ -352,19 +455,74 @@ async function main() {
       '/pricing',
     ];
 
-    for (const route of routes) {
-      console.log(`dev-smoke: visiting ${route}`);
-      await visitRoute(page, route, failures, setRoute);
-    }
+    // Staff: pages this role may open without admin-only API 4xx/5xx.
+    // Excludes /users and /reports (admin-only by backend role policy).
+    const staffRoutes = [
+      '/dashboard',
+      '/orders',
+      '/sell',
+      '/online-orders',
+      '/products',
+      '/customers',
+      '/stock',
+      '/suppliers',
+      '/activity',
+      '/warranty',
+      '/profile',
+      '/settings',
+      '/help',
+      '/pricing',
+    ];
 
-    // public storefront route
+    // Viewer: read-only; redirected away from /sell and /activity.
+    // Excludes admin-only pages (/users, /reports) and /analytics (calls admin-only APIs).
+    const viewerRoutes = [
+      '/dashboard',
+      '/orders',
+      { path: '/sell', expectRedirectTo: /\/dashboard/ },
+      '/online-orders',
+      '/products',
+      '/customers',
+      '/stock',
+      '/suppliers',
+      { path: '/activity', expectRedirectTo: /\/dashboard/ },
+      '/warranty',
+      '/profile',
+      '/settings',
+      '/help',
+      '/pricing',
+    ];
+
+    await runRolePass(browser, 'admin', USERS.admin, adminRoutes, failures);
+    await runRolePass(browser, 'staff', USERS.staff, staffRoutes, failures);
+    await runRolePass(browser, 'viewer', USERS.viewer, viewerRoutes, failures);
+
+    // Public storefront route (no auth required) - checked once.
     console.log('dev-smoke: visiting /shop/demo');
-    setRoute('/shop/demo');
-    await page.goto(`${WEB}/shop/demo`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => {
+    const pubContext = await browser.newContext();
+    const pubPage = await pubContext.newPage();
+    let pubRoute = 'public:/shop/demo';
+    pubPage.on('console', msg => {
+      const type = msg.type();
+      if (type === 'error' || type === 'warning') failures.push({ route: pubRoute, kind: `console.${type}`, detail: msg.text() });
+    });
+    pubPage.on('pageerror', err => {
+      failures.push({ route: pubRoute, kind: 'pageerror', detail: String(err && err.message || err) });
+    });
+    pubPage.on('response', res => {
+      const status = res.status();
+      if (status >= 400) {
+        const url = res.url();
+        if (url.includes('.map') || url.endsWith('/favicon.ico') || url.includes('__vite') || url.includes('hot-update')) return;
+        failures.push({ route: pubRoute, kind: `http${status}`, detail: `${status} ${url}` });
+      }
+    });
+    await pubPage.goto(`${WEB}/shop/demo`, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(e => {
       failures.push({ route: '/shop/demo', kind: 'navigation', detail: String(e.message || e) });
     });
-    await page.waitForTimeout(1500);
-    await scanPlaceholders(page, failures, '/shop/demo');
+    await pubPage.waitForTimeout(1500);
+    await scanPlaceholders(pubPage, failures, '/shop/demo');
+    await pubContext.close();
 
     await browser.close();
 
