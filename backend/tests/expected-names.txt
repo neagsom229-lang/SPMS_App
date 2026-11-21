@@ -196,6 +196,8 @@ backend/tests/purchaseValidation.test.js	Purchase API field-specific validation 
 backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a non-integer product id with a field-specific error
 backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a non-integer quantity with a field-specific error
 backend/tests/purchaseValidation.test.js	Purchase API field-specific validation > Rejects a quantity outside the allowed range with a field-specific error
+backend/tests/registerLimiterConfig.test.js	registerLimiter production/test max > allows the 21st registration when SPMS_DB_MODE is test (max 1000)
+backend/tests/registerLimiterConfig.test.js	registerLimiter production/test max > blocks the 21st registration when SPMS_DB_MODE is unset (max 20)
 backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant DELETE /api/Orders/:id returns 403
 backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/%75sers returns 403 or 404
 backend/tests/rolePolicyCaseVariant.test.js	Role Policy Case-Variant and Route Walk Tests > Cashier case-variant GET /api/REPORTS returns 403
