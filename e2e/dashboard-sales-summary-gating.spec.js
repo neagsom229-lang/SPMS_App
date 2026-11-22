@@ -63,7 +63,7 @@ async function expectNoSummaryRequests(page, role) {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await page.waitForTimeout(2000);
   expect(calls, `${role} must not call sales-summary after Refresh`).toEqual([]);
-  await expect(page.getByText('Admin only')).toBeVisible();
+  await expect(page.getByText('Admin only').first()).toBeVisible();
 }
 
 test('Staff dashboard does not request admin-only sales-summary', async ({ page }) => {
