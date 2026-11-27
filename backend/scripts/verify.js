@@ -53,7 +53,7 @@ step('1/7 test database');
 // bring up the disposable local container.
 function dbReachable() {
   return new Promise(resolve => {
-    const client = new Client({ connectionString: testDatabaseUrl(), connectionTimeoutMillis: 2000 });
+    const client = new Client({ connectionString: testDatabaseUrl('postgres'), connectionTimeoutMillis: 2000 });
     // jest's globalSetup rebuilds the test database with
     // `DROP DATABASE ... WITH (FORCE)`, which can kill this probe socket.
     // pg then emits 'error' on the Client; without a listener that is an

@@ -189,7 +189,11 @@ async function assertPortBindable(port = TEST_DB_PORT, portVarName = 'TEST_DB_PO
   await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', (err) => {
-      const e = new Error(`Port is reserved by Windows: run \`netsh interface ipv4 show excludedportrange protocol=tcp\`, or set ${portVarName}`);
+            const e = new Error(
+        err.code === 'EADDRINUSE'
+          ? `Port ${port} is already in use (a database may already be running there): stop that process or set ${portVarName}`
+          : `Port ${port} cannot be bound (${err.code}); on Windows it may be reserved: run \`netsh interface ipv4 show excludedportrange protocol=tcp\`, or set ${portVarName}`
+      );
       e.code = 'PORT_UNAVAILABLE';
       e.cause = err.message;
       reject(e);
