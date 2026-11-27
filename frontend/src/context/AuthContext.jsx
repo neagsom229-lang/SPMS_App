@@ -24,24 +24,54 @@ export const AuthProvider = ({ children }) => {
 
   // ===== LOAD USER FROM LOCAL STORAGE =====
   useEffect(() => {
-    const loadUser = () => {
+    const loadUser = async () => {
       try {
         const token = localStorage.getItem('token');
         const userData = localStorage.getItem('user');
         const tenantData = localStorage.getItem('tenant');
-        
-        
+
         if (token && userData) {
           const parsedUser = JSON.parse(userData);
           apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          setUser(parsedUser);
-          setIsSuperAdmin(parsedUser.isSuperAdmin || false);
-          
-          if (tenantData) {
-            setTenant(JSON.parse(tenantData));
-          } else if (parsedUser.tenant) {
-            setTenant(parsedUser.tenant);
-            localStorage.setItem('tenant', JSON.stringify(parsedUser.tenant));
+
+          try {
+            const meRes = await apiClient.get('/auth/me');
+            const freshUser = meRes.data?.user || parsedUser;
+            const mergedUser = {
+              ...parsedUser,
+              ...freshUser,
+              id: freshUser.id ?? parsedUser.id ?? parsedUser.user_id,
+              user_id: freshUser.user_id ?? parsedUser.user_id ?? freshUser.id,
+              isSuperAdmin: freshUser.isSuperAdmin ?? parsedUser.isSuperAdmin ?? false,
+            };
+
+            localStorage.setItem('user', JSON.stringify(mergedUser));
+            setUser(mergedUser);
+            setIsSuperAdmin(mergedUser.isSuperAdmin || false);
+
+            if (tenantData) {
+              setTenant(JSON.parse(tenantData));
+            } else if (mergedUser.tenant) {
+              setTenant(mergedUser.tenant);
+              localStorage.setItem('tenant', JSON.stringify(mergedUser.tenant));
+            }
+          } catch (verifyError) {
+            const status = verifyError.response?.status;
+            if (status === 401 || status === 403) {
+              localStorage.removeItem('token');
+              localStorage.removeItem('user');
+              localStorage.removeItem('tenant');
+              delete apiClient.defaults.headers.common['Authorization'];
+              setUser(null);
+              setTenant(null);
+              setIsSuperAdmin(false);
+            } else {
+              // Network/server transient issue: keep local session to avoid false logout.
+              setUser(parsedUser);
+              setIsSuperAdmin(parsedUser.isSuperAdmin || false);
+              if (tenantData) setTenant(JSON.parse(tenantData));
+              else if (parsedUser.tenant) setTenant(parsedUser.tenant);
+            }
           }
         }
       } catch (error) {
@@ -49,11 +79,12 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('tenant');
+        delete apiClient.defaults.headers.common['Authorization'];
       } finally {
         setLoading(false);
       }
     };
-    
+
     loadUser();
   }, []);
 

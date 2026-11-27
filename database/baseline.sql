@@ -46,7 +46,8 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.schema_migrations (
     filename character varying(255) NOT NULL,
-    executed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+    executed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    checksum text
 );
 
 

@@ -54,7 +54,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(suppliers);
   } catch (err) {
     console.error("❌ Suppliers error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -95,7 +95,7 @@ router.post('/', authenticate, async (req, res) => {
     });
     } catch (err) {
     console.error("❌ Create supplier error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
     }
     });
 
@@ -120,7 +120,7 @@ router.post('/', authenticate, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Supplier not found' });
     res.json(result.rows[0]);
     } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
     }
     });
 
@@ -136,7 +136,7 @@ router.post('/', authenticate, async (req, res) => {
     res.json({ message: 'Supplier deleted successfully' });
     } catch (err) {
     console.error("❌ Delete supplier error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
     }
     });
 

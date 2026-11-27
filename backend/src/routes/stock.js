@@ -31,7 +31,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Stock error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -100,7 +100,7 @@ router.get('/log', authenticate, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Stock log error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -186,7 +186,7 @@ router.post('/receive', authenticate, async (req, res) => {
     await client.query('ROLLBACK');
     client.release();
     console.error('❌ Receive stock error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -268,7 +268,7 @@ router.post('/adjust', authenticate, async (req, res) => {
     await client.query('ROLLBACK');
     client.release();
     console.error('❌ Adjust stock error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

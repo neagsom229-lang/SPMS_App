@@ -27,7 +27,8 @@ router.put('/profile', authenticate, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ message: 'Profile updated successfully', user: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('❌ Profile update error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -44,7 +45,7 @@ router.post('/login', async (req, res) => {
   try {
     const result = await db.query(
   `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
-          u.is_super_admin, u.tenant_id as user_tenant_id, u.must_change_password,
+          u.is_super_admin, u.tenant_id as user_tenant_id, u.must_change_password, u.token_version,
           t.id as tenant_row_id, t.name as tenant_name, t.subdomain, t.status as tenant_status
    FROM tbl_users u
    LEFT JOIN tenants t ON u.tenant_id = t.id
@@ -76,6 +77,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const tokenVersion = Number(user.token_version || 1);
     const token = jwt.sign(
       {
         userId: user.userid,
@@ -83,6 +85,7 @@ router.post('/login', async (req, res) => {
         role: user.role || 'Admin',
         tenantId: user.is_super_admin ? null : user.user_tenant_id,
         isSuperAdmin: user.is_super_admin || false,
+        tokenVersion,
       },
       JWT_SECRET,
       { expiresIn: '7d' }
@@ -269,7 +272,8 @@ router.post('/register-client', async (req, res) => {
         role: user.role,
         tenantId: tenant.id,
         tenantName: tenant.name,
-        isSuperAdmin: false
+        isSuperAdmin: false,
+        tokenVersion: 1,
       },
       JWT_SECRET,
       { expiresIn: '7d' }
@@ -314,7 +318,7 @@ router.post('/change-password', authenticate, async (req, res) => {
 
   try {
     const userRes = await db.query(
-      'SELECT userid, username, password, role, tenant_id, is_super_admin FROM tbl_users WHERE userid = $1',
+      'SELECT userid, username, password, role, tenant_id, is_super_admin, token_version FROM tbl_users WHERE userid = $1',
       [req.user.userId]
     );
     if (userRes.rows.length === 0) {
@@ -338,9 +342,10 @@ router.post('/change-password', authenticate, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(newPassword, 10);
+    const nextTokenVersion = Number(user.token_version || 1) + 1;
     await db.query(
-      'UPDATE tbl_users SET password = $1, must_change_password = FALSE WHERE userid = $2',
-      [hashed, user.userid]
+      'UPDATE tbl_users SET password = $1, must_change_password = FALSE, token_version = $2 WHERE userid = $3',
+      [hashed, nextTokenVersion, user.userid]
     );
 
     const token = jwt.sign(
@@ -350,6 +355,7 @@ router.post('/change-password', authenticate, async (req, res) => {
         role: user.role || 'Admin',
         tenantId: user.is_super_admin ? null : user.tenant_id,
         isSuperAdmin: user.is_super_admin || false,
+        tokenVersion: nextTokenVersion,
       },
       JWT_SECRET,
       { expiresIn: '7d' }

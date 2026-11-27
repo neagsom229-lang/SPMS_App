@@ -89,14 +89,25 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .map(o => o.trim())
   .filter(Boolean);
 
+const devFallbackOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+const effectiveOrigins = allowedOrigins.length > 0
+  ? allowedOrigins
+  : (process.env.NODE_ENV === 'production' ? [] : devFallbackOrigins);
+
+if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+  console.warn('[CORS] CORS_ORIGINS not set; using dev fallback origins:', effectiveOrigins.join(', '));
+}
+
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    if (effectiveOrigins.includes(origin)) {
       return callback(null, true);
     }
     console.warn('[CORS] blocked origin:', origin);
-    return callback(new Error('CORS blocked'));
+    const err = new Error('CORS blocked');
+    err.status = 403;
+    return callback(err);
   },
   credentials: true,
   // Cache preflight responses so each origin stops sending OPTIONS before
@@ -147,14 +158,38 @@ app.use("/api/reports", apiLimiter);
 app.use("/api/export", apiLimiter);
 
 // ============================================
-// HEALTH CHECK
+// HEALTH CHECKS
 // ============================================
+// Liveness: process is running; no DB dependency.
+app.get("/health/live", (req, res) => {
+  res.status(200).json({ status: "live", timestamp: new Date().toISOString() });
+});
+
+// Readiness: confirms the backend can reach PostgreSQL with a lightweight check.
+app.get("/health/ready", async (req, res) => {
+  let timeoutId;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("database readiness check timed out")), 3000);
+    });
+    await Promise.race([db.query("SELECT 1 AS ok"), timeout]);
+    res.status(200).json({ status: "ready", db: "connected", timestamp: new Date().toISOString() });
+  } catch (err) {
+    logger.error("Readiness check failed", { error: err.message });
+    res.status(503).json({ status: "not_ready", db: "disconnected", timestamp: new Date().toISOString() });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+});
+
+// Backward-compatible health endpoint (used by existing monitors/render.yaml).
 app.get("/health", async (req, res) => {
   try {
     await db.query("SELECT 1");
     res.status(200).json({ status: "healthy", db: "connected", timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ status: "unhealthy", db: "disconnected", error: err.message, timestamp: new Date().toISOString() });
+    logger.error("Health check failed", { error: err.message });
+    res.status(503).json({ status: "unhealthy", db: "disconnected", timestamp: new Date().toISOString() });
   }
 });
 
@@ -185,7 +220,7 @@ app.get("/api/activity-logs", authenticate, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Activity logs error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -252,13 +287,20 @@ app.use((req, res) => {
 // ERROR HANDLER
 // ============================================
 app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  const isServerError = status >= 500;
+  const message = isServerError ? 'Internal Server Error' : (err.message || 'Request failed');
+
   logger.error(
-    `${err.status || 500} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`,
+    `${status} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`,
   );
-  console.error("❌ Server Error:", err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || "Internal Server Error",
-    status: err.status || 500,
+  if (isServerError) {
+    console.error('❌ Server Error:', err.stack);
+  }
+
+  res.status(status).json({
+    error: message,
+    status,
     path: req.url,
   });
 });
@@ -285,6 +327,30 @@ async function startServer() {
       console.error('❌ Server error:', error);
       process.exit(1);
     });
+
+    let shuttingDown = false;
+    const shutdown = async (signal) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info(`Received ${signal}; starting graceful shutdown`);
+      server.close(async () => {
+        try {
+          await db.end();
+          logger.info('Database pool closed');
+        } catch (e) {
+          logger.error('Error closing database pool during shutdown', { error: e.message });
+        } finally {
+          process.exit(0);
+        }
+      });
+      setTimeout(() => {
+        logger.error('Graceful shutdown timed out; forcing exit');
+        process.exit(1);
+      }, 10000).unref();
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (err) {
     console.error("❌ Server startup error:", err.message);

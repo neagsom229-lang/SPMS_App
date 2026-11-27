@@ -72,11 +72,13 @@ async function main() {
       }
 
       // The runner creates this ledger. It is part of the state after 014, but
-      // deliberately kept empty so the baseline contains no data.
+      // deliberately kept empty so the baseline contains no data. Checksum column
+      // is nullable for legacy rows; runner fills it for newly applied migrations.
       await client.query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           filename VARCHAR(255) PRIMARY KEY,
-          executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          checksum TEXT
         );
       `);
     });

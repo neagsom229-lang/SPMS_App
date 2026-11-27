@@ -85,6 +85,8 @@ backend/tests/flowVerification.test.js	Flow verification against real database r
 backend/tests/flowVerification.test.js	Flow verification against real database rows > Replaying an idempotency key returns the original order without a second stock decrement
 backend/tests/flowVerification.test.js	Flow verification against real database rows > Supplier stock receive increases the product quantity in the database
 backend/tests/flowVerification.test.js	Flow verification against real database rows > Supplier stock receive writes a RESTOCK row into the stock log
+backend/tests/migrationChecksum.test.js	sha256 changes when SQL content changes
+backend/tests/migrationChecksum.test.js	sha256 of the same SQL is equal for LF and CRLF line endings
 backend/tests/noPlaceholderScan.test.js	Frontend no-placeholder scan > Banned offline-fallback and placeholder tokens are absent from frontend source
 backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Admin B cannot access Tenant A product by GET/PUT/DELETE
 backend/tests/nullTenantScope.test.js	Null Tenant Scope, Multi-Tenant Isolation, and Suspended Tenant Tests > Admin B cannot adjust a Tenant A product stock

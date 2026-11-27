@@ -490,7 +490,8 @@ router.post('/store/:slug/orders', publicOrderLimiter, async (req, res) => {
     await client.query('ROLLBACK');
     client.release();
     console.error('❌ Create online order error:', err.message);
-    res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+    const status = err.status || 500;
+    res.status(status).json({ error: status >= 500 ? 'Internal server error' : (err.message || 'Request failed') });
   }
 });
 

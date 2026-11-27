@@ -58,6 +58,7 @@ desktop.ini
 # Misc
 tmp/
 temp/
+output.json/
 *.bak
 *.old
 *.orig

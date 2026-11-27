@@ -20,10 +20,10 @@ describe('Change password endpoints', () => {
   let u1Token, u1Id;
   let u2Token, u2Id;
 
-  const login = async (username) => {
+  const login = async (username, password = 'Qa!123456') => {
     const res = await request(app)
       .post('/api/auth/login')
-      .send({ username, password: 'Qa!123456' });
+      .send({ username, password });
     expect(res.status).toBe(200);
     return res.body.token;
   };
@@ -94,6 +94,11 @@ describe('Change password endpoints', () => {
   });
 
   test('a cashier cannot reset another user password through PUT /users/:id/password', async () => {
+    // Test 1 changed u1's password and password changes now invalidate prior tokens
+    // (token_version bump, per migration 021 intent). Refresh u1 token with the
+    // password set by the allowed case in test 1.
+    u1Token = await login(prefix + 'u1', 'BrandNewPass1!');
+
     await expectDenied(app, {
       method: 'put',
       path: `/api/users/${u2Id}/password`,
