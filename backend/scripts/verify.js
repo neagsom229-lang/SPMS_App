@@ -280,16 +280,27 @@ function scanSecretsWithRegex() {
   return hits;
 }
 
-let gitleaksVersion = null;
-try {
-  gitleaksVersion = execFileSync('gitleaks', ['version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-} catch (e) {
-  gitleaksVersion = null;
+function resolveGitleaks() {
+  const candidates = ['gitleaks'];
+  if (process.env.GITLEAKS_BIN) candidates.unshift(process.env.GITLEAKS_BIN);
+  if (process.env.RUNNER_TEMP) {
+    candidates.push(path.join(process.env.RUNNER_TEMP, 'gitleaks'));
+    candidates.push(path.join(process.env.RUNNER_TEMP, 'gitleaks.exe'));
+  }
+  for (const bin of candidates) {
+    try {
+      const version = execFileSync(bin, ['version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (version) return { bin, version };
+    } catch (e) {}
+  }
+  return null;
 }
-if (gitleaksVersion) {
-  console.log(`scanner: gitleaks ${gitleaksVersion} (git history, --redact)`);
+
+const gitleaks = resolveGitleaks();
+if (gitleaks) {
+  console.log(`scanner: gitleaks ${gitleaks.version} (git history, --redact)`);
   run('gitleaks', () => {
-    execFileSync('gitleaks', ['git', '--no-banner', '--redact', '--exit-code', '1', '--config', '.gitleaks.toml'], { cwd: ROOT, stdio: 'inherit' });
+    execFileSync(gitleaks.bin, ['git', '--no-banner', '--redact', '--exit-code', '1', '--config', '.gitleaks.toml'], { cwd: ROOT, stdio: 'inherit' });
   });
 } else {
   console.log('scanner: gitleaks not installed (git history NOT scanned)');
