@@ -1,7 +1,8 @@
 // frontend/src/pages/Settings.jsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
+import apiClient from '../api/client';
 import {
   Settings as SettingsIcon,
   Shield,
@@ -9,154 +10,45 @@ import {
   Bell,
   Lock,
   Palette,
-  Globe,
   Database,
   Users,
   FileText,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
-  Clock,
   Save,
   X,
   Edit2,
-  Check,
-  AlertCircle,
-  RefreshCw,
   Moon,
   Sun,
   Monitor,
-  Key,
   Eye,
   EyeOff,
+  Eye as EyeIcon,
   ChevronRight,
   UserCheck,
   Crown,
   Briefcase,
-  Eye as EyeIcon,
-  TrendingUp,
   ShoppingCart,
   Package,
-  Warehouse,
-  Truck,
-  ClipboardList,
-  Activity,
-  Award,
-  CreditCard,
-  Gift,
-  Heart,
-  Zap,
-  Coffee,
   BookOpen,
-  Target,
-  Compass,
   Sparkles,
   Upload,
   Download,
   Trash2,
   Plus,
-  Search,
-  Filter,
-  ArrowUp,
-  ArrowDown,
-  MoreVertical,
-  Copy,
-  Link,
-  ExternalLink,
-  Home,
-  UserCircle,
+  RefreshCw,
+  Target,
   Bot,
-  MessageSquare,
-  Send,
-  Mic,
-  Volume2,
-  VolumeX,
-  Video,
-  Camera,
-  Image,
-  Paperclip,
-  Smile,
-  MoreHorizontal,
-  ThumbsUp,
-  ThumbsDown,
-  Copy as CopyIcon,
-  Reply,
-  Forward,
-  Bookmark,
-  Flag,
-  Pin,
-  Star,
-  Share2,
-  Link2,
-  QrCode,
-  Fingerprint,
-  ShieldCheck,
-  Wifi,
-  WifiOff,
-  Bluetooth,
-  BluetoothOff,
-  Battery,
-  BatteryCharging,
-  Signal,
-  SignalLow,
-  SignalMedium,
-  SignalHigh,
-  Smartphone,
-  Tablet,
-  Laptop,
-  Monitor as MonitorIcon,
-  Tv,
-  Watch,
-  Headphones,
-  Speaker,
-  Volume1,
-  Volume,
-  VolumeX as VolumeOff,
-  MicOff,
-  CameraOff,
-  EyeOff as EyeOffIcon,
-  Lock as LockIcon,
-  Unlock,
-  Key as KeyIcon,
-  Fingerprint as FingerprintIcon,
-  Scan,
-  QrCode as QrCodeIcon,
-  Shield as ShieldIcon,
-  ShieldCheck as ShieldCheckIcon,
-  ShieldAlert,
-  ShieldX,
-  User as UserIcon,
-  Users as UsersIcon,
-  UserPlus,
-  UserMinus,
-  UserCheck as UserCheckIcon,
-  UserX as UserXIcon,
-  Mail as MailIcon,
-  Phone as PhoneIcon,
-  MapPin as MapPinIcon,
-  Calendar as CalendarIcon,
-  Clock as ClockIcon,
-  Award as AwardIcon,
-  Star as StarIcon,
-  Heart as HeartIcon,
-  Zap as ZapIcon,
-  Coffee as CoffeeIcon,
-  BookOpen as BookOpenIcon,
-  Target as TargetIcon,
-  Compass as CompassIcon,
-  Sparkles as SparklesIcon
+  Send
 } from 'lucide-react';
 
 const Settings = () => {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('profile');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(null);
-  const [avatarFile, setAvatarFile] = useState(null);
+  const [, setAvatarFile] = useState(null);
 
   // ===== AI ASSISTANT STATE =====
   const [aiMessages, setAiMessages] = useState([
@@ -171,14 +63,13 @@ const Settings = () => {
   const [aiInput, setAiInput] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState([
+  const [aiSuggestions] = useState([
     'How do I change my password?',
     'Help me with inventory management',
     'Generate a sales report',
     'Set up two-factor authentication',
     'Update my profile information'
   ]);
-  const [aiContext, setAiContext] = useState([]);
   const chatEndRef = useRef(null);
   const aiInputRef = useRef(null);
 
@@ -451,6 +342,16 @@ const Settings = () => {
   };
 
   // ===== HANDLE PROFILE UPDATE =====
+  // Real API calls (this handler previously waited 1.5s and toasted success
+  // without calling any endpoint):
+  //   PUT  /auth/profile         persists fullname + email - the only profile
+  //                              columns tbl_users has (phone/address/bio are
+  //                              not stored server-side and are not sent)
+  //   PUT  /users/:id            username rename - admin only, matching the
+  //                              input's disabled={!isAdmin}
+  //   POST /auth/change-password when a new password is filled - verifies the
+  //                              current password server-side and returns a
+  //                              fresh token
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     if (profileData.newPassword && profileData.newPassword.length < 6) {
@@ -464,16 +365,47 @@ const Settings = () => {
 
     setSaving(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success('Profile updated successfully!');
+      const profileRes = await apiClient.put('/auth/profile', {
+        fullname: profileData.fullname,
+        email: profileData.email,
+      });
+
+      const uid = user?.user_id || user?.id;
+      if (isAdmin && uid && profileData.username && profileData.username !== user?.username) {
+        await apiClient.put(`/users/${uid}`, { username: profileData.username });
+      }
+
+      if (profileData.newPassword) {
+        const pwdRes = await apiClient.post('/auth/change-password', {
+          oldPassword: profileData.currentPassword,
+          newPassword: profileData.newPassword,
+        });
+        if (pwdRes.data && pwdRes.data.token) {
+          localStorage.setItem('token', pwdRes.data.token);
+          apiClient.defaults.headers.common['Authorization'] = `Bearer ${pwdRes.data.token}`;
+        }
+      }
+
+      // Mirror the server's saved values into the auth context and localStorage
+      // so a reload does not show stale data.
+      const updatedUser = {
+        ...(user || {}),
+        fullname: (profileRes.data && profileRes.data.user && profileRes.data.user.fullname) || profileData.fullname,
+        email: (profileRes.data && profileRes.data.user && profileRes.data.user.email) || profileData.email,
+        username: profileData.username
+      };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+
       setProfileData({
         ...profileData,
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
+      toast.success('Profile updated successfully!');
     } catch (error) {
-      toast.error('Failed to update profile');
+      toast.error(error.response?.data?.error || 'Failed to update profile');
     } finally {
       setSaving(false);
     }
@@ -672,7 +604,7 @@ const Settings = () => {
               <div className="flex flex-wrap gap-2">
                 {aiSuggestions.map((suggestion, index) => (
                   <button
-                    key={index}
+                    key={suggestion}
                     onClick={() => handleAiSuggestionClick(suggestion)}
                     className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/30 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                   >

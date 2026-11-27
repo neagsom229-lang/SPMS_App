@@ -1,51 +1,42 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { toast } from 'react-hot-toast';
 import apiClient from '../api/client';
-import { CheckCircle, Shield, AlertTriangle, RefreshCw, Clock } from 'lucide-react';
+import { Shield, AlertTriangle, RefreshCw, Clock } from 'lucide-react';
 
-const BakongPayment = ({ amount, planId, userId, currency = 'USD', onSuccess }) => {
+const BakongPayment = ({ amount, planId, userId, currency = 'USD' }) => {
   const [qrPayload, setQrPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [status, setStatus] = useState('pending'); // pending | paid | expired | verifying_error
+  const [status, setStatus] = useState('pending'); // pending | expired
 
-  // Timer state (15 minutes expiry)
+  // Local countdown only: the server never polls a bank and we do not poll it.
   const [timeLeft, setTimeLeft] = useState(900);
-  const [checking, setChecking] = useState(false);
-  const [md5, setMd5] = useState(null);
-  const [expiresAt, setExpiresAt] = useState(null);
-
-  const isMounted = useRef(true);
   const timerIntervalRef = useRef(null);
-  const pollTimeoutRef = useRef(null);
-  const pollStartTime = useRef(Date.now());
 
-  // 1. Generate Dynamic QR via Backend
+  // 1. Generate the QR via the backend (server-side price)
   const fetchDynamicQR = useCallback(async () => {
     setLoading(true);
     setError(null);
     setTimeLeft(900);
-    pollStartTime.current = Date.now();
+    setStatus('pending');
 
     if (!userId) {
-      setError("Please log in to generate a payment QR.");
+      setError('Please log in to generate a payment QR.');
       setLoading(false);
       return;
     }
 
     try {
       const { data } = await apiClient.post('/payment/bakong/create-qr', {
-        amount: Number(amount),
-        planId: planId || 'Standard',
-        userId: userId,
-        currency: currency
+        plan: planId || 'shophouse',
+        period_months: 1,
+        currency
       });
 
-      if (data?.success && data?.qrImage && data?.md5) {
+      if (data?.success && data?.qrImage) {
         setQrPayload(data.qrImage);
-        setMd5(data.md5);
-        if (data.expiresAt) {
-          setExpiresAt(data.expiresAt);
+        if (data.expires_at) {
+          const seconds = Math.max(0, Math.round((new Date(data.expires_at).getTime() - Date.now()) / 1000));
+          setTimeLeft(seconds);
         }
       } else {
         throw new Error('Invalid response from server');
@@ -54,87 +45,34 @@ const BakongPayment = ({ amount, planId, userId, currency = 'USD', onSuccess }) 
       console.error('Error fetching QR:', err);
       setError(err.response?.data?.error || 'Failed to generate KHQR code');
     } finally {
-      if (isMounted.current) setLoading(false);
+      setLoading(false);
     }
-  }, [amount, planId, userId, currency]);
+  }, [planId, userId, currency]);
 
-  // 2. Adaptive Polling (every 4s for first 2 minutes, then every 10s)
-  const pollStatus = useCallback(async () => {
-    if (!md5 || status !== 'pending') return;
-
-    // Pause polling if tab is hidden
-    if (document.visibilityState === 'hidden') {
-      const interval = 4000;
-      pollTimeoutRef.current = setTimeout(pollStatus, interval);
-      return;
-    }
-
-    try {
-      setChecking(true);
-      const { data } = await apiClient.get(`/payment/bakong/check/${md5}`);
-
-      if (data.status === 'PAID') {
-        setStatus('paid');
-        toast.success('🎉 Payment successful! Plan activated.');
-        // Refetch subscription from backend
-        try {
-          await apiClient.get('/payment/subscription');
-        } catch (subErr) {
-          console.warn('Failed to refetch subscription:', subErr.message);
-        }
-        setTimeout(() => onSuccess?.(), 1500);
-        return;
-      }
-    } catch (err) {
-      console.warn('Polling check error:', err.response?.data?.error || err.message);
-    } finally {
-      if (isMounted.current) setChecking(false);
-    }
-
-    // Determine interval: 4s for first 2 minutes (120,000ms), then 10s
-    const elapsed = Date.now() - pollStartTime.current;
-    const interval = elapsed < 120000 ? 4000 : 10000;
-
-    if (status === 'pending') {
-      pollTimeoutRef.current = setTimeout(pollStatus, interval);
-    }
-  }, [md5, status, onSuccess]);
-
-  // 3. Initialize on mount
+  // 2. Initialize on mount
   useEffect(() => {
-    isMounted.current = true;
     fetchDynamicQR();
-
-    return () => {
-      isMounted.current = false;
-      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-    };
   }, [fetchDynamicQR]);
 
-  // 4. Countdown Timer & Polling trigger
+  // 3. Local expiry countdown (no polling)
   useEffect(() => {
-    if (qrPayload && status === 'pending') {
-      timerIntervalRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-            if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
-            setStatus('expired');
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (!qrPayload || status !== 'pending') return undefined;
 
-      pollStatus();
-    }
+    timerIntervalRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerIntervalRef.current);
+          setStatus('expired');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
     };
-  }, [qrPayload, status, pollStatus]);
+  }, [qrPayload, status]);
 
   const formatTime = (sec) => {
     const m = Math.floor(sec / 60);
@@ -189,20 +127,6 @@ const BakongPayment = ({ amount, planId, userId, currency = 'USD', onSuccess }) 
     );
   }
 
-  if (status === 'paid') {
-    return (
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md mx-auto text-center shadow-2xl">
-        <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-500/30">
-          <CheckCircle className="w-8 h-8 animate-bounce" />
-        </div>
-        <h3 className="text-xl font-black text-white mb-2">Payment Successful!</h3>
-        <p className="text-slate-400 text-sm">
-          Plan activated successfully. Redirecting to your dashboard...
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md mx-auto shadow-2xl text-slate-100">
       <div className="text-center mb-6">
@@ -213,7 +137,7 @@ const BakongPayment = ({ amount, planId, userId, currency = 'USD', onSuccess }) 
         <h3 className="text-2xl font-black text-white tracking-tight">Scan with ABA / Bakong App</h3>
 
         <div className="mt-2 text-slate-300 text-xs space-y-1">
-          <p>Plan: <strong className="text-white">{planId || 'Standard'}</strong></p>
+          <p>Plan: <strong className="text-white">{planId || 'shophouse'}</strong></p>
           <p>
             Amount: <strong className="text-cyan-400 text-sm">${parseFloat(amount || 0).toFixed(2)} {currency}</strong>
           </p>
@@ -248,29 +172,9 @@ const BakongPayment = ({ amount, planId, userId, currency = 'USD', onSuccess }) 
         </div>
       )}
 
-      <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
-        {checking && <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-cyan-400"></div>}
-        <span>Waiting for payment confirmation...</span>
+      <div className="mt-4 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-center text-sm text-cyan-100">
+        Payment pending. We confirm manually and activate your plan.
       </div>
-
-      {/* Simulate button only when import.meta.env.DEV */}
-      {import.meta.env.DEV && (
-        <div className="mt-6 border-t border-slate-800 pt-4">
-          <button
-            onClick={async () => {
-              try {
-                await apiClient.post(`/payment/simulate-payment/${md5}`);
-                toast.success('Simulating payment... waiting for poll.');
-              } catch (err) {
-                toast.error('Failed to simulate');
-              }
-            }}
-            className="w-full py-3 bg-slate-800/50 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl text-xs font-bold uppercase tracking-wider transition"
-          >
-            (Dev) Simulate Bakong Transfer
-          </button>
-        </div>
-      )}
     </div>
   );
 };

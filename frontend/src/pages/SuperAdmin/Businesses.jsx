@@ -1,7 +1,7 @@
 // frontend/src/pages/SuperAdmin/Businesses.jsx
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
+import React, { useState, useEffect, useCallback } from 'react';
 import apiClient from '../../api/client';
+import { unwrapList } from '../../api/list';
 import { toast } from 'react-hot-toast';
 import { 
   Plus, Search, Edit, Trash2,
@@ -9,11 +9,12 @@ import {
 } from 'lucide-react';
 
 const Businesses = () => {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [tenants, setTenants] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [search, setSearch] = useState('');
+  const [pendingSessions, setPendingSessions] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
   const [formData, setFormData] = useState({
@@ -23,26 +24,52 @@ const Businesses = () => {
     phone: '',
     address: '',
     status: 'ACTIVE',
-    subscription_plan: 'free'
+    plan: 'free'
   });
 
-  useEffect(() => {
-    fetchTenants();
-  }, [search]);
-
-  const fetchTenants = async () => {
+  const fetchTenants = useCallback(async () => {
     try {
       setLoading(true);
       const response = await apiClient.get('/tenants', {
         params: { search, limit: 20 }
       });
-      setTenants(response.data.tenants || []);
+      setTenants(unwrapList(response.data, ['tenants']));
       setPagination(response.data.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
     } catch (error) {
       console.error('Fetch tenants error:', error);
       toast.error('Failed to load businesses');
     } finally {
       setLoading(false);
+    }
+  }, [search]);
+
+  const fetchPendingSessions = useCallback(async () => {
+    try {
+      setPendingLoading(true);
+      const res = await apiClient.get('/payment/admin/sessions', { params: { status: 'PENDING' } });
+      setPendingSessions(res.data?.sessions || []);
+    } catch (error) {
+      console.error('Fetch pending sessions error:', error);
+    } finally {
+      setPendingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTenants();
+    fetchPendingSessions();
+  }, [fetchTenants, fetchPendingSessions]);
+
+  const markSessionPaid = async (sessionId) => {
+    const reason = window.prompt('Reason for manual mark-paid:');
+    if (!reason) return;
+    try {
+      await apiClient.post(`/payment/admin/sessions/${sessionId}/mark-paid`, { reason });
+      toast.success('Session marked as paid');
+      fetchPendingSessions();
+    } catch (error) {
+      console.error('Mark session paid error:', error);
+      toast.error('Failed to mark session paid');
     }
   };
 
@@ -65,7 +92,7 @@ const Businesses = () => {
         phone: '',
         address: '',
         status: 'ACTIVE',
-        subscription_plan: 'free'
+        plan: 'free'
       });
       fetchTenants();
     } catch (error) {
@@ -96,7 +123,9 @@ const Businesses = () => {
       phone: tenant.phone || '',
       address: tenant.address || '',
       status: tenant.status || 'ACTIVE',
-      subscription_plan: tenant.subscription_plan || 'free'
+      // case-insensitive: the <select> value must equal an option value, and a
+      // legacy row holding 'FREE' would otherwise render a blank select
+      plan: String(tenant.plan || 'free').toLowerCase()
     });
     setShowModal(true);
   };
@@ -126,7 +155,7 @@ const Businesses = () => {
               phone: '',
               address: '',
               status: 'ACTIVE',
-              subscription_plan: 'free'
+              plan: 'free'
             });
             setShowModal(true);
           }}
@@ -183,7 +212,7 @@ const Businesses = () => {
                     <td className="px-4 py-3 text-gray-300 text-sm">{tenant.email}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-1 rounded-full text-xs bg-indigo-500/20 text-indigo-400">
-                        {tenant.subscription_plan || 'free'}
+                        {String(tenant.plan || 'free').toLowerCase()}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -217,6 +246,61 @@ const Businesses = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Pending payment sessions panel (super admin) */}
+      <div className="mt-6 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <h2 className="text-base font-semibold text-white">Pending Payment Sessions</h2>
+          <button
+            onClick={fetchPendingSessions}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-sm transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
+        {pendingLoading ? (
+          <div className="px-4 py-8 text-center text-gray-400 text-sm">Loading pending sessions...</div>
+        ) : pendingSessions.length === 0 ? (
+          <div className="px-4 py-8 text-center text-gray-400 text-sm">No pending payment sessions</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/10">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tenant</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Plan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Amount</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {pendingSessions.map((session) => (
+                  <tr key={session.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-4 py-3 text-gray-300 text-sm">{session.tenant_name || '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400">
+                        {String(session.plan || 'free').toLowerCase()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-300 text-sm">{session.amount ?? 0}</td>
+                    <td className="px-4 py-3 text-gray-300 text-sm">{new Date(session.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => markSessionPaid(session.id)}
+                        className="px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-sm transition-colors"
+                      >
+                        Mark Paid
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Modal */}
@@ -308,16 +392,17 @@ const Businesses = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Subscription Plan
+                  Plan
                 </label>
                 <select
-                  value={formData.subscription_plan}
-                  onChange={(e) => setFormData({ ...formData, subscription_plan: e.target.value })}
+                  value={formData.plan}
+                  onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="free">Free</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
+                  <option value="market-stall">Market Stall</option>
+                  <option value="shophouse">Shop House</option>
+                  <option value="chain">Chain</option>
                 </select>
               </div>
 

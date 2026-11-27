@@ -35,19 +35,8 @@ const logger = winston.createLogger({
       maxsize: 5242880, // 5MB
       maxFiles: 5,
     }),
-    // Write all logs to console
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      ),
-    }),
-  ],
-});
-
-// If not in production, log to console with more detail
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
+    // One console transport, one format. Previously there were two Console
+    // transports, so every request line was printed twice.
     new winston.transports.Console({
       format: winston.format.combine(
         winston.format.colorize(),
@@ -57,8 +46,8 @@ if (process.env.NODE_ENV !== 'production') {
           }`;
         })
       ),
-    })
-  );
-}
+    }),
+  ],
+});
 
 module.exports = logger;

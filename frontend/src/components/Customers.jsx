@@ -1,25 +1,28 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Search, Plus, Edit2, Trash2, Users as UsersIcon, 
-  X, Save, DollarSign, Phone, Mail, MapPin, User,
+  X, Save, DollarSign, Phone, Mail, MapPin,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
-  Filter, ArrowUp, ArrowDown, Grid3x3, List,
-  TrendingUp, TrendingDown, Award, Star, Clock,
-  Calendar, ChevronRight, Eye, Copy, Tag, Layers,
-  Box, MessageCircle, Heart, Shield, Zap,
-  Sparkles, Gift, Crown, AlertTriangle,
-  Image as ImageIcon, Upload, Camera
+  ArrowUp, ArrowDown, Grid3x3, List,
+  Clock,
+  AlertTriangle,
+  Image as ImageIcon, Upload
 } from 'lucide-react';
 import '../styles/customer.css';
 // ✅ Shared axios instance — attaches the Authorization header from
 // localStorage on every request. Adjust the path below to match where
 // client.js actually lives relative to this file (e.g. '../api/client').
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isViewerRole } from '../utils/roles';
 
 // ============================================
 // MAIN CUSTOMERS COMPONENT
 // ============================================
 const Customers = () => {
+  const { user } = useAuth();
+  const readOnly = isViewerRole(user);
   // ===== STATE =====
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
@@ -44,7 +47,7 @@ const Customers = () => {
   });
 
   // ===== IMAGE UPLOAD STATE =====
-  const [selectedImage, setSelectedImage] = useState(null);
+  const [, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false); // ✅ now a real lock, see handleImageSelect
@@ -97,42 +100,7 @@ const Customers = () => {
   // ============================================
   // SAFE DATA EXTRACTION
   // ============================================
-  const extractCustomersData = useCallback((responseData) => {
-    if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) {
-      console.warn('⚠️ Received HTML - API not available');
-      return [];
-    }
-    
-    if (Array.isArray(responseData)) {
-      return responseData;
-    }
-    
-    if (responseData && typeof responseData === 'object') {
-      if (Array.isArray(responseData.data)) {
-        return responseData.data;
-      }
-      if (Array.isArray(responseData.customers)) {
-        return responseData.customers;
-      }
-      if (Array.isArray(responseData.items)) {
-        return responseData.items;
-      }
-      if (responseData.data && typeof responseData.data === 'object') {
-        if (Array.isArray(responseData.data.items)) {
-          return responseData.data.items;
-        }
-        if (Array.isArray(responseData.data.customers)) {
-          return responseData.data.customers;
-        }
-        const values = Object.values(responseData.data);
-        if (values.length > 0 && Array.isArray(values[0])) {
-          return values[0];
-        }
-      }
-    }
-    
-    return [];
-  }, []);
+  const extractCustomersData = unwrapList;
 
   // ============================================
   // CALCULATE STATS
@@ -177,7 +145,6 @@ const Customers = () => {
       const customersData = extractCustomersData(res.data);
       const customersArray = Array.isArray(customersData) ? customersData : [];
       
-      console.log('✅ Customers loaded:', customersArray.length);
       setCustomers(customersArray);
       calculateStats(customersArray);
     }
@@ -219,11 +186,9 @@ const Customers = () => {
   const handleImageSelect = useCallback(async (e) => {
     const file = e.target.files[0];
     if (!file) {
-      console.log('❌ No file selected');
       return;
     }
 
-    console.log('📸 File selected:', file.name, file.type, file.size);
 
     const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/gif'];
     if (!validTypes.includes(file.type)) {
@@ -244,14 +209,12 @@ const Customers = () => {
       const base64Image = await readFileAsDataURL(file);
       setUploadProgress(100);
 
-      console.log('📸 Base64 image length:', base64Image.length);
 
       // ✅ Write to the ref immediately — this is synchronous and can't race with a click.
       imageUrlRef.current = base64Image;
 
       setImagePreview(base64Image);
       setFormData(prev => {
-        console.log('📸 Updating formData with image');
         return { ...prev, IMAGE_URL: base64Image };
       });
 
@@ -266,13 +229,11 @@ const Customers = () => {
   }, [showMessage]);
 
   const removeImage = useCallback(() => {
-    console.log('🗑️ Removing image...');
     setSelectedImage(null);
     setImagePreview(null);
     setUploadProgress(0);
     imageUrlRef.current = '';
     setFormData(prev => {
-      console.log('🗑️ Clearing image from formData');
       return { ...prev, IMAGE_URL: '' };
     });
     if (fileInputRef.current) {
@@ -284,12 +245,8 @@ const Customers = () => {
   // ✅ OPEN EDIT MODAL - Reads image_url from database
   // ============================================
   const openEditModal = useCallback((customer) => {
-    const customerId = customer.CUS_ID || customer.cus_id || customer.ID;
-    console.log('✏️ Editing customer:', customerId);
-    
     // ✅ Read from database field (image_url) or fallback to IMAGE_URL
     const existingImage = customer.image_url || customer.IMAGE_URL || '';
-    console.log('📸 Existing image:', existingImage ? 'YES (has image)' : 'NO (no image)');
     
     setEditingCustomer(customer);
     setFormData({
@@ -306,7 +263,6 @@ const Customers = () => {
     
     if (existingImage) {
       setImagePreview(existingImage);
-      console.log('📸 Image preview loaded from existing');
     } else {
       setImagePreview(null);
     }
@@ -315,13 +271,32 @@ const Customers = () => {
     setShowModal(true);
   }, []);
 
+  // ============================================
+  // RESET FORM
+  // Declared before openAddModal: its dependency array is evaluated during
+  // render, so this must already be initialized (otherwise TDZ ReferenceError).
+  // ============================================
+  const resetForm = useCallback(() => {
+    setFormData({ 
+      FIRST_NAME: '', 
+      LAST_NAME: '', 
+      PHONE: '', 
+      E_MAIL: '', 
+      ADDRESS: '', 
+      BALANCE: '',
+      STATUS: 'Active',
+      IMAGE_URL: ''
+    });
+    imageUrlRef.current = '';
+  }, []);
+
   const openAddModal = useCallback(() => {
     setEditingCustomer(null);
     resetForm();
     setImagePreview(null);
     setSelectedImage(null);
     setShowModal(true);
-  }, []);
+  }, [resetForm]);
 
   // ============================================
   // ✅ FIXED: HANDLE SUBMIT
@@ -352,7 +327,6 @@ const Customers = () => {
 
     // ✅ Prefer the ref — it's always in sync, formData can lag a render behind
     const imageUrl = imageUrlRef.current || formData.IMAGE_URL || '';
-    console.log('📸 Image URL before submit:', imageUrl ? `✅ EXISTS (${imageUrl.length} chars)` : '❌ EMPTY');
 
     const submitData = {
       FIRST_NAME: formData.FIRST_NAME.trim(),
@@ -365,35 +339,26 @@ const Customers = () => {
       IMAGE_URL: imageUrl
     };
 
-    console.log('📤 Sending customer data:', {
-      ...submitData,
-      IMAGE_URL: submitData.IMAGE_URL ? `✅ (${submitData.IMAGE_URL.length} chars)` : '❌ MISSING'
-    });
-
     try {
       let customerId;
       if (editingCustomer) {
         customerId = editingCustomer.CUS_ID || editingCustomer.cus_id || editingCustomer.ID;
-        console.log('🆔 Updating customer ID:', customerId);
       }
 
-      let response;
       if (editingCustomer && customerId) {
-        response = await apiClient.put(`/customers/${customerId}`, submitData);
+        await apiClient.put(`/customers/${customerId}`, submitData);
         showMessage('✅ Customer updated successfully!');
       } else {
-        response = await apiClient.post('/customers', submitData);
+        await apiClient.post('/customers', submitData);
         showMessage('✅ Customer created successfully!');
       }
       
-      console.log('📥 Server response:', response.data);
       
       setShowModal(false);
       setEditingCustomer(null);
       
       await fetchCustomers();
       
-      console.log('🔄 Resetting form and removing image...');
       resetForm();
       removeImage();
       
@@ -404,23 +369,6 @@ const Customers = () => {
       setSubmitting(false);
     }
   };
-
-  // ============================================
-  // RESET FORM
-  // ============================================
-  const resetForm = useCallback(() => {
-    setFormData({ 
-      FIRST_NAME: '', 
-      LAST_NAME: '', 
-      PHONE: '', 
-      E_MAIL: '', 
-      ADDRESS: '', 
-      BALANCE: '',
-      STATUS: 'Active',
-      IMAGE_URL: ''
-    });
-    imageUrlRef.current = '';
-  }, []);
 
   // ============================================
   // HANDLE DELETE
@@ -551,13 +499,7 @@ const Customers = () => {
   const getFullName = (customer) => {
     const firstName = customer.FIRST_NAME || customer.first_name || '';
     const lastName = customer.LAST_NAME || customer.last_name || '';
-    return `${firstName} ${lastName}`.trim() || 'Unknown';
-  };
-
-  const getInitials = (customer) => {
-    const firstName = customer.FIRST_NAME || customer.first_name || '';
-    const lastName = customer.LAST_NAME || customer.last_name || '';
-    return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || '?';
+    return `${firstName} ${lastName}`.trim() || 'No name recorded';
   };
 
   const getAvatarColor = (name) => {
@@ -721,6 +663,7 @@ const Customers = () => {
             </button>
             <button
               onClick={openAddModal}
+              hidden={readOnly}
               className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl hover:bg-white/30 transition hover:scale-105 duration-300 flex items-center gap-2 border border-white/10"
             >
               <Plus className="w-4 h-4" />
@@ -736,7 +679,7 @@ const Customers = () => {
             { label: 'With Phone', value: customerStats.withPhone, icon: 'withPhone' },
             { label: 'Total Balance', value: `$${customerStats.totalBalance.toFixed(2)}`, icon: 'totalBalance' }
           ].map((stat, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
+            <div key={stat.icon} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
               <div className="flex items-center gap-2">
                 {getStatIcon(stat.icon)}
                 <p className="text-xs text-indigo-200">{stat.label}</p>
@@ -857,6 +800,7 @@ const Customers = () => {
           </p>
           <button
             onClick={openAddModal}
+            hidden={readOnly}
             className="mt-4 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:shadow-lg transition-all duration-300 hover:scale-105 font-medium"
           >
             <Plus className="w-4 h-4 inline mr-2" />
@@ -897,7 +841,6 @@ const Customers = () => {
                             alt={fullName}
                             className="w-full h-full object-cover"
                             onError={(e) => {
-                              console.log('❌ Image failed to load, using fallback');
                               e.target.style.display = 'none';
                             }}
                           />
@@ -931,6 +874,7 @@ const Customers = () => {
                           openEditModal(customer);
                         }}
                         className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
+                        hidden={readOnly}
                         title="Edit"
                       >
                         <Edit2 className="w-4 h-4" />
@@ -941,6 +885,7 @@ const Customers = () => {
                           handleDelete(id);
                         }}
                         className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 opacity-0 group-hover:opacity-100 hover:scale-110"
+                        hidden={readOnly}
                         title="Delete"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -1053,7 +998,6 @@ const Customers = () => {
                               alt={fullName}
                               className="w-10 h-10 rounded-lg object-cover bg-gray-100 dark:bg-gray-700"
                               onError={(e) => {
-                                console.log('❌ Image failed to load, using fallback');
                                 e.target.style.display = 'none';
                               }}
                             />
@@ -1087,6 +1031,7 @@ const Customers = () => {
                           <button
                             onClick={() => openEditModal(customer)}
                             className="p-1.5 rounded-lg text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all duration-300 group-hover:scale-110"
+                            hidden={readOnly}
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -1094,6 +1039,7 @@ const Customers = () => {
                           <button
                             onClick={() => handleDelete(id)}
                             className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 group-hover:scale-110"
+                            hidden={readOnly}
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1324,7 +1270,7 @@ const Customers = () => {
                     disabled={submitting}
                   />
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                    Customer's current balance (default: 0.00)
+                    Customer&apos;s current balance (default: 0.00)
                   </p>
                 </div>
 

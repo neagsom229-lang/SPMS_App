@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
 import { 
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw,
   User, Users as UsersIcon, CheckCircle, AlertCircle,
   Clock, Crown, Briefcase, Eye, Lock, Key, Phone, Mail, Calendar,
-  UserCheck, Loader2, AlertTriangle, Search, Filter, 
+  UserCheck, Loader2, AlertTriangle, 
   ArrowUp, ArrowDown, Grid3x3, List
 } from 'lucide-react';
 import '../styles/users.css'
@@ -12,6 +13,8 @@ import '../styles/users.css'
 // ============================================
 // MAIN USERS COMPONENT
 // ============================================
+const ROLE_OPTIONS = ['Admin', 'Staff', 'Viewer'];
+
 const Users = () => {
   // ===== STATE =====
   const [users, setUsers] = useState([]);
@@ -45,7 +48,7 @@ const Users = () => {
     username: '',
     password: '',
     fullname: '',
-    role_id: '2',
+    role: 'Viewer',
     email: '',
     phone: '',
     status: 'ACTIVE'
@@ -55,44 +58,11 @@ const Users = () => {
   const isMounted = useRef(true);
   const searchTimeout = useRef(null);
   const submitTimeoutRef = useRef(null);
-
-  // ===== FETCH USERS (REAL DATA ONLY - NO MOCK FALLBACK) =====
-  const fetchUsers = useCallback(async () => {
-    if (!isMounted.current) return;
-    
-    setLoading(true);
-    try {
-      const res = await apiClient.get('/users', {
-        params: { search: searchTerm || undefined }
-      });
-      
-      if (isMounted.current) {
-        // ✅ Extract real data from API response
-        const raw = res.data?.data || res.data || [];
-        // Normalize id field in case the API returns `id` instead of `user_id`
-        const data = raw.map(u => ({ ...u, user_id: u.user_id ?? u.id }));
-        setUsers(data);
-        calculateStats(data);
-        if (data.length > 0) {
-          showMessage(`✅ Loaded ${data.length} users`, 'success');
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      if (isMounted.current) {
-        showMessage('❌ Failed to load users from database', 'error');
-        // Set empty array so UI shows "No users found" instead of mock data
-        setUsers([]);
-        setUserStats({ total: 0, active: 0, admins: 0, cashiers: 0 });
-      }
-    } finally {
-      if (isMounted.current) {
-        setLoading(false);
-      }
-    }
-  }, [searchTerm]);
+  const didMountDebounce = useRef(false);
 
   // ===== CALCULATE STATS =====
+  // Declared before fetchUsers: the dependency array below is evaluated during
+  // render, so these must already be initialized (otherwise TDZ ReferenceError).
   const calculateStats = useCallback((data) => {
     const stats = {
       total: data.length,
@@ -119,6 +89,42 @@ const Users = () => {
     submitTimeoutRef.current = setTimeout(() => setMessage(''), 5000);
   }, []);
 
+  // ===== FETCH USERS (REAL DATA ONLY - NO MOCK FALLBACK) =====
+  const fetchUsers = useCallback(async () => {
+    if (!isMounted.current) return;
+    
+    setLoading(true);
+    try {
+      const res = await apiClient.get('/users', {
+        params: { search: searchTerm || undefined }
+      });
+      
+      if (isMounted.current) {
+        // ✅ Extract real data from API response
+        const raw = unwrapList(res.data, ['users']);
+        // Normalize id field in case the API returns `id` instead of `user_id`
+        const data = raw.map(u => ({ ...u, user_id: u.user_id ?? u.id ?? u.userid }));
+        setUsers(data);
+        calculateStats(data);
+        if (data.length > 0) {
+          showMessage(`✅ Loaded ${data.length} users`, 'success');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      if (isMounted.current) {
+        showMessage('❌ Failed to load users from database', 'error');
+        // Set empty array so UI shows "No users found" instead of mock data
+        setUsers([]);
+        setUserStats({ total: 0, active: 0, admins: 0, cashiers: 0 });
+      }
+    } finally {
+      if (isMounted.current) {
+        setLoading(false);
+      }
+    }
+  }, [searchTerm, calculateStats, showMessage]);
+
   // ===== INITIAL LOAD =====
   useEffect(() => {
     isMounted.current = true;
@@ -137,6 +143,12 @@ const Users = () => {
 
   // ===== SEARCH DEBOUNCE =====
   useEffect(() => {
+    // The initial load effect already fetches. Skip only the first debounce
+    // run; clearing the search later must still trigger a fresh full fetch.
+    if (!didMountDebounce.current) {
+      didMountDebounce.current = true;
+      return undefined;
+    }
     if (searchTimeout.current) {
       clearTimeout(searchTimeout.current);
     }
@@ -223,7 +235,6 @@ const Users = () => {
     e.preventDefault();
     
     if (isSubmittingRef || submitting) {
-      console.log('⏳ Submission already in progress');
       return;
     }
     
@@ -239,7 +250,7 @@ const Users = () => {
       const submitData = {
         username: formData.username.trim(),
         fullname: formData.fullname?.trim() || formData.username.trim(),
-        role_id: parseInt(formData.role_id, 10),
+        role: formData.role || 'Staff',
         status: formData.status || 'ACTIVE'
       };
       
@@ -247,15 +258,12 @@ const Users = () => {
       if (formData.phone?.trim()) submitData.phone = formData.phone.trim();
       if (formData.password) submitData.password = formData.password;
       
-      console.log('📤 Submitting data:', JSON.stringify(submitData, null, 2));
       
-      let response;
       if (editingUser) {
         const updateData = { ...submitData };
         if (!formData.password) delete updateData.password;
         
-        console.log(`📤 Updating user ${editingUser.user_id} with:`, updateData);
-        response = await apiClient.put(`/users/${editingUser.user_id}`, updateData);
+        await apiClient.put(`/users/${editingUser.user_id}`, updateData);
         showMessage('✅ User updated successfully!');
       } else {
         if (!submitData.password) {
@@ -264,12 +272,10 @@ const Users = () => {
           setSubmitting(false);
           return;
         }
-        console.log('📤 Creating new user with:', submitData);
-        response = await apiClient.post('/users', submitData);
+        await apiClient.post('/users', submitData);
         showMessage('✅ User created successfully!');
       }
       
-      console.log('✅ Success response:', response.data);
       
       setShowModal(false);
       setEditingUser(null);
@@ -281,7 +287,6 @@ const Users = () => {
       console.error('❌ Submit error:', error);
       
       if (error.response?.data) {
-        console.log('📋 Full server error:', JSON.stringify(error.response.data, null, 2));
         
         // Handle specific error messages
         if (error.response.data.errors) {
@@ -368,7 +373,7 @@ const Users = () => {
       username: '',
       password: '',
       fullname: '',
-      role_id: '2',
+      role: 'Viewer',
       email: '',
       phone: '',
       status: 'ACTIVE'
@@ -384,7 +389,7 @@ const Users = () => {
       username: user.username || '',
       password: '',
       fullname: user.fullname || '',
-      role_id: String(user.role_id || 2),
+      role: user.role || 'Viewer',
       email: user.email || '',
       phone: user.phone || '',
       status: user.status || 'ACTIVE'
@@ -501,7 +506,7 @@ const Users = () => {
 
   // ===== FORMAT DATE =====
   const formatDate = useCallback((dateValue) => {
-    if (!dateValue) return 'N/A';
+    if (!dateValue) return 'No date';
     try {
       const date = new Date(dateValue);
       if (isNaN(date)) return dateValue;
@@ -738,7 +743,7 @@ const Users = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredUsers.map((user, index) => {
             const id = user.user_id ?? user.id ?? `row-${index}`;
-            const username = user.username || 'Unknown';
+            const username = user.username || 'No username';
             const fullname = user.fullname || '';
             const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');
             const roleId = user.role_id || (role === 'Admin' ? 1 : role === 'Cashier' ? 2 : 3);
@@ -888,7 +893,7 @@ const Users = () => {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {filteredUsers.map((user, index) => {
                   const id = user.user_id ?? user.id ?? `row-${index}`;
-                  const username = user.username || 'Unknown';
+                  const username = user.username || 'No username';
                   const fullname = user.fullname || '';
                   const role = user.role || (user.role_id === 1 ? 'Admin' : user.role_id === 2 ? 'Cashier' : 'Viewer');
                   const roleId = user.role_id || (role === 'Admin' ? 1 : role === 'Cashier' ? 2 : 3);
@@ -1254,14 +1259,15 @@ const Users = () => {
                       Role
                     </label>
                     <select
-                      value={formData.role_id}
-                      onChange={(e) => setFormData({...formData, role_id: e.target.value})}
+                      value={formData.role}
+                      onChange={(e) => setFormData({...formData, role: e.target.value})}
                       className="w-full px-3 py-2.5 border-2 border-gray-200 dark:border-gray-700 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-300 hover:border-indigo-300"
                       disabled={submitting}
                     >
-                      <option value="1">Admin</option>
-                      <option value="2">Cashier</option>
-                      <option value="3">Viewer</option>
+                      {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                      {!ROLE_OPTIONS.includes(formData.role) && (
+                        <option value={formData.role} disabled>{formData.role}</option>
+                      )}
                     </select>
                   </div>
                   <div className="group">

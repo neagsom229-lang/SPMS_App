@@ -3,13 +3,14 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../config/postgres');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
 
 // ===== GET ALL TENANTS WITH STATS =====
 router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
-  const { page = 1, limit = 20, search, status } = req.query;
-  const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+  const { search, status } = req.query;
+  const { page, limit, offset } = parsePaging(req, { defaultLimit: 20 });
 
   try {
     let query = `
@@ -42,7 +43,7 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
     }
 
     query += ` GROUP BY t.id ORDER BY t.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit, 10), offset);
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
 
@@ -66,10 +67,10 @@ router.get('/', authenticate, requireSuperAdmin, async (req, res) => {
     res.json({
       tenants: result.rows,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page,
+        limit,
         total: parseInt(countResult.rows[0]?.total || 0, 10),
-        totalPages: Math.ceil(parseInt(countResult.rows[0]?.total || 0, 10) / parseInt(limit, 10))
+        totalPages: Math.ceil(parseInt(countResult.rows[0]?.total || 0, 10) / limit)
       }
     });
   } catch (error) {
@@ -98,7 +99,6 @@ const systemStatsHandler = async (req, res) => {
   }
 };
 
-router.get('/system/stats', authenticate, requireSuperAdmin, systemStatsHandler);
 router.systemStatsHandler = systemStatsHandler;
 
 // ===== GET SINGLE TENANT DETAILS =====
@@ -136,7 +136,7 @@ router.get('/:id', authenticate, requireSuperAdmin, async (req, res) => {
 router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
   const {
     name, subdomain, email, phone, address, status,
-    subscription_plan = 'free', max_users = 5, max_products = 100,
+    plan = 'free',
     settings
   } = req.body;
 
@@ -174,8 +174,8 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
 
     const tenantResult = await client.query(
       `INSERT INTO tenants 
-        (name, subdomain, email, phone, address, status, subscription_plan, max_users, max_products, settings, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+        (name, subdomain, email, phone, address, status, plan, settings, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING *`,
       [
         name,
@@ -184,9 +184,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
         phone || null,
         address || null,
         status || 'ACTIVE',
-        subscription_plan,
-        max_users,
-        max_products,
+        String(plan || 'free').toLowerCase(),
         settings || '{"theme": "light"}'
       ]
     );
@@ -232,7 +230,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res) => {
 router.put('/:id', authenticate, requireSuperAdmin, async (req, res) => {
   const {
     name, email, phone, address, status,
-    subscription_plan, max_users, max_products,
+    plan,
     settings
   } = req.body;
 
@@ -244,17 +242,14 @@ router.put('/:id', authenticate, requireSuperAdmin, async (req, res) => {
            phone = COALESCE($3, phone),
            address = COALESCE($4, address),
            status = COALESCE($5, status),
-           subscription_plan = COALESCE($6, subscription_plan),
-           max_users = COALESCE($7, max_users),
-           max_products = COALESCE($8, max_products),
-           settings = COALESCE($9, settings),
+           plan = COALESCE(LOWER($6), plan),
+           settings = COALESCE($7, settings),
            updated_at = NOW()
-       WHERE id = $10
+       WHERE id = $8
        RETURNING *`,
       [
         name, email, phone, address, status,
-        subscription_plan, max_users, max_products,
-        settings, req.params.id
+        plan, settings, req.params.id
       ]
     );
 

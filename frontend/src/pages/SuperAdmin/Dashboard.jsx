@@ -138,7 +138,7 @@ const SuperAdminDashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {statCards.map((stat, index) => (
           <div
-            key={index}
+            key={stat.title}
             className={`bg-white/5 backdrop-blur-sm border ${stat.border} rounded-xl p-4 transition-all hover:scale-105 hover:shadow-lg`}
           >
             <div className="flex items-center justify-between">

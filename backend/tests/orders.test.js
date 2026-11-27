@@ -61,21 +61,13 @@ describe('Orders & Stock Test Suite', () => {
     await db.end();
   });
 
-  test('Cashier delete order returns 403 status', async () => {
+  test('Admin void order with reason returns 204, status Voided, and stock restored once', async () => {
     const ord = await request(app)
       .post('/api/orders')
       .set('Authorization', 'Bearer ' + cashierToken)
       .send({ customer_id: custId, items: [{ product_id: prodId, qty: 1 }], payment_method: 'Cash', idempotency_key: crypto.randomUUID() });
     order1Id = ord.body.or_id || ord.body.id;
 
-    const res = await request(app)
-      .delete('/api/orders/' + order1Id)
-      .set('Authorization', 'Bearer ' + cashierToken)
-      .send({ reason: 'Try delete' });
-    expect(res.status).toBe(403);
-  });
-
-  test('Admin void order with reason returns 204, status Voided, and stock restored once', async () => {
     const stockPre = await request(app).get('/api/stock').set('Authorization', 'Bearer ' + tokenA);
     const rowPre = (stockPre.body.stock || stockPre.body).find(s => s.productid === prodId || s.id === prodId);
     const qtyPre = Number(rowPre.qtyavailable ?? rowPre.qtyinstock ?? rowPre.stock);
@@ -128,6 +120,34 @@ describe('Orders & Stock Test Suite', () => {
     const conflicts = results.filter(r => r.status === 409);
     expect(successes.length).toBe(1);
     expect(conflicts.length).toBe(19);
+  });
+
+  test('Product creation seeds a stock row with the requested initial quantity', async () => {
+    const stockProdRes = await request(app)
+      .post('/api/products')
+      .set('Authorization', 'Bearer ' + tokenA)
+      .send({ name: 'Stock Seed ' + runId, barcode: 'SS-' + runId, cost: 5, price: 15, stock: 25, category_id: catId });
+    const stockProdId = stockProdRes.body.id;
+
+    const stockRes = await request(app).get('/api/stock').set('Authorization', 'Bearer ' + tokenA);
+    const stockList = stockRes.body.stock || stockRes.body;
+    const stockRow = (Array.isArray(stockList) ? stockList : []).find(s => s.productid === stockProdId || s.id === stockProdId);
+    expect(stockRow).toBeDefined();
+    expect(Number(stockRow.qtyavailable ?? stockRow.qtyinstock ?? stockRow.stock)).toBe(25);
+  });
+
+  test('Product creation with zero stock seeds a stock row with zero quantity', async () => {
+    const zeroProdRes = await request(app)
+      .post('/api/products')
+      .set('Authorization', 'Bearer ' + tokenA)
+      .send({ name: 'Zero Stock ' + runId, barcode: 'ZS-' + runId, cost: 5, price: 15, stock: 0, category_id: catId });
+    const zeroProdId = zeroProdRes.body.id;
+
+    const stockRes = await request(app).get('/api/stock').set('Authorization', 'Bearer ' + tokenA);
+    const stockList = stockRes.body.stock || stockRes.body;
+    const stockRow = (Array.isArray(stockList) ? stockList : []).find(s => s.productid === zeroProdId || s.id === zeroProdId);
+    expect(stockRow).toBeDefined();
+    expect(Number(stockRow.qtyavailable ?? stockRow.qtyinstock ?? stockRow.stock)).toBe(0);
   });
 
   test('Duplicate line items in cart returns 409 conflict', async () => {

@@ -17,47 +17,23 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  FileText,
-  Download,
-  Printer,
   Share2,
-  CheckCircle,
   AlertCircle,
   Clock,
-  User,
   Package,
   ShoppingCart,
   Users,
   Shield,
-  Settings,
   TrendingUp,
-  Award,
-  Star,
-  Heart,
-  Zap,
-  Coffee,
   Headphones,
   LifeBuoy,
-  Sparkles,
-  Lightbulb,
-  Target,
-  Compass,
-  MapPin,
   Globe,
   X,
-  Plus,
-  Minus,
   ThumbsUp,
   ThumbsDown,
-  Copy,
   Link,
-  Flag,
-  MessageSquare,
   Bot,
-  UserCircle,
-  Calendar,
   Check,
-  AlertTriangle,
   RefreshCw,
   ArrowLeft,
   Home
@@ -104,7 +80,6 @@ const Help = () => {
   const [feedback, setFeedback] = useState({});
   const [showShare, setShowShare] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatTyping, setIsChatTyping] = useState(false);
 
   // ===== REFS =====
@@ -118,7 +93,7 @@ const Help = () => {
   const goToPage = (path) => navigate(path);
 
   // ===== FAQ DATA =====
-  const faqs = [
+  const faqs = useMemo(() => [
     {
       id: 'getting-started',
       category: 'getting-started',
@@ -251,7 +226,7 @@ const Help = () => {
         }
       ]
     }
-  ];
+  ], []);
 
   // ===== VIDEO TUTORIALS =====
   const tutorials = [
@@ -350,7 +325,7 @@ const Help = () => {
       if (activeCategory === 'all') return true;
       return faq.category === activeCategory;
     });
-  }, [activeCategory]);
+  }, [activeCategory, faqs]);
 
   const searchedFaqs = useMemo(() => {
     return filteredFaqs.filter(faq => {
@@ -400,18 +375,17 @@ const Help = () => {
         priority: contactForm.priority,
         to_email: EMAILJS_CONFIG.TO_EMAIL,
         reply_to: contactForm.email,
-        user_role: user?.role || 'User',
-        user_username: user?.username || 'Guest',
+        user_role: user?.role || 'Not signed in',
+        user_username: user?.username || 'Not signed in',
         timestamp: new Date().toLocaleString()
       };
 
-      const result = await emailjs.send(
+      await emailjs.send(
         EMAILJS_CONFIG.SERVICE_ID,
         EMAILJS_CONFIG.TEMPLATE_ID,
         templateParams
       );
 
-      console.log('✅ Email sent successfully:', result.text);
       toast.success('✅ Your message has been sent! We\'ll respond within 24 hours.');
       
       setContactForm({
@@ -665,7 +639,7 @@ const Help = () => {
                   const feedbackType = feedback[faqId];
                   
                   return (
-                    <div key={index} className="group">
+                    <div key={`${faq.id}-${item.q}`} className="group">
                       <button
                         onClick={() => toggleFaq(faqId)}
                         className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors text-left"
@@ -800,7 +774,7 @@ const Help = () => {
           const Icon = option.icon;
           return (
             <motion.a
-              key={index}
+              key={option.label}
               whileHover={{ y: -4, scale: 1.02 }}
               href={option.action}
               onClick={(e) => {

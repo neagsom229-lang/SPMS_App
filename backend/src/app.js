@@ -4,7 +4,6 @@
 // ============================================
 
 require("dotenv").config();
-process.env.BAKONG_PROVIDER = process.env.BAKONG_PROVIDER || (process.env.NODE_ENV === 'test' ? 'mock' : 'nbc');
 require("express-async-errors");
 
 const dns = require("dns");
@@ -32,7 +31,6 @@ const categoryRoutes = require('./routes/categories');
 const paymentRoutes = require('./routes/paymentRoutes');
 const warrantyRoutes = require('./routes/warranties');
 const serviceRoutes = require('./routes/services');
-const analyticsRoutes = require('./routes/analytics');
 const publicRoutes = require('./routes/public');
 const reportRoutes = require('./routes/reports');
 
@@ -53,7 +51,7 @@ process.on("uncaughtException", (err) => {
 const db = require("./config/postgres");
 const logger = require("./utils/logger");
 const { checkEnv } = require("./config/env");
-const { startReconciler } = require("./services/bakongReconciler");
+const { isStaffOrAdminRole } = require("./middleware/rolePolicy");
 
 // ============================================
 // MIDDLEWARE
@@ -64,7 +62,7 @@ const {
   apiLimiter,
 } = require("./middleware/rateLimit");
 const { authenticate, getScope, requireSuperAdmin } = require("./middleware/auth");
-const { logActivity, activityLoggerMiddleware } = require("./middleware/activityLogger");
+const { parsePaging } = require("./utils/paging");
 
 // ============================================
 // CHECK ENVIRONMENT
@@ -76,26 +74,12 @@ checkEnv();
 // ============================================
 const app = express();
 const PORT = process.env.PORT || 5000;
-const isProd = process.env.NODE_ENV === "production";
 
 app.set("trust proxy", 1);
 app.use(helmet());
 
-// ============================================
-// DEBUG LOGGING (DEV ONLY)
-// ============================================
-if (!isProd) {
-  app.use((req, res, next) => {
-    console.log("📤 Incoming request:");
-    console.log("  Method:", req.method);
-    console.log("  URL:", req.url);
-    console.log(
-      "  Authorization:",
-      req.headers.authorization ? "present" : "none",
-    );
-    next();
-  });
-}
+// Request lines are logged once by morgan below. The old dev-only middleware
+// printed each request a second time (and in a different format).
 
 // ============================================
 // CORS CONFIGURATION
@@ -105,16 +89,30 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .map(o => o.trim())
   .filter(Boolean);
 
+const devFallbackOrigins = ['http://127.0.0.1:5173', 'http://localhost:5173'];
+const effectiveOrigins = allowedOrigins.length > 0
+  ? allowedOrigins
+  : (process.env.NODE_ENV === 'production' ? [] : devFallbackOrigins);
+
+if (allowedOrigins.length === 0 && process.env.NODE_ENV !== 'production') {
+  console.warn('[CORS] CORS_ORIGINS not set; using dev fallback origins:', effectiveOrigins.join(', '));
+}
+
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    if (effectiveOrigins.includes(origin)) {
       return callback(null, true);
     }
     console.warn('[CORS] blocked origin:', origin);
-    return callback(new Error('CORS blocked'));
+    const err = new Error('CORS blocked');
+    err.status = 403;
+    return callback(err);
   },
   credentials: true,
+  // Cache preflight responses so each origin stops sending OPTIONS before
+  // every API call.
+  maxAge: 86400,
   optionsSuccessStatus: 200,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: [
@@ -157,27 +155,41 @@ const { registerLimiter } = require("./middleware/rateLimit");
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register-client", registerLimiter);
 app.use("/api/reports", apiLimiter);
-app.use("/api/analytics", apiLimiter);
 app.use("/api/export", apiLimiter);
 
 // ============================================
-// HEALTH CHECK
+// HEALTH CHECKS
 // ============================================
+// Liveness: process is running; no DB dependency.
+app.get("/health/live", (req, res) => {
+  res.status(200).json({ status: "live", timestamp: new Date().toISOString() });
+});
+
+// Readiness: confirms the backend can reach PostgreSQL with a lightweight check.
+app.get("/health/ready", async (req, res) => {
+  let timeoutId;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("database readiness check timed out")), 3000);
+    });
+    await Promise.race([db.query("SELECT 1 AS ok"), timeout]);
+    res.status(200).json({ status: "ready", db: "connected", timestamp: new Date().toISOString() });
+  } catch (err) {
+    logger.error("Readiness check failed", { error: err.message });
+    res.status(503).json({ status: "not_ready", db: "disconnected", timestamp: new Date().toISOString() });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+});
+
+// Backward-compatible health endpoint (used by existing monitors/render.yaml).
 app.get("/health", async (req, res) => {
   try {
     await db.query("SELECT 1");
     res.status(200).json({ status: "healthy", db: "connected", timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ status: "unhealthy", db: "disconnected", error: err.message, timestamp: new Date().toISOString() });
-  }
-});
-
-app.get("/api/db-test", authenticate, requireSuperAdmin, async (req, res) => {
-  try {
-    const result = await db.query("SELECT NOW()");
-    res.json({ success: true, time: result.rows[0].now });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    logger.error("Health check failed", { error: err.message });
+    res.status(503).json({ status: "unhealthy", db: "disconnected", timestamp: new Date().toISOString() });
   }
 });
 
@@ -185,9 +197,12 @@ app.get("/api/db-test", authenticate, requireSuperAdmin, async (req, res) => {
 // ACTIVITY LOGS (POSTGRES-BACKED)
 // ============================================
 app.get("/api/activity-logs", authenticate, async (req, res) => {
+  if (!isStaffOrAdminRole(req.user)) {
+    return res.status(403).json({ error: "Access denied. Admin or Staff privileges required." });
+  }
   const scope = getScope(req, res);
   if (!scope) return;
-  const { limit = 50 } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 50, maxLimit: 200 });
 
   try {
     let query = `SELECT l.*, u.username FROM tbl_activity_logs l LEFT JOIN tbl_users u ON l.user_id = u.userid`;
@@ -199,31 +214,13 @@ app.get("/api/activity-logs", authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1}`;
-    params.push(parseInt(limit, 10) || 50);
+    params.push(limit);
 
     const result = await db.query(query, params);
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Activity logs error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete("/api/activity-logs", authenticate, async (req, res) => {
-  const tenantId = req.user?.tenantId || req.headers['x-tenant-id'];
-  if (!tenantId && !req.user?.isSuperAdmin) {
-    return res.status(403).json({ error: 'Tenant context required' });
-  }
-  try {
-    if (req.user?.isSuperAdmin && !tenantId) {
-      await db.query("DELETE FROM tbl_activity_logs");
-    } else {
-      await db.query("DELETE FROM tbl_activity_logs WHERE tenant_id = $1", [tenantId]);
-    }
-    res.json({ message: "Activity logs cleared successfully" });
-  } catch (err) {
-    console.error("❌ Clear activity logs error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -264,13 +261,11 @@ mountRoute('/api/categories', categoryRoutes);
 mountRoute('/api/payment', paymentRoutes);
 mountRoute('/api/warranties', warrantyRoutes);
 mountRoute('/api/services', serviceRoutes);
-mountRoute('/api/analytics', analyticsRoutes);
 mountRoute('/api/public', publicRoutes);
 mountRoute('/api/reports', reportRoutes);
 
 app.mountedRoutes = appMountedRoutes;
 app.mountedRoutes.push({ method: 'GET', path: '/api/activity-logs' });
-app.mountedRoutes.push({ method: 'DELETE', path: '/api/activity-logs' });
 app.mountedRoutes.push({ method: 'GET', path: '/api/system/stats' });
 
 // System stats route
@@ -292,13 +287,20 @@ app.use((req, res) => {
 // ERROR HANDLER
 // ============================================
 app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  const isServerError = status >= 500;
+  const message = isServerError ? 'Internal Server Error' : (err.message || 'Request failed');
+
   logger.error(
-    `${err.status || 500} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`,
+    `${status} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`,
   );
-  console.error("❌ Server Error:", err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || "Internal Server Error",
-    status: err.status || 500,
+  if (isServerError) {
+    console.error('❌ Server Error:', err.stack);
+  }
+
+  res.status(status).json({
+    error: message,
+    status,
     path: req.url,
   });
 });
@@ -319,7 +321,6 @@ async function startServer() {
     const server = app.listen(PORT, () => {
       console.log(`🚀 SPMS Backend running on http://localhost:${PORT}`);
       console.log(`💚 Health: http://localhost:${PORT}/health`);
-      startReconciler();
     });
 
     server.on('error', (error) => {
@@ -327,8 +328,39 @@ async function startServer() {
       process.exit(1);
     });
 
+    let shuttingDown = false;
+    const shutdown = async (signal) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info(`Received ${signal}; starting graceful shutdown`);
+      server.close(async () => {
+        try {
+          await db.end();
+          logger.info('Database pool closed');
+        } catch (e) {
+          logger.error('Error closing database pool during shutdown', { error: e.message });
+        } finally {
+          process.exit(0);
+        }
+      });
+      setTimeout(() => {
+        logger.error('Graceful shutdown timed out; forcing exit');
+        process.exit(1);
+      }, 10000).unref();
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
   } catch (err) {
     console.error("❌ Server startup error:", err.message);
+    if (err.code === "ECONNREFUSED") {
+      console.error("   Start the PostgreSQL service: services.msc -> postgresql-x64-18");
+    } else if (err.code === "28P01" || err.code === "28000") {
+      console.error("   PostgreSQL rejected the credentials. Fix DATABASE_URL (the value is never printed).");
+    } else if (err.code === "3D000") {
+      console.error("   The database does not exist. Run database/local/001_app_role.sql once as postgres.");
+    }
     process.exit(1);
   }
 }

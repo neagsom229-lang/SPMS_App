@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  push:
+    branches: [main, lean]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # Same image as docker-compose.test.yml. verify.js probes this and
+        # skips `docker compose up` because the test DB is already reachable.
+        image: public.ecr.aws/supabase/postgres:17.11.0.011
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 127.0.0.1:15432:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data
+          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # 127.0.0.1 + port 15432 + a name ending in _test (the guard is exact).
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:15432/spms_test
+      TEST_DB_PORT: '15432'
+      CI: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: install root
+        run: npm ci
+
+      - name: install backend
+        run: npm ci --prefix backend
+
+      - name: install frontend
+        run: npm ci --prefix frontend
+
+      - name: secret scan (gitleaks)
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz \
+            | tar -xz -C "${RUNNER_TEMP}" gitleaks
+            
+          "${RUNNER_TEMP}/gitleaks" detect --no-git --source . --no-banner --redact --exit-code 1 --config .gitleaks.toml
+
+      - name: verify
+        run: npm run verify

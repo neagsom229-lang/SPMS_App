@@ -11,10 +11,11 @@ BEGIN
     ALTER TABLE IF EXISTS tbl_activity_logs ADD COLUMN IF NOT EXISTS details TEXT;
 END $$;
 
--- Create webhook events idempotency table if not exists
-CREATE TABLE IF NOT EXISTS khqr_webhook_events (
-    event_id VARCHAR(255) PRIMARY KEY,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+-- khqr_webhook_events is intentionally NOT created here: the webhook route was
+-- deleted and nothing reads this table. Migration 023 still creates it on the
+-- replay path, so removing it from 026 is a no-op for databases that ran 023.
 
-ALTER TABLE khqr_webhook_events ENABLE ROW LEVEL SECURITY;
+-- Phase 12d: append the two khqr_sessions indexes from migration 018 (genuine
+-- misses that were never applied on live). 026 is pending on live, not yet applied.
+CREATE INDEX IF NOT EXISTS idx_khqr_sessions_tenant ON khqr_sessions(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_khqr_sessions_expiry ON khqr_sessions(expires_at);

@@ -15,9 +15,6 @@ DELETE /api/suppliers/i/bulk
 DELETE /api/tenants/i/:id
 DELETE /api/warranties/i/:id
 GET /api/activity-logs
-GET /api/analytics/i/monthly-revenue
-GET /api/analytics/i/stats
-GET /api/analytics/i/top-products
 GET /api/auth/i/me
 GET /api/auth/i/test
 GET /api/categories/i/

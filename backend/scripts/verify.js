@@ -1,80 +1,351 @@
-const { execSync } = require('child_process');
+// backend/scripts/verify.js
+//
+// The one screen the owner runs before a commit:
+//   1. local test Postgres up (tmpfs container, 127.0.0.1)
+//   2. jest --runInBand (globalSetup builds the DB through the real runner)
+//   3. test-name gate against HEAD, per file
+//   4. backend + frontend ESLint (quality gate for the lean cleanup)
+//   5. frontend production build, with every chunk size printed
+//   6. npm audit --omit=dev --audit-level=high
+//   7. secret scan (gitleaks git history; fails if gitleaks is not installed)
+// Any failure exits 1.
+const { execFileSync, execSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { Client } = require('pg');
-const { TEST_DB_PORT, testDatabaseUrl } = require('./_guard.js');
+const { TEST_DB_PORT, testDatabaseUrl, preflightTestDocker } = require('./_guard.js');
+
+const STARTED = Date.now();
+const BACKEND = path.join(__dirname, '..');
+const ROOT = path.join(BACKEND, '..');
+const FRONTEND = path.join(ROOT, 'frontend');
+const COMPOSE_FILE = path.join(ROOT, 'docker-compose.test.yml');
+
+const failures = [];
+const fail = message => {
+  failures.push(message);
+  console.error(`❌ ${message}`);
+};
+const step = label => console.log(`\n=== ${label} ===`);
+
+function seconds() {
+  return ((Date.now() - STARTED) / 1000).toFixed(1);
+}
+
+function run(name, fn) {
+  try {
+    return fn();
+  } catch (e) {
+    const out = (e.stdout || '').toString().trim();
+    if (out) console.error(out.split(/\r?\n/).slice(-15).join('\n'));
+    fail(`${name}: ${e.message.split(/\r?\n/)[0]}`);
+    return null;
+  }
+}
 
 console.log('=== VERIFY PIPELINE STARTING ===');
 
-(async () => {
+// 1. test database -----------------------------------------------------------
+step('1/7 test database');
+// A CI job may already provide the test database (service container). Probe it
+// first so verify does not fight an existing server for the port; otherwise
+// bring up the disposable local container.
+function dbReachable() {
+  return new Promise(resolve => {
+    const client = new Client({ connectionString: testDatabaseUrl('postgres'), connectionTimeoutMillis: 2000 });
+    // jest's globalSetup rebuilds the test database with
+    // `DROP DATABASE ... WITH (FORCE)`, which can kill this probe socket.
+    // pg then emits 'error' on the Client; without a listener that is an
+    // unhandled 'error' event that crashes the whole pipeline *after* every
+    // check has already passed. The probe's verdict is settled below only
+    // once end() has completed, so no socket outlives this function, and a
+    // late FORCE-kill is ignored either way.
+    client.on('error', () => {});
+    client
+      .connect()
+      .then(() => client.query('SELECT 1'))
+      .then(() => client.end().then(() => resolve(true)))
+      .catch(() => client.end().catch(() => {}).then(() => resolve(false)));
+  });
+}
+
+async function ensureDatabase() {
+  if (await dbReachable()) {
+    console.log(`  test database already reachable at ${TEST_DB_PORT}, skipping docker compose`);
+    return;
+  }
+  // Preflight before starting Docker: a stopped daemon or a Windows-reserved
+  // port must abort immediately, not cascade into 6 downstream failures.
   try {
-    console.log('1. Starting test docker compose...');
-    execSync('docker compose -f ../docker-compose.test.yml up -d --wait', { stdio: 'inherit' });
+    await preflightTestDocker(TEST_DB_PORT);
   } catch (e) {
-    console.error('Docker compose up failed:', e.message);
+    console.error(`❌ ${e.message}`);
     process.exit(1);
   }
-
-  const client = new Client({ connectionString: testDatabaseUrl('postgres') });
   try {
-    await client.connect();
-    const verRes = await client.query('select version(), current_database(), inet_server_port()');
-    const row = verRes.rows[0];
-    console.table([row]);
-    if (!row.version.startsWith('PostgreSQL 17')) {
-      console.error(`❌ FATAL: PostgreSQL version must start with PostgreSQL 17 (got version: ${row.version}, expected port: ${TEST_DB_PORT})`);
-      process.exit(1);
-    }
-    if (String(row.inet_server_port) !== String(TEST_DB_PORT)) {
-      console.error(`❌ FATAL: connected to port ${row.inet_server_port}, expected ${TEST_DB_PORT}`);
-      process.exit(1);
-    }
-    await client.end();
-  } catch (err) {
-    console.error('Verification error:', err.message);
+    execFileSync('docker', ['compose', '-f', COMPOSE_FILE, 'up', '-d', '--wait'], { cwd: ROOT, stdio: 'inherit' });
+  } catch (e) {
+    console.error(`❌ docker compose up failed: ${(e.message || '').split(/\r?\n/)[0]}`);
+    console.error('   Start Docker Desktop and retry.');
     process.exit(1);
   }
+}
 
-  // globalSetup loads baseline.sql (state after 014), marks only 001-014, runs
-  // 015-026 through the real runner and performs the production replay check.
-  console.log('2. Running Jest test suite (globalSetup builds the DB)...');
-  let jestData;
-  try {
-    const jestOut = execSync('npx jest --json', {
-      cwd: __dirname,
-      encoding: 'utf8',
-      env: { ...process.env, DATABASE_URL: testDatabaseUrl() },
+async function main() {
+await ensureDatabase();
+
+// 2. jest --------------------------------------------------------------------
+step('2/7 jest --runInBand');
+const outFile = path.join(os.tmpdir(), `spms-verify-${process.pid}.json`);
+let jestData = null;
+run('jest', () => {
+  execFileSync(
+    process.execPath,
+    [path.join(BACKEND, 'node_modules', 'jest', 'bin', 'jest.js'), '--config', path.join(BACKEND, 'jest.config.js'), '--runInBand', '--json', `--outputFile=${outFile}`],
+    { cwd: BACKEND, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, DATABASE_URL: testDatabaseUrl() } }
+  );
+});
+if (fs.existsSync(outFile)) {
+  jestData = JSON.parse(fs.readFileSync(outFile, 'utf8'));
+  fs.unlinkSync(outFile);
+}
+if (!jestData) {
+  fail('jest produced no JSON output');
+} else {
+  console.log(`Test Suites: ${jestData.numPassedTestSuites} passed, ${jestData.numTotalTestSuites} total`);
+  console.log(`Tests:       ${jestData.numPassedTests} passed, ${jestData.numTotalTests} total`);
+  if (jestData.numFailedTests > 0 || jestData.numRuntimeErrorTestSuites > 0) {
+    fail(`jest failures: ${jestData.numFailedTests} tests, ${jestData.numRuntimeErrorTestSuites} suites`);
+  }
+}
+
+// 3. test-name gate vs HEAD, per file ---------------------------------------
+step('3/7 test-name gate (HEAD)');
+if (jestData) {
+  const namesCheck = require('./names-diff').checkAgainstCommitted(jestData);
+  if (!namesCheck.ok) {
+    fail('test-name gate: a file is below its committed HEAD count');
+  }
+}
+
+// 3b. proposed baseline (phase 10g) -------------------------------------------
+// After every full jest run, write what expected-names.txt WOULD become and
+// classify the difference per file, so the owner can review and run
+// `npm run names:accept`. verify never edits the committed baseline itself.
+if (jestData) {
+  const nd = require('./names-diff');
+  const actual = nd.namesFromJestData(jestData);
+  const committed = nd.readCommitted();
+  const expected = committed.ok ? nd.parse(committed.text) : [];
+  const key = r => `${r.file}\t${r.name}`;
+  const actKeys = new Set(actual.map(key));
+  const expKeys = new Set(expected.map(key));
+  const removed = expected.filter(r => !actKeys.has(key(r)));
+  const added = actual.filter(r => !expKeys.has(key(r)));
+  const group = rows => {
+    const m = new Map();
+    for (const r of rows) {
+      if (!m.has(r.file)) m.set(r.file, []);
+      m.get(r.file).push(r.name);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  };
+  console.log('-- removed per file (committed, missing in this run) --');
+  const remByFile = group(removed);
+  if (remByFile.length === 0) console.log('  (none)');
+  for (const [f, names] of remByFile) {
+    console.log(`  ${f}`);
+    names.sort().forEach(n => console.log(`    - ${n}`));
+  }
+  console.log('-- added per file (in this run, not committed) --');
+  const addByFile = group(added);
+  if (addByFile.length === 0) console.log('  (none)');
+  for (const [f, names] of addByFile) {
+    console.log(`  ${f}`);
+    names.sort().forEach(n => console.log(`    + ${n}`));
+  }
+  const proposed = [...actual]
+    .map(r => `${r.file}\t${r.name}`)
+    .sort()
+    .join('\n') + '\n';
+  const proposedPath = path.join(ROOT, 'backend', 'tests', 'expected-names.proposed.txt');
+  fs.writeFileSync(proposedPath, proposed);
+  console.log(`wrote ${path.relative(ROOT, proposedPath)} (${actual.length} names); owner runs: npm run names:accept`);
+}
+
+// 4. lint --------------------------------------------------------------------
+step('4/7 lint (backend + frontend)');
+for (const [label, dir] of [['backend', BACKEND], ['frontend', FRONTEND]]) {
+  run(`lint (${label})`, () => {
+    execFileSync('npm', ['run', 'lint'], {
+      cwd: dir,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
     });
-    jestData = JSON.parse(jestOut);
-  } catch (err) {
-    console.error('Jest failed:', err.message);
-    process.exit(1);
+    console.log(`  ${label}: 0 lint errors`);
+  });
+}
+
+// 5. frontend build ----------------------------------------------------------
+step('5/7 frontend build');
+const built = run('frontend build', () => {
+  execFileSync('npm', ['run', 'build'], { cwd: FRONTEND, stdio: 'inherit', shell: process.platform === 'win32' });
+  return true;
+});
+if (built) {
+  const assetsDir = path.join(FRONTEND, 'dist', 'assets');
+  const files = fs.readdirSync(assetsDir).filter(f => f.endsWith('.js') || f.endsWith('.css'));
+  const rows = files
+    .map(f => ({ f, kb: fs.statSync(path.join(assetsDir, f)).size / 1024 }))
+    .sort((a, b) => b.kb - a.kb);
+  console.log('chunk sizes (kB):');
+  for (const row of rows) console.log(`  ${row.kb.toFixed(1).padStart(8)}  ${row.f}`);
+  const main = rows.find(r => /^index-.*\.js$/.test(r.f));
+  if (main) console.log(`main JS chunk: ${main.f} ${main.kb.toFixed(1)} kB`);
+}
+
+// 6. npm audit ---------------------------------------------------------------
+step('6/7 npm audit (omit=dev, high)');
+for (const dir of [ROOT, BACKEND, FRONTEND]) {
+  const label = path.relative(ROOT, dir) || '.';
+  run(`npm audit (${label})`, () => {
+    execFileSync('npm', ['audit', '--omit=dev', '--audit-level=high'], {
+      cwd: dir,
+      stdio: 'pipe',
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+    });
+    console.log(`  ${label}: no high/critical advisories in production dependencies`);
+  });
+}
+
+// 7. secret scan -------------------------------------------------------------
+step('7/7 secret scan');
+const PATTERNS = [
+  ['private key block', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/],
+  ['aws access key id', /AKIA[0-9A-Z]{16}/],
+  ['github token', /\bgh[pousr]_[0-9A-Za-z]{36,}\b/],
+  ['slack token', /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/],
+  ['stripe live secret', /\bsk_live_[0-9A-Za-z]{20,}\b/],
+  ['supabase service key', /service_role[^\n]{0,40}eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/],
+  ['jwt literal', /eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/],
+];
+
+const REMOTE_DB_URL = /postgres(?:ql)?:\/\/([^\s:@/]+):([^\s@/]+)@([^\s/?#]+)/g;
+const PLACEHOLDER_PASSWORD = /^(postgres|password|pass|p|changeme|change-me|your[-_]?password|example|secret|test|\$\{.+\}|<.+>)$/i;
+
+// A real remote database URL with a real password, ignoring the placeholders
+// used in .env.example, compose files and guard tests.
+function remoteDbPasswordHits(text) {
+  const hits = [];
+  for (const m of text.matchAll(REMOTE_DB_URL)) {
+    const password = m[2];
+    const host = m[3];
+    if (/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host)) continue;
+    if (/\$\{/.test(password) || /\$\{/.test(host)) continue;
+    if (PLACEHOLDER_PASSWORD.test(password)) continue;
+    if (password.length < 8) continue;
+    hits.push(`remote db url with password at ${host}`);
   }
+  return hits;
+}
 
-  const failed = jestData.numFailedTests;
-  const totalTests = jestData.numTotalTests;
-  const totalSuites = jestData.numTotalTestSuites;
-  const passedSuites = jestData.numPassedTestSuites;
+function scanSecretsWithRegex() {
+  const files = execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: ROOT, encoding: 'utf8' })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter(f => !/(^|\/)(node_modules|dist|\.git)\//.test(f))
+    .filter(f => !/^package-lock\.json$/.test(f))
+    .filter(f => !/\.(png|jpg|jpeg|gif|ico|webp|woff2?|ttf|eot|pdf|xlsx|accdb|db)$/i.test(f))
+    .filter(f => fs.existsSync(path.join(ROOT, f)));
 
-  console.log(`Test Suites: ${passedSuites} passed, ${totalSuites} total`);
-  console.log(`Tests: ${jestData.numPassedTests} passed, ${totalTests} total`);
-
-  const FLOOR_TESTS = 102;
-  const FLOOR_SUITES = 15;
-
-  if (failed > 0 || totalTests < FLOOR_TESTS || totalSuites < FLOOR_SUITES) {
-    console.error(`❌ Check failed: failed=${failed} (must be 0), tests=${totalTests} (>= ${FLOOR_TESTS}), suites=${totalSuites} (>= ${FLOOR_SUITES})`);
-    process.exit(1);
+  const hits = [];
+  for (const rel of files) {
+    if (/\.env/.test(path.basename(rel)) && path.basename(rel) !== '.env.example') continue;
+    let text;
+    try {
+      text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    } catch (e) {
+      continue;
+    }
+    for (const [label, re] of PATTERNS) {
+      const m = text.match(re);
+      if (m) hits.push(`${rel}: ${label}`);
+    }
+    if (path.basename(rel) !== '.env.example') {
+      for (const hit of remoteDbPasswordHits(text)) hits.push(`${rel}: ${hit}`);
+    }
   }
+  return hits;
+}
 
-  console.log('3. Running mutation harness...');
-  try {
-    execSync('powershell -ExecutionPolicy Bypass -File ./mutation.ps1', { cwd: __dirname, stdio: 'inherit' });
-  } catch (mErr) {
-    console.error('Mutation harness reported failure or exit non-zero');
-    process.exit(1);
+function resolveGitleaks() {
+  const candidates = ['gitleaks'];
+  if (process.env.GITLEAKS_BIN) candidates.unshift(process.env.GITLEAKS_BIN);
+  if (process.env.RUNNER_TEMP) {
+    candidates.push(path.join(process.env.RUNNER_TEMP, 'gitleaks'));
+    candidates.push(path.join(process.env.RUNNER_TEMP, 'gitleaks.exe'));
   }
+  for (const bin of candidates) {
+    try {
+      const version = execFileSync(bin, ['version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (version) return { bin, version };
+    } catch (e) {}
+  }
+  return null;
+}
 
-  console.log('✅ ALL VERIFICATION CHECKS PASSED');
-})().catch(err => {
-  console.error('Verification error:', err.message);
+const gitleaks = resolveGitleaks();
+if (gitleaks) {
+  console.log(`scanner: gitleaks ${gitleaks.version} (git history, --redact)`);
+  run('gitleaks', () => {
+    execFileSync(gitleaks.bin, ['git', '--no-banner', '--redact', '--exit-code', '1', '--config', '.gitleaks.toml'], { cwd: ROOT, stdio: 'inherit' });
+  });
+} else {
+  console.log('scanner: gitleaks not installed (git history NOT scanned)');
+  const hits = scanSecretsWithRegex();
+  if (hits.length) {
+    hits.forEach(h => console.error(`  ${h}`));
+    fail(`secret scan found ${hits.length} candidate(s)`);
+  } else {
+    console.log('  no secret patterns found in tracked files');
+  }
+  fail('secret scan: install gitleaks so git history is scanned (winget install gitleaks)');
+}
+
+// early-return guard for tests (phase 9h): a test must not skip via an
+// early return; it must always run its assertions.
+const EARLY_RETURN_RE = /^\s*if\s*\([^)]*\)\s*return\s*;/gm;
+function scanEarlyReturns() {
+  const files = execFileSync('git', ['ls-files', 'backend/tests'], { cwd: ROOT, encoding: 'utf8' })
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .filter(f => /\.test\.js$/.test(f));
+  const hits = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(ROOT, f), 'utf8');
+    EARLY_RETURN_RE.lastIndex = 0;
+    let m;
+    while ((m = EARLY_RETURN_RE.exec(text)) !== null) hits.push(f);
+  }
+  return hits;
+}
+const earlyReturnHits = scanEarlyReturns();
+if (earlyReturnHits.length) {
+  earlyReturnHits.forEach(h => fail(`test style guard: early return in ${h}`));
+}
+
+// result ---------------------------------------------------------------------
+if (failures.length) {
+  console.error(`\n❌ VERIFY FAILED (${seconds()}s): ${failures.length} check(s)`);
+  failures.forEach(f => console.error(`  - ${f}`));
+  process.exit(1);
+}
+console.log(`\n✅ ALL VERIFICATION CHECKS PASSED (${seconds()}s)`);
+}
+
+main().catch(err => {
+  console.error(err);
   process.exit(1);
 });

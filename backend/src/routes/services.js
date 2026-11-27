@@ -44,7 +44,7 @@ query += ` ORDER BY s.serviceid DESC`;
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Services error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

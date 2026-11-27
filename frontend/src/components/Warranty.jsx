@@ -1,173 +1,25 @@
-// Warranty.jsx - Enhanced with Alive Animations
+// Warranty.jsx - coverage and service requests
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { 
+import {
   Shield, Plus, Edit2, Trash2, X, Save, RefreshCw, Wrench,
-  Search, Filter, Download, Eye, CheckCircle, Clock,
-  AlertCircle, Calendar, Info, Loader2, 
+  Search, Download, Eye, CheckCircle, Clock,
+  AlertCircle, Calendar, Info, Loader2,
   ArrowUp, ArrowDown, Grid3x3, List,
-  User, Package, Phone, Mail, MapPin,
-  Award, Star, Zap, Activity, TrendingUp,
-  AlertTriangle, ChevronRight, ClipboardList,
-  Printer, Home, Briefcase, Users as UsersIcon,
-  Key, Sparkles, Gem, Crown, Target, BarChart3,
-  Rocket, Gift, Heart, Sun, Moon, Stars, 
-  Flower2, PartyPopper, Compass, Feather, 
-  Palette, Music, Coffee, Cloud, Wind
+  User, Package, Award, Activity,
+  AlertTriangle, ClipboardList, Briefcase,
 } from 'lucide-react';
 import '../styles/warranty.css';
 import apiClient from '../api/client';
-
-// ============================================
-// MOCK DATA GENERATOR (Fallback)
-// ============================================
-// const generateMockData = () => {
-//   const now = new Date();
-//   const formatDate = (d) => d.toISOString().split('T')[0];
-  
-//   const customers = [
-//     { id: 1, cus_id: 'CUS001', first_name: 'John', last_name: 'Doe', phone: '555-0101', e_mail: 'john@example.com', address: '123 Main St' },
-//     { id: 2, cus_id: 'CUS002', first_name: 'Jane', last_name: 'Smith', phone: '555-0102', e_mail: 'jane@example.com', address: '456 Oak Ave' },
-//     { id: 3, cus_id: 'CUS003', first_name: 'Robert', last_name: 'Johnson', phone: '555-0103', e_mail: 'robert@example.com', address: '789 Pine Rd' },
-//     { id: 4, cus_id: 'CUS004', first_name: 'Mary', last_name: 'Williams', phone: '555-0104', e_mail: 'mary@example.com', address: '321 Elm St' },
-//     { id: 5, cus_id: 'CUS005', first_name: 'David', last_name: 'Brown', phone: '555-0105', e_mail: 'david@example.com', address: '654 Maple Dr' }
-//   ];
-
-//   const products = [
-//     { id: 1, product_id: 'PROD001', name_en: 'Laptop Pro X1', saleout_price: 1299.99, category: 'Electronics' },
-//     { id: 2, product_id: 'PROD002', name_en: 'Smartphone Ultra', saleout_price: 899.99, category: 'Electronics' },
-//     { id: 3, product_id: 'PROD003', name_en: 'Tablet Plus', saleout_price: 499.99, category: 'Electronics' },
-//     { id: 4, product_id: 'PROD004', name_en: 'Wireless Headphones', saleout_price: 199.99, category: 'Accessories' },
-//     { id: 5, product_id: 'PROD005', name_en: 'Smart Watch Pro', saleout_price: 349.99, category: 'Wearables' }
-//   ];
-
-//   const warranties = [];
-//   const services = [];
-//   const statuses = ['Active', 'Active', 'Active', 'Expired', 'Active'];
-//   const serviceStatuses = ['Pending', 'In Progress', 'Completed', 'Pending', 'In Progress'];
-//   const issueDescriptions = [
-//     'Screen cracked', 'Battery issue', 'Software update', 'Hardware failure', 
-//     'Water damage', 'Charging issue', 'Display problem', 'Performance slow'
-//   ];
-
-//   for (let i = 0; i < 8; i++) {
-//     const customer = customers[i % customers.length];
-//     const product = products[i % products.length];
-//     const startDate = new Date(now);
-//     startDate.setMonth(startDate.getMonth() - Math.floor(Math.random() * 24));
-//     const endDate = new Date(startDate);
-//     const period = [12, 24, 36][Math.floor(Math.random() * 3)];
-//     endDate.setMonth(endDate.getMonth() + period);
-
-//     warranties.push({
-//       warrantyid: i + 1,
-//       customerid: customer.id,
-//       productid: product.id,
-//       serialnumber: `SN-${String(i + 1).padStart(4, '0')}`,
-//       warrantyperiod: period,
-//       warrantystartdate: formatDate(startDate),
-//       warrantyenddate: formatDate(endDate),
-//       status: statuses[i % statuses.length],
-//       customer_name: `${customer.first_name} ${customer.last_name}`,
-//       product_name: product.name_en,
-//       notes: `Warranty for ${product.name_en}`
-//     });
-
-//     if (i < 6) {
-//       services.push({
-//         serviceid: i + 1,
-//         customerid: customer.id,
-//         productid: product.id,
-//         serialnumber: `SN-${String(i + 1).padStart(4, '0')}`,
-//         issuedescription: issueDescriptions[i % issueDescriptions.length],
-//         servicetype: ['Repair', 'Maintenance'][i % 2],
-//         status: serviceStatuses[i % serviceStatuses.length],
-//         receiveddate: formatDate(new Date(now.getFullYear(), now.getMonth() - i % 6, 1 + i % 28)),
-//         customer_name: `${customer.first_name} ${customer.last_name}`,
-//         product_name: product.name_en,
-//         notes: `Service ticket ${i + 1}`
-//       });
-//     }
-//   }
-
-//   return { warranties, services, customers, products };
-// };
-
-// ============================================
-// ANIMATED BACKGROUND PARTICLES
-// ============================================
-const AnimatedBackground = () => {
-  const particles = useMemo(() => {
-    return Array.from({ length: 30 }, (_, i) => ({
-      id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 6 + 2,
-      duration: Math.random() * 20 + 10,
-      delay: Math.random() * 10,
-      opacity: Math.random() * 0.3 + 0.1
-    }));
-  }, []);
-
-  return (
-    <div className="animated-bg">
-      {particles.map((p) => (
-        <div
-          key={p.id}
-          className="bg-particle"
-          style={{
-            left: `${p.x}%`,
-            top: `${p.y}%`,
-            width: `${p.size}px`,
-            height: `${p.size}px`,
-            animationDuration: `${p.duration}s`,
-            animationDelay: `${p.delay}s`,
-            opacity: p.opacity
-          }}
-        />
-      ))}
-      <div className="bg-gradient-overlay" />
-    </div>
-  );
-};
-
-// ============================================
-// FLOATING ICONS ANIMATION
-// ============================================
-const FloatingIcons = () => {
-  const icons = [
-    { Icon: Shield, delay: 0, x: 5, y: 10 },
-    { Icon: Sparkles, delay: 2, x: 85, y: 15 },
-    { Icon: Rocket, delay: 4, x: 15, y: 75 },
-    { Icon: Gem, delay: 1, x: 92, y: 80 },
-    { Icon: Crown, delay: 3, x: 45, y: 5 },
-    { Icon: Star, delay: 5, x: 50, y: 90 },
-    { Icon: Flower2, delay: 2.5, x: 78, y: 45 },
-    { Icon: Compass, delay: 4.5, x: 22, y: 50 },
-  ];
-
-  return (
-    <div className="floating-icons">
-      {icons.map(({ Icon, delay, x, y }, i) => (
-        <div
-          key={i}
-          className="floating-icon"
-          style={{
-            animationDelay: `${delay}s`,
-            left: `${x}%`,
-            top: `${y}%`
-          }}
-        >
-          <Icon className="w-6 h-6" />
-        </div>
-      ))}
-    </div>
-  );
-};
+import { unwrapList, fetchAllList } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isViewerRole } from '../utils/roles';
 
 // ============================================
 // MAIN WARRANTY COMPONENT
 // ============================================
 const Warranty = () => {
+  const { user } = useAuth();
+  const readOnly = isViewerRole(user);
   // ===== STATE =====
   const [warranties, setWarranties] = useState([]);
   const [services, setServices] = useState([]);
@@ -182,7 +34,8 @@ const Warranty = () => {
   const [filterType, setFilterType] = useState('all');
   const [sortBy, setSortBy] = useState('date');
   const [sortOrder, setSortOrder] = useState('desc');
-  const [viewMode, setViewMode] = useState('grid');
+  const [viewMode, setViewMode] = useState('list');
+  const [productSearch, setProductSearch] = useState('');
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('success');
   const [showModal, setShowModal] = useState(false);
@@ -191,7 +44,6 @@ const Warranty = () => {
   const [editingItem, setEditingItem] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedItems, setSelectedItems] = useState([]);
-  const [time, setTime] = useState(new Date());
   const [warrantyStats, setWarrantyStats] = useState({
     total: 0,
     active: 0,
@@ -225,12 +77,6 @@ const Warranty = () => {
   const searchTimeout = useRef(null);
   const cardRefs = useRef({});
 
-  // ===== TIME UPDATE =====
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {
     setMessage(text);
@@ -239,132 +85,33 @@ const Warranty = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // ===== EXTRACT DATA HELPER =====
-  const extractData = useCallback((responseData) => {
-    if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) {
-      console.warn('⚠️ Received HTML - API not available');
-      return [];
-    }
-    
-    if (Array.isArray(responseData)) {
-      return responseData;
-    }
-    
-    if (responseData && typeof responseData === 'object') {
-      if (Array.isArray(responseData.data)) {
-        return responseData.data;
-      }
-      if (Array.isArray(responseData.items)) {
-        return responseData.items;
-      }
-      if (Array.isArray(responseData.warranties)) {
-        return responseData.warranties;
-      }
-      if (Array.isArray(responseData.services)) {
-        return responseData.services;
-      }
-      if (responseData.data && typeof responseData.data === 'object') {
-        if (Array.isArray(responseData.data.items)) {
-          return responseData.data.items;
-        }
-        if (Array.isArray(responseData.data.warranties)) {
-          return responseData.data.warranties;
-        }
-        if (Array.isArray(responseData.data.services)) {
-          return responseData.data.services;
-        }
-        const values = Object.values(responseData.data);
-        if (values.length > 0 && Array.isArray(values[0])) {
-          return values[0];
-        }
-      }
-    }
-    
-    return [];
-  }, []);
-
   // ===== FETCH CUSTOMERS & PRODUCTS =====
+  // Use the shared list helpers: /products answers { products, pagination },
+  // /customers answers a bare array. Picker data loads every page (capped).
   const fetchCustomersAndProducts = useCallback(async () => {
     try {
-      const [customersRes, productsRes] = await Promise.all([
-        apiClient.get('/customers'),
-        apiClient.get('/products')
+      const [customersData, productsData] = await Promise.all([
+        fetchAllList(apiClient, '/customers'),
+        fetchAllList(apiClient, '/products'),
       ]);
-      
+
       if (isMounted.current) {
-        const customersData = Array.isArray(customersRes.data) ? customersRes.data : [];
-        const productsData = Array.isArray(productsRes.data) ? productsRes.data : [];
-        
         setCustomers(customersData);
         setProducts(productsData);
-        console.log(`👥 Customers loaded: ${customersData.length}`);
-        console.log(`📦 Products loaded: ${productsData.length}`);
       }
     } catch (error) {
-  console.error('❌ Error fetching customers/products:', error);
-  if (isMounted.current) {
-    setCustomers([]);
-    setProducts([]);
-    showMessage('❌ Failed to load customers/products from server', 'error');
-  }
-}
+      console.error('Error fetching customers/products:', error);
+      if (isMounted.current) {
+        setCustomers([]);
+        setProducts([]);
+        showMessage('Failed to load customers/products from server', 'error');
+      }
+    }
   }, [showMessage]);
 
-  // ===== FETCH WARRANTIES =====
-  const fetchWarranties = useCallback(async () => {
-    try {
-      const res = await apiClient.get('/warranties');
-      if (isMounted.current) {
-        const data = extractData(res.data);
-        const warrantiesArray = Array.isArray(data) ? data : [];
-        setWarranties(warrantiesArray);
-        calculateWarrantyStats(warrantiesArray);
-        console.log(`🛡️ Warranties loaded: ${warrantiesArray.length}`);
-      }
-    } catch (error) {
-  console.error('❌ Error fetching warranties:', error);
-  if (isMounted.current) {
-    setWarranties([]);
-    calculateWarrantyStats([]);
-    showMessage('❌ Failed to load warranties from server', 'error');
-  }
-}
-  }, [extractData, showMessage]);
-
-  // ===== FETCH SERVICES =====
-  const fetchServices = useCallback(async () => {
-    try {
-      const res = await apiClient.get('/services');
-      if (isMounted.current) {
-        const data = extractData(res.data);
-        const servicesArray = Array.isArray(data) ? data : [];
-        setServices(servicesArray);
-        calculateServiceStats(servicesArray);
-        console.log(`🔧 Services loaded: ${servicesArray.length}`);
-      }
-    } catch (error) {
-  console.error('❌ Error fetching services:', error);
-  if (isMounted.current) {
-    setServices([]);
-    calculateServiceStats([]);
-    showMessage('❌ Failed to load services from server', 'error');
-  }
-}
-  }, [extractData, showMessage]);
-
-  // ===== LOAD ALL DATA =====
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([
-      fetchCustomersAndProducts(),
-      fetchWarranties(),
-      fetchServices()
-    ]);
-    setLoading(false);
-    setIsRefreshing(false);
-  }, [fetchCustomersAndProducts, fetchWarranties, fetchServices]);
-
   // ===== CALCULATE STATS =====
+  // Declared before the fetch callbacks: their dependency arrays are evaluated
+  // during render, so these must already be initialized (TDZ otherwise).
   const calculateWarrantyStats = useCallback((data) => {
     const now = new Date();
     const thirtyDaysFromNow = new Date(now);
@@ -392,6 +139,56 @@ const Warranty = () => {
     };
     setServiceStats(stats);
   }, []);
+
+  // ===== FETCH WARRANTIES =====
+  const fetchWarranties = useCallback(async () => {
+    try {
+      const res = await apiClient.get('/warranties');
+      if (isMounted.current) {
+        const warrantiesArray = unwrapList(res.data, ['warranties']);
+        setWarranties(warrantiesArray);
+        calculateWarrantyStats(warrantiesArray);
+      }
+    } catch (error) {
+      console.error('Error fetching warranties:', error);
+      if (isMounted.current) {
+        setWarranties([]);
+        calculateWarrantyStats([]);
+        showMessage('Failed to load warranties from server', 'error');
+      }
+    }
+  }, [showMessage, calculateWarrantyStats]);
+
+  // ===== FETCH SERVICES =====
+  const fetchServices = useCallback(async () => {
+    try {
+      const res = await apiClient.get('/services');
+      if (isMounted.current) {
+        const servicesArray = unwrapList(res.data, ['services']);
+        setServices(servicesArray);
+        calculateServiceStats(servicesArray);
+      }
+    } catch (error) {
+      console.error('Error fetching services:', error);
+      if (isMounted.current) {
+        setServices([]);
+        calculateServiceStats([]);
+        showMessage('Failed to load services from server', 'error');
+      }
+    }
+  }, [showMessage, calculateServiceStats]);
+
+  // ===== LOAD ALL DATA =====
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([
+      fetchCustomersAndProducts(),
+      fetchWarranties(),
+      fetchServices()
+    ]);
+    setLoading(false);
+    setIsRefreshing(false);
+  }, [fetchCustomersAndProducts, fetchWarranties, fetchServices]);
 
   // ===== INITIAL LOAD =====
   useEffect(() => {
@@ -431,7 +228,7 @@ const Warranty = () => {
       parseInt(c.cus_id) === item.customerid ||
       parseInt(c.id) === item.CustomerID
     );
-    return customer ? `${customer.first_name || customer.FIRST_NAME || ''} ${customer.last_name || customer.LAST_NAME || ''}`.trim() || 'Unknown' : 'Unknown';
+    return customer ? `${customer.first_name || customer.FIRST_NAME || ''} ${customer.last_name || customer.LAST_NAME || ''}`.trim() || 'No customer recorded' : 'No customer recorded';
   }, [customers]);
 
   const getProductName = useCallback((item) => {
@@ -442,21 +239,21 @@ const Warranty = () => {
       parseInt(p.product_id) === item.productid ||
       parseInt(p.id) === item.ProductID
     );
-    return product?.name_en || product?.NAME_EN || 'Unknown';
+    return product?.name_en || product?.NAME_EN || 'Unnamed product';
   }, [products]);
 
   const formatDate = useCallback((dateValue) => {
-    if (!dateValue) return 'N/A';
+    if (!dateValue) return 'No date';
     try {
       const date = new Date(dateValue);
-      if (isNaN(date)) return 'N/A';
+      if (isNaN(date)) return 'No date';
       return date.toLocaleDateString('en-US', { 
         year: 'numeric', 
         month: 'short', 
         day: 'numeric' 
       });
     } catch {
-      return 'N/A';
+      return 'No date';
     }
   }, []);
 
@@ -648,8 +445,20 @@ const Warranty = () => {
     return activeTab === 'warranty' ? filteredWarranties : filteredServices;
   }, [activeTab, filteredWarranties, filteredServices]);
 
+  // The picker loads every page (up to the cap in api/list.js) and lets the
+  // owner type to narrow the list instead of scrolling hundreds of products.
+  const pickerProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return products;
+    return products.filter((p) =>
+      String(p.name_en || p.name || p.NAME_EN || '').toLowerCase().includes(term)
+      || String(p.barcode || '').toLowerCase().includes(term)
+    );
+  }, [products, productSearch]);
+
   // ===== RESET FORM =====
   const resetForm = useCallback(() => {
+    setProductSearch('');
     const today = new Date().toISOString().split('T')[0];
     const endDate = new Date();
     endDate.setFullYear(endDate.getFullYear() + 1);
@@ -913,6 +722,21 @@ const Warranty = () => {
     }
   }, [currentData, activeTab, getCustomerName, getProductName, formatDate, showMessage]);
 
+  // ===== STATS SHOWN IN THE COMPACT HEADER =====
+  const visibleStats = activeTab === 'warranty'
+    ? [
+        { key: 'total', label: 'Total warranties', value: warrantyStats.total, icon: getStatIcon('total') },
+        { key: 'active', label: 'Active', value: warrantyStats.active, icon: getStatIcon('active') },
+        { key: 'expiring', label: 'Expiring soon', value: warrantyStats.expiring, icon: getStatIcon('expiring') },
+        { key: 'expired', label: 'Expired', value: warrantyStats.expired, icon: getStatIcon('expired') },
+      ]
+    : [
+        { key: 'total', label: 'Total requests', value: serviceStats.total, icon: getStatIcon('total') },
+        { key: 'pending', label: 'Pending', value: serviceStats.pending, icon: getStatIcon('pending') },
+        { key: 'inProgress', label: 'In progress', value: serviceStats.inProgress, icon: getStatIcon('inProgress') },
+        { key: 'completed', label: 'Completed', value: serviceStats.completed, icon: getStatIcon('completed') },
+      ];
+
   // ===== LOADING =====
   if (loading) {
     return (
@@ -938,10 +762,6 @@ const Warranty = () => {
 
   return (
     <div className="warranty-container">
-      {/* Animated Background */}
-      <AnimatedBackground />
-      <FloatingIcons />
-      
       {/* ===== MESSAGE TOAST ===== */}
       {message && (
         <div className={`toast-message toast-${messageType}`}>
@@ -952,206 +772,59 @@ const Warranty = () => {
               {messageType === 'warning' && <AlertTriangle className="w-5 h-5" />}
             </div>
             <div className="toast-text">{message}</div>
-            <button onClick={() => setMessage('')} className="toast-close">
+            <button onClick={() => setMessage('')} className="toast-close" aria-label="Dismiss message">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* ===== HEADER WITH STATS ===== */}
+      {/* ===== COMPACT HEADER ===== */}
       <div className="header-section">
-        <div className="header-glow" />
         <div className="header-content">
           <div className="header-left">
-            <div className="header-badge">
-              <Sparkles className="w-4 h-4" />
-              <span>Enterprise</span>
-              <span className="badge-dot">•</span>
-              <span className="badge-live">
-                <span className="live-dot" />
-                Live
-              </span>
-            </div>
-            <h1 className="header-title">
-              <Shield className="header-icon" />
-              <span className="title-text">Warranty & Service</span>
-              <span className="title-highlight">Management</span>
-            </h1>
-            <p className="header-subtitle">
-              Track warranties and manage service requests with precision
-              <span className="subtitle-decoration">✨</span>
-            </p>
+            <h1 className="header-title">Coverage &amp; repairs</h1>
+            <p className="header-subtitle">Track warranties and service requests for your customers.</p>
           </div>
           <div className="header-actions">
-            <div className="header-time">
-              <Clock className="w-4 h-4" />
-              <span>{time.toLocaleTimeString()}</span>
-              <span className="time-separator">•</span>
-              <span>{time.toLocaleDateString()}</span>
-            </div>
-            <button 
+            <button
               onClick={handleRefresh}
               disabled={isRefreshing}
               className="header-btn"
+              title="Refresh data"
+              aria-label="Refresh data"
             >
-              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
-            <button
-              onClick={handleExport}
-              className="header-btn"
-            >
+            <button onClick={handleExport} className="header-btn">
               <Download className="w-4 h-4" />
               Export
             </button>
-            <button
-              onClick={openAddModal}
-              className="header-btn-primary"
-            >
+            <button onClick={openAddModal} className="header-btn-primary" hidden={readOnly}>
               <Plus className="w-4 h-4" />
               Add {activeTab === 'warranty' ? 'Warranty' : 'Service'}
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Stats */}
-        <div className="stats-grid">
-          {activeTab === 'warranty' ? (
-            <>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('total')}
-                  </div>
-                  <span className="stat-label">Total Warranties</span>
-                  <span className="stat-trend up">
-                    <TrendingUp className="w-3 h-3" />
-                    12%
-                  </span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{warrantyStats.total}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar" style={{ width: '100%' }} />
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('active')}
-                  </div>
-                  <span className="stat-label">Active</span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{warrantyStats.active}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar" style={{ width: warrantyStats.total ? `${(warrantyStats.active / warrantyStats.total) * 100}%` : '0%' }} />
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('expiring')}
-                  </div>
-                  <span className="stat-label">Expiring Soon</span>
-                  <span className="stat-trend down">
-                    <AlertTriangle className="w-3 h-3" />
-                    {warrantyStats.expiring}
-                  </span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{warrantyStats.expiring}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar warning" style={{ width: warrantyStats.total ? `${(warrantyStats.expiring / warrantyStats.total) * 100}%` : '0%' }} />
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('expired')}
-                  </div>
-                  <span className="stat-label">Expired</span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{warrantyStats.expired}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar danger" style={{ width: warrantyStats.total ? `${(warrantyStats.expired / warrantyStats.total) * 100}%` : '0%' }} />
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('total')}
-                  </div>
-                  <span className="stat-label">Total Services</span>
-                  <span className="stat-trend up">
-                    <TrendingUp className="w-3 h-3" />
-                    8%
-                  </span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{serviceStats.total}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar" style={{ width: '100%' }} />
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('pending')}
-                  </div>
-                  <span className="stat-label">Pending</span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{serviceStats.pending}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar warning" style={{ width: serviceStats.total ? `${(serviceStats.pending / serviceStats.total) * 100}%` : '0%' }} />
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('inProgress')}
-                  </div>
-                  <span className="stat-label">In Progress</span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{serviceStats.inProgress}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar" style={{ width: serviceStats.total ? `${(serviceStats.inProgress / serviceStats.total) * 100}%` : '0%' }} />
-                </div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-header">
-                  <div className="stat-icon-wrapper">
-                    {getStatIcon('completed')}
-                  </div>
-                  <span className="stat-label">Completed</span>
-                </div>
-                <p className="stat-value">
-                  <span className="stat-number">{serviceStats.completed}</span>
-                </p>
-                <div className="stat-progress">
-                  <div className="stat-progress-bar success" style={{ width: serviceStats.total ? `${(serviceStats.completed / serviceStats.total) * 100}%` : '0%' }} />
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+      {/* ===== STATS (real data only) ===== */}
+      <div className="stats-grid" data-testid="warranty-stats">
+        {visibleStats.map((stat) => (
+          <div className="stat-card" key={stat.key} data-testid="warranty-stat" data-stat={stat.key}>
+            <div className="stat-header">
+              <div className="stat-icon-wrapper">{stat.icon}</div>
+              <span className="stat-label">{stat.label}</span>
+            </div>
+            <p className="stat-value">
+              <span className="stat-number">{stat.value}</span>
+            </p>
+          </div>
+        ))}
       </div>
 
       {/* ===== TABS ===== */}
-      <div className="tabs-container">
+      <div className="tabs-container" data-testid="warranty-tabs">
         <div className="tabs-header">
           <button
             onClick={() => {
@@ -1298,7 +971,7 @@ const Warranty = () => {
 
         {/* ===== CONTENT ===== */}
         {currentData.length === 0 ? (
-          <div className="empty-state">
+          <div className="empty-state" data-testid="warranty-empty">
             <div className="empty-icon-wrapper">
               {activeTab === 'warranty' ? (
                 <Shield className="empty-icon" />
@@ -1316,6 +989,7 @@ const Warranty = () => {
             </p>
             <button
               onClick={openAddModal}
+              hidden={readOnly}
               className="empty-btn"
             >
               <Plus className="w-4 h-4" />
@@ -1373,6 +1047,7 @@ const Warranty = () => {
                             openEditModal(item);
                           }}
                           className="grid-card-action edit"
+                          hidden={readOnly}
                           title="Edit"
                         >
                           <Edit2 className="w-4 h-4" />
@@ -1383,6 +1058,7 @@ const Warranty = () => {
                             handleDelete(id);
                           }}
                           className="grid-card-action delete"
+                          hidden={readOnly}
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1394,7 +1070,7 @@ const Warranty = () => {
                     <div className="grid-card-details">
                       <div className="grid-card-detail">
                         <ClipboardList className="w-3.5 h-3.5 text-gray-400" />
-                        <span>{item.serialnumber || item.SerialNumber || 'N/A'}</span>
+                        <span>{item.serialnumber || item.SerialNumber || 'No serial'}</span>
                       </div>
                       {activeTab === 'warranty' ? (
                         <>
@@ -1415,7 +1091,7 @@ const Warranty = () => {
                           </div>
                           <div className="grid-card-detail">
                             <Briefcase className="w-3.5 h-3.5 text-amber-500" />
-                            <span>{item.servicetype || item.ServiceType || 'N/A'}</span>
+                            <span>{item.servicetype || item.ServiceType || 'Not specified'}</span>
                           </div>
                           <div className="grid-card-detail">
                             <Calendar className="w-3.5 h-3.5 text-purple-500" />
@@ -1443,7 +1119,7 @@ const Warranty = () => {
         ) : (
           // ===== LIST VIEW =====
           <div className="list-view">
-            <table className="list-table">
+            <table className="list-table" data-testid="warranty-table">
               <thead className="list-thead">
                 <tr>
                   <th className="list-th w-10">
@@ -1550,6 +1226,7 @@ const Warranty = () => {
                           <button
                             onClick={() => openEditModal(item)}
                             className="list-action edit"
+                            hidden={readOnly}
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -1557,6 +1234,7 @@ const Warranty = () => {
                           <button
                             onClick={() => handleDelete(id)}
                             className="list-action delete"
+                            hidden={readOnly}
                             title="Delete"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -1574,27 +1252,6 @@ const Warranty = () => {
         {/* Footer */}
         <div className="table-footer">
           <span>Showing {currentData.length} of {activeTab === 'warranty' ? warranties.length : services.length} records</span>
-          <span>Updated: {new Date().toLocaleString()}</span>
-        </div>
-      </div>
-
-      {/* ===== FOOTER ===== */}
-      <div className="app-footer">
-        <div className="footer-content">
-          <div className="footer-left">
-            <Shield className="w-4 h-4 text-indigo-500" />
-            <span>{activeTab === 'warranty' ? 'Warranty' : 'Service'} Management</span>
-          </div>
-          <div className="footer-center">
-            <span>📊 {currentData.length} records displayed</span>
-            <span className="footer-dot">•</span>
-            <span>📅 {new Date().toLocaleString()}</span>
-          </div>
-          <div className="footer-right">
-            <span>© {new Date().getFullYear()} SPMS</span>
-            <span className="footer-dot">•</span>
-            <span className="footer-version">v2.0</span>
-          </div>
         </div>
       </div>
 
@@ -1641,13 +1298,13 @@ const Warranty = () => {
               <div className="detail-grid">
                 <div className="detail-item">
                   <p className="detail-label">Serial Number</p>
-                  <p className="detail-value font-mono">{selectedItem.serialnumber || selectedItem.SerialNumber || 'N/A'}</p>
+                  <p className="detail-value font-mono">{selectedItem.serialnumber || selectedItem.SerialNumber || 'No serial'}</p>
                 </div>
                 {activeTab === 'warranty' ? (
                   <>
                     <div className="detail-item">
                       <p className="detail-label">Period</p>
-                      <p className="detail-value">{selectedItem.warrantyperiod || selectedItem.WarrantyPeriod || 'N/A'} months</p>
+                      <p className="detail-value">{selectedItem.warrantyperiod || selectedItem.WarrantyPeriod ? `${selectedItem.warrantyperiod || selectedItem.WarrantyPeriod} months` : 'Not specified'}</p>
                     </div>
                     <div className="detail-item">
                       <p className="detail-label">Start Date</p>
@@ -1662,11 +1319,11 @@ const Warranty = () => {
                   <>
                     <div className="detail-item col-span-2">
                       <p className="detail-label">Issue Description</p>
-                      <p className="detail-value">{selectedItem.issuedescription || selectedItem.IssueDescription || 'N/A'}</p>
+                      <p className="detail-value">{selectedItem.issuedescription || selectedItem.IssueDescription || 'Not specified'}</p>
                     </div>
                     <div className="detail-item">
                       <p className="detail-label">Service Type</p>
-                      <p className="detail-value">{selectedItem.servicetype || selectedItem.ServiceType || 'N/A'}</p>
+                      <p className="detail-value">{selectedItem.servicetype || selectedItem.ServiceType || 'Not specified'}</p>
                     </div>
                     <div className="detail-item">
                       <p className="detail-label">Received Date</p>
@@ -1737,6 +1394,7 @@ const Warranty = () => {
                     value={formData.customer_id}
                     onChange={(e) => setFormData({...formData, customer_id: e.target.value})}
                     className="form-select"
+                    data-testid="customer-select"
                     disabled={submitting}
                   >
                     <option value="">Select Customer</option>
@@ -1754,17 +1412,27 @@ const Warranty = () => {
                     <Package className="w-4 h-4" />
                     Product <span className="text-red-500">*</span>
                   </label>
+                  <input
+                    type="search"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Find a product by name or barcode"
+                    className="form-input"
+                    data-testid="product-search"
+                    disabled={submitting}
+                  />
                   <select
                     required
                     value={formData.product_id}
                     onChange={(e) => setFormData({...formData, product_id: e.target.value})}
                     className="form-select"
+                    data-testid="product-select"
                     disabled={submitting}
                   >
-                    <option value="">Select Product</option>
-                    {products.map((p) => (
-                      <option key={p.id || p.PRODUCT_ID} value={p.id || p.PRODUCT_ID}>
-                        {p.name_en || p.NAME_EN}
+                    <option value="">Select Product ({pickerProducts.length} available)</option>
+                    {pickerProducts.map((p) => (
+                      <option key={p.id || p.PRODUCT_ID} value={p.id || p.PRODUCT_ID} data-testid="product-option">
+                        {p.name_en || p.name || p.NAME_EN}
                       </option>
                     ))}
                   </select>

@@ -17,6 +17,11 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 
+// Lock only the current plan's button while more than 7 days remain.
+const renewalLocked = (sub, planId) =>
+  !!sub && sub.status === 'active' && String(sub.plan || 'free').toLowerCase() === String(planId).toLowerCase() &&
+  !!sub.expires && (new Date(sub.expires).getTime() - Date.now()) / 86400000 > 7;
+
 const Pricing = () => {
   const { user, loading: authLoading } = useAuth(); // Grab authLoading to prevent premature calls
   const navigate = useNavigate();
@@ -114,7 +119,7 @@ const Pricing = () => {
   ], []);
 
   const handleSubscribe = useCallback((plan) => {
-    if (user && userSubscription && userSubscription.status === 'active') {
+    if (renewalLocked(userSubscription, plan.id)) {
       toast(`You're already on the ${userSubscription.planName || 'active'} plan!`);
       navigate('/dashboard');
       return;
@@ -142,7 +147,7 @@ const Pricing = () => {
   }, [user, safeUserId, userSubscription, navigate]);
 
   const hasActiveSubscription = useCallback((planId) => {
-    return userSubscription && userSubscription.status === 'active' && userSubscription.plan === planId;
+    return renewalLocked(userSubscription, planId);
   }, [userSubscription]);
 
   const renderActionButton = (plan) => {
@@ -255,7 +260,7 @@ const Pricing = () => {
 
                   <ul className="mt-6 space-y-3">
                     {plan.features.map((feature, index) => (
-                      <li key={index} className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-300">
+                      <li key={feature} className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-300">
                         <Check className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
                         <span>{feature}</span>
                       </li>

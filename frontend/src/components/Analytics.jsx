@@ -1,8 +1,9 @@
 // Analytics.jsx - Real data, computed from actual orders/customers/products
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import apiClient from '../api/client';
+import { unwrapList } from '../api/list';
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie,
+  BarChart, Bar, Line, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell, AreaChart, Area, ComposedChart,
 } from 'recharts';
@@ -31,18 +32,12 @@ import '../styles/analytics.css';
 // stack duplicate interceptors. We now just log locally, only in dev,
 // scoped to this component's own requests.
 const DEBUG = import.meta.env?.DEV ?? false;
-const debugLog = (...args) => { if (DEBUG) console.log(...args); };
 const debugError = (...args) => { if (DEBUG) console.error(...args); };
 
 // ============================================
 // CONSTANTS
 // ============================================
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6', '#f472b6', '#8b5cf6'];
-
-// How many most-recent orders we fetch line-item detail for, to compute
-// product-level revenue/profit. Order LIST data (date/total/customer) is
-// always complete; only per-PRODUCT breakdowns are limited by this cap.
-const DETAIL_FETCH_CAP = 200;
 
 const STAT_CARDS = [
   { id: 'revenue', icon: DollarSign, title: 'Total Revenue', format: 'currency', color: 'text-green-600', bgColor: 'bg-green-100 dark:bg-green-900/30', gradient: 'from-green-500 to-emerald-600' },
@@ -90,12 +85,6 @@ const formatCurrencyCompact = (value) => {
   }).format(n);
 };
 
-const parseDateSafe = (value) => {
-  if (!value) return null;
-  const d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
-};
-
 // ============================================
 // DATE RANGE HELPERS
 // ============================================
@@ -105,15 +94,6 @@ const getRangeBounds = (rangeKey) => {
   const start = new Date();
   start.setDate(start.getDate() - days);
   return { start, end };
-};
-
-const getPreviousRangeBounds = (rangeKey) => {
-  const days = DATE_RANGES[rangeKey]?.days ?? 182;
-  const { start } = getRangeBounds(rangeKey);
-  const prevEnd = new Date(start);
-  const prevStart = new Date(start);
-  prevStart.setDate(prevStart.getDate() - days);
-  return { start: prevStart, end: prevEnd };
 };
 
 const buildMonthBuckets = (start, end) => {
@@ -133,8 +113,6 @@ const buildMonthBuckets = (start, end) => {
   }
   return buckets;
 };
-
-const monthKeyOf = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
 // ============================================
 // PERCENT-CHANGE HELPER
@@ -199,9 +177,9 @@ const FloatingIcons = () => {
 
   return (
     <div className="analytics-floating-icons">
-      {icons.map(({ Icon, delay, x, y }, i) => (
+      {icons.map(({ Icon, delay, x, y }) => (
         <div
-          key={i}
+          key={`${Icon.displayName || Icon.name || 'icon'}-${x}-${y}`}
           className="floating-icon"
           style={{
             animationDelay: `${delay}s`,
@@ -421,10 +399,7 @@ const Toast = ({ message, type, onClose }) => {
 const Analytics = () => {
   // ===== RAW DATA STATE (all real, fetched from the API) =====
   const [customers, setCustomers] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [orderItemsById, setOrderItemsById] = useState({}); // orderId -> items[] (bounded by DETAIL_FETCH_CAP)
-  const [detailCoverage, setDetailCoverage] = useState({ fetched: 0, total: 0 });
+  const [customerHistory, setCustomerHistory] = useState([]);
 
   // ===== UI STATE =====
   const [loading, setLoading] = useState(true);
@@ -438,6 +413,7 @@ const Analytics = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [toast, setToast] = useState(null);
+  const [apiSummary, setApiSummary] = useState(null);
 
   // ===== REFS =====
   const statsRef = useRef(null);
@@ -453,56 +429,14 @@ const Analytics = () => {
   // ============================================
   const fetchAllData = useCallback(async () => {
     try {
-      const [customersRes, productsRes, ordersRes] = await Promise.all([
-        apiClient.get('/customers'),
-        apiClient.get('/products'),
-        apiClient.get('/orders', { params: { limit: 1000 } })
-      ]);
+      const customersRes = await apiClient.get('/customers');
 
       if (!isMounted.current) return;
 
-      const customersData = Array.isArray(customersRes.data)
-        ? customersRes.data
-        : (Array.isArray(customersRes.data?.data) ? customersRes.data.data : []);
-      const productsData = Array.isArray(productsRes.data)
-        ? productsRes.data
-        : (Array.isArray(productsRes.data?.data) ? productsRes.data.data : []);
-      const ordersData = Array.isArray(ordersRes.data)
-        ? ordersRes.data
-        : (Array.isArray(ordersRes.data?.data) ? ordersRes.data.data : []);
+      const customersData = unwrapList(customersRes.data, ['customers']);
 
       setCustomers(customersData);
-      setProducts(productsData);
-      setOrders(ordersData);
 
-      debugLog(`👥 Customers loaded: ${customersData.length}`);
-      debugLog(`📦 Products loaded: ${productsData.length}`);
-      debugLog(`🛒 Orders loaded: ${ordersData.length}`);
-
-      // Fetch line-item detail for the most recent orders only (bounded),
-      // used for product-level revenue/profit breakdowns.
-      const ordersForDetail = [...ordersData]
-        .filter(o => parseDateSafe(o.date))
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-        .slice(0, DETAIL_FETCH_CAP);
-
-      const detailResults = await Promise.allSettled(
-        ordersForDetail.map(o => apiClient.get(`/orders/${o.id}`))
-      );
-
-      if (!isMounted.current) return;
-
-      const detailMap = {};
-      let fetchedCount = 0;
-      detailResults.forEach((res, idx) => {
-        if (res.status === 'fulfilled') {
-          detailMap[ordersForDetail[idx].id] = Array.isArray(res.value.data?.items) ? res.value.data.items : [];
-          fetchedCount += 1;
-        }
-      });
-
-      setOrderItemsById(detailMap);
-      setDetailCoverage({ fetched: fetchedCount, total: ordersData.length });
     } catch (error) {
       debugError('❌ Error loading analytics data:', error);
       if (isMounted.current) {
@@ -552,6 +486,22 @@ const Analytics = () => {
     };
   }, [showExportMenu]);
 
+  // ===== FETCH TENANT-SCOPED SQL TOTALS (accurate past 1,000 orders) =====
+  useEffect(() => {
+    const fetchAnalyticsSummary = async () => {
+      const { start, end } = getRangeBounds(dateRange);
+      try {
+        const res = await apiClient.get('/dashboard/analytics-summary', {
+          params: { from: start.toISOString(), to: end.toISOString() },
+        });
+        if (isMounted.current) setApiSummary(res.data);
+      } catch (error) {
+        debugError('❌ Error fetching analytics summary:', error);
+      }
+    };
+    fetchAnalyticsSummary();
+  }, [dateRange]);
+
   // ===== HANDLERS =====
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -565,196 +515,79 @@ const Analytics = () => {
   }, []);
 
   // ============================================
-  // LOOKUP MAPS (products / customers keyed by numeric id)
-  // ============================================
-  const productsById = useMemo(() => {
-    const map = {};
-    products.forEach(p => { map[p.id] = p; });
-    return map;
-  }, [products]);
-
-  const customersById = useMemo(() => {
-    const map = {};
-    customers.forEach(c => { map[c.id] = c; });
-    return map;
-  }, [customers]);
-
-  // ============================================
-  // DATE-RANGE-FILTERED ORDERS
-  // ============================================
-  const { ordersInRange, ordersInPrevRange } = useMemo(() => {
-    const { start, end } = getRangeBounds(dateRange);
-    const { start: prevStart, end: prevEnd } = getPreviousRangeBounds(dateRange);
-
-    const inRange = [];
-    const inPrevRange = [];
-
-    orders.forEach(o => {
-      const d = parseDateSafe(o.date);
-      if (!d) return;
-      if (d >= start && d <= end) inRange.push(o);
-      else if (d >= prevStart && d < prevEnd) inPrevRange.push(o);
-    });
-
-    return { ordersInRange: inRange, ordersInPrevRange: inPrevRange };
-  }, [orders, dateRange]);
-
-  // ============================================
-  // PRODUCT-LEVEL ITEMS WITHIN RANGE (from the bounded detail fetch)
-  // ============================================
-  const itemsInRange = useMemo(() => {
-    const items = [];
-    ordersInRange.forEach(o => {
-      const orderItems = orderItemsById[o.id];
-      if (!orderItems) return; // detail not fetched for this order (outside cap)
-      orderItems.forEach(it => items.push({ ...it, __orderId: o.id }));
-    });
-    return items;
-  }, [ordersInRange, orderItemsById]);
-
-  // ============================================
-  // SUMMARY METRICS (all real, with real period-over-period growth)
+  // SUMMARY METRICS (tenant-scoped SQL aggregates only)
   // ============================================
   const summary = useMemo(() => {
-    const totalRevenue = ordersInRange.reduce((sum, o) => sum + num(o.total), 0);
-    const totalOrders = ordersInRange.length;
-    const prevRevenue = ordersInPrevRange.reduce((sum, o) => sum + num(o.total), 0);
-    const prevOrders = ordersInPrevRange.length;
-
-    const distinctProductIds = new Set(itemsInRange.map(it => it.product_id));
-    const totalProductsSold = distinctProductIds.size;
-
-    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-    let totalCost = 0;
-    itemsInRange.forEach(it => {
-      const cost = num(productsById[it.product_id]?.buyin_price);
-      totalCost += num(it.qty) * cost;
-    });
-    const profit = totalRevenue - totalCost;
-    const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-
-    const distinctCustomersInRange = new Set(ordersInRange.map(o => o.customer_id));
-    const distinctCustomersInPrevRange = new Set(ordersInPrevRange.map(o => o.customer_id));
-
-    const customerOrderCounts = {};
-    ordersInRange.forEach(o => {
-      customerOrderCounts[o.customer_id] = (customerOrderCounts[o.customer_id] || 0) + 1;
-    });
-    const repeatCustomers = Object.values(customerOrderCounts).filter(c => c > 1).length;
-    const repeatCustomerRate = distinctCustomersInRange.size > 0
-      ? (repeatCustomers / distinctCustomersInRange.size) * 100
-      : 0;
-
-    // FIX: previous formula returned 0% coverage whenever itemsInRange was
-    // empty even if every in-range order legitimately HAD its detail
-    // fetched (e.g. orders with zero line items, or simply no orders in
-    // range). Now we directly measure how many in-range orders have an
-    // entry in orderItemsById, regardless of whether that entry is empty.
-    const itemDetailCoverage = ordersInRange.length === 0
-      ? 100
-      : Math.round(
-          (ordersInRange.filter(o => orderItemsById[o.id] !== undefined).length / ordersInRange.length) * 100
-        );
+    const totalRevenue = num(apiSummary?.net_revenue);
+    const totalOrders = num(apiSummary?.total_orders);
+    const prevRevenue = num(apiSummary?.previous_net_revenue);
+    const prevOrders = num(apiSummary?.previous_orders);
+    const distinctCustomersInRange = num(apiSummary?.total_customers);
+    const previousCustomers = num(apiSummary?.previous_customers);
 
     return {
       totalRevenue,
       totalOrders,
-      totalProductsSold,
-      averageOrderValue,
-      profit,
-      profitMargin,
+      totalProductsSold: num(apiSummary?.products_sold),
+      averageOrderValue: num(apiSummary?.average_order_value),
+      profit: num(apiSummary?.gross_profit),
+      profitMargin: num(apiSummary?.profit_margin),
       revenueGrowth: percentChange(totalRevenue, prevRevenue),
       orderGrowth: percentChange(totalOrders, prevOrders),
-      customerGrowth: percentChange(distinctCustomersInRange.size, distinctCustomersInPrevRange.size),
-      repeatCustomerRate,
-      totalCustomersInRange: distinctCustomersInRange.size,
-      itemDetailCoverage
+      customerGrowth: percentChange(distinctCustomersInRange, previousCustomers),
+      repeatCustomerRate: distinctCustomersInRange > 0
+        ? (num(apiSummary?.repeat_customers) / distinctCustomersInRange) * 100
+        : 0,
+      totalCustomersInRange: distinctCustomersInRange
     };
-  }, [ordersInRange, ordersInPrevRange, itemsInRange, productsById, orderItemsById]);
+  }, [apiSummary]);
 
   // ============================================
-  // MONTHLY CHART DATA (revenue / orders / profit / customers per month, in-range)
+  // MONTHLY CHART DATA (SQL aggregate, in-range)
   // ============================================
   const monthlyChartData = useMemo(() => {
     const { start, end } = getRangeBounds(dateRange);
     const buckets = buildMonthBuckets(start, end);
-    const bucketMap = {};
-    buckets.forEach(b => {
-      bucketMap[b.key] = { month: b.label, revenue: 0, orders: 0, profit: 0, customerSet: new Set() };
+    const byMonth = {};
+    (apiSummary?.revenue_by_month || []).forEach(r => { byMonth[r.month] = r; });
+
+    return buckets.map(b => {
+      const r = byMonth[b.key];
+      return {
+        month: b.label,
+        revenue: num(r?.revenue),
+        orders: num(r?.orders),
+        profit: num(r?.profit)
+      };
     });
-
-    ordersInRange.forEach(o => {
-      const d = parseDateSafe(o.date);
-      if (!d) return;
-      const key = monthKeyOf(d);
-      if (!bucketMap[key]) return;
-      bucketMap[key].revenue += num(o.total);
-      bucketMap[key].orders += 1;
-      bucketMap[key].customerSet.add(o.customer_id);
-
-      const items = orderItemsById[o.id];
-      if (items) {
-        items.forEach(it => {
-          const cost = num(productsById[it.product_id]?.buyin_price);
-          bucketMap[key].profit += num(it.subtotal) - (num(it.qty) * cost);
-        });
-      }
-    });
-
-    return buckets.map(b => ({
-      month: bucketMap[b.key].month,
-      revenue: Math.round(bucketMap[b.key].revenue * 100) / 100,
-      orders: bucketMap[b.key].orders,
-      profit: Math.round(bucketMap[b.key].profit * 100) / 100,
-      customers: bucketMap[b.key].customerSet.size
-    }));
-  }, [ordersInRange, orderItemsById, productsById, dateRange]);
+  }, [apiSummary, dateRange]);
 
   // ============================================
-  // YEARLY CHART DATA (all orders, grouped by year — not range-limited)
+  // YEARLY CHART DATA (SQL aggregate, not range-limited)
   // ============================================
   const yearlyChartData = useMemo(() => {
-    const byYear = {};
-    orders.forEach(o => {
-      const d = parseDateSafe(o.date);
-      if (!d) return;
-      const year = d.getFullYear();
-      if (!byYear[year]) byYear[year] = { year: String(year), revenue: 0, orders: 0 };
-      byYear[year].revenue += num(o.total);
-      byYear[year].orders += 1;
-    });
-    return Object.values(byYear)
-      .sort((a, b) => Number(a.year) - Number(b.year))
-      .map(y => ({ ...y, revenue: Math.round(y.revenue * 100) / 100 }));
-  }, [orders]);
+    return (apiSummary?.revenue_by_year || []).map(y => ({
+      year: y.year,
+      revenue: num(y.revenue),
+      orders: num(y.orders)
+    }));
+  }, [apiSummary]);
 
   // ============================================
-  // PRODUCT PERFORMANCE (from item-level detail, in-range)
+  // PRODUCT PERFORMANCE (SQL aggregate, in-range)
   // ============================================
+  const mapProductRow = (p) => ({
+    product_id: p.product_id,
+    product_name: p.name,
+    total_sold: num(p.qty),
+    revenue: num(p.revenue),
+    profit: num(p.profit),
+    marginPct: num(p.revenue) > 0 ? Math.round((num(p.profit) / num(p.revenue)) * 1000) / 10 : 0
+  });
+
   const productPerformance = useMemo(() => {
-    const byProduct = {};
-    itemsInRange.forEach(it => {
-      const pid = it.product_id;
-      const name = it.product_name || productsById[pid]?.name_en || 'Unknown Product';
-      if (!byProduct[pid]) {
-        byProduct[pid] = { product_id: pid, product_name: name, total_sold: 0, revenue: 0, profit: 0 };
-      }
-      const cost = num(productsById[pid]?.buyin_price);
-      byProduct[pid].total_sold += num(it.qty);
-      byProduct[pid].revenue += num(it.subtotal);
-      byProduct[pid].profit += num(it.subtotal) - (num(it.qty) * cost);
-    });
-
-    return Object.values(byProduct)
-      .map(p => ({
-        ...p,
-        revenue: Math.round(p.revenue * 100) / 100,
-        profit: Math.round(p.profit * 100) / 100,
-        marginPct: p.revenue > 0 ? Math.round((p.profit / p.revenue) * 1000) / 10 : 0
-      }))
-      .sort((a, b) => b.revenue - a.revenue);
-  }, [itemsInRange, productsById]);
+    return (apiSummary?.top_products_by_revenue || []).map(mapProductRow);
+  }, [apiSummary]);
 
   const filteredProducts = useMemo(() => {
     if (!debouncedSearchQuery) return productPerformance;
@@ -763,28 +596,17 @@ const Analytics = () => {
   }, [productPerformance, debouncedSearchQuery]);
 
   // ============================================
-  // CUSTOMER ANALYTICS (from real orders, in-range)
+  // CUSTOMER ANALYTICS (SQL aggregate, in-range)
   // ============================================
   const customerAnalytics = useMemo(() => {
-    const byCustomer = {};
-    ordersInRange.forEach(o => {
-      const cid = o.customer_id;
-      if (!byCustomer[cid]) {
-        const customer = customersById[cid];
-        const name = o.customer_name
-          || (customer ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() : null)
-          || 'Unknown Customer';
-        byCustomer[cid] = { customer_id: cid, name, orders: 0, totalSpent: 0, lastOrder: null };
-      }
-      byCustomer[cid].orders += 1;
-      byCustomer[cid].totalSpent += num(o.total);
-      const d = parseDateSafe(o.date);
-      if (d && (!byCustomer[cid].lastOrder || d > byCustomer[cid].lastOrder)) {
-        byCustomer[cid].lastOrder = d;
-      }
-    });
+    const list = (apiSummary?.customers || []).map(c => ({
+      customer_id: c.customer_id,
+      name: c.name,
+      orders: num(c.orders),
+      totalSpent: num(c.total_spent),
+      lastOrder: c.last_order ? String(c.last_order).split('T')[0] : null
+    }));
 
-    const list = Object.values(byCustomer);
     const avgSpent = list.length > 0
       ? list.reduce((s, c) => s + c.totalSpent, 0) / list.length
       : 0;
@@ -793,26 +615,38 @@ const Analytics = () => {
       .map(c => ({
         ...c,
         avgOrder: c.orders > 0 ? c.totalSpent / c.orders : 0,
-        lastOrder: c.lastOrder ? c.lastOrder.toISOString().split('T')[0] : null,
         segment: c.totalSpent >= avgSpent * 1.5 ? 'VIP' : (c.orders > 1 ? 'Regular' : 'New')
       }))
       .sort((a, b) => b.totalSpent - a.totalSpent);
-  }, [ordersInRange, customersById]);
+  }, [apiSummary]);
 
   // ============================================
-  // SELECTED CUSTOMER PURCHASE HISTORY (real, unfiltered by date range)
+  // SELECTED CUSTOMER PURCHASE HISTORY (fetched on demand for one customer)
   // ============================================
   const selectedCustomerRecord = useMemo(
     () => customers.find(c => String(c.id ?? c.cus_id) === String(selectedCustomer)),
     [customers, selectedCustomer]
   );
 
-  const customerHistory = useMemo(() => {
-    if (!selectedCustomer) return [];
-    return orders
-      .filter(o => String(o.customer_id) === String(selectedCustomer))
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [orders, selectedCustomer]);
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setCustomerHistory([]);
+      return;
+    }
+    let cancelled = false;
+    apiClient.get('/orders', { params: { customer_id: selectedCustomer, limit: 200 } })
+      .then(res => {
+        if (cancelled) return;
+        const rows = unwrapList(res.data, ['orders']);
+        setCustomerHistory(rows);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        debugError('❌ Error fetching customer history:', error);
+        setCustomerHistory([]);
+      });
+    return () => { cancelled = true; };
+  }, [selectedCustomer]);
 
   // ===== EXPORT HELPERS =====
   const escapeCsvField = (value) => {
@@ -845,13 +679,13 @@ const Analytics = () => {
       const isProductData = activeView === 'products';
       const headers = isProductData
         ? ['Product Name', 'Units Sold', 'Revenue', 'Profit', 'Margin %']
-        : ['Month', 'Revenue', 'Orders', 'Profit', 'Customers'];
+        : ['Month', 'Revenue', 'Orders', 'Profit'];
 
       let csv = headers.join(',') + '\n';
       data.forEach(item => {
         const row = isProductData
           ? [escapeCsvField(item.product_name), num(item.total_sold), num(item.revenue), num(item.profit), num(item.marginPct)]
-          : [escapeCsvField(item.month), num(item.revenue), num(item.orders), num(item.profit), num(item.customers)];
+          : [escapeCsvField(item.month), num(item.revenue), num(item.orders), num(item.profit)];
         csv += row.join(',') + '\n';
       });
 
@@ -872,9 +706,9 @@ const Analytics = () => {
       let filename = reportType;
 
       if (reportType === 'monthlySales') {
-        csv = ['Month', 'Revenue', 'Orders', 'Profit', 'Customers'].join(',') + '\n';
+        csv = ['Month', 'Revenue', 'Orders', 'Profit'].join(',') + '\n';
         monthlyChartData.forEach(item => {
-          csv += [escapeCsvField(item.month), num(item.revenue), num(item.orders), num(item.profit), num(item.customers)].join(',') + '\n';
+          csv += [escapeCsvField(item.month), num(item.revenue), num(item.orders), num(item.profit)].join(',') + '\n';
         });
         filename = 'monthly_sales_report';
       } else if (reportType === 'productPerformance') {
@@ -950,8 +784,8 @@ const Analytics = () => {
               <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => name === 'Orders' ? value : formatCurrency(value)} />
               <Legend />
               <Bar yAxisId="left" dataKey="revenue" fill="#6366f1" name="Revenue" radius={[4, 4, 0, 0]}>
-                {monthlyChartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                {monthlyChartData.map((entry) => (
+                  <Cell key={entry.month} fill={COLORS[Number(entry.month) % COLORS.length]} />
                 ))}
               </Bar>
               <Bar yAxisId="left" dataKey="profit" fill="#10b981" name="Profit" radius={[4, 4, 0, 0]} />
@@ -965,13 +799,7 @@ const Analytics = () => {
 
   const renderProductPerformance = () => {
     if (!productPerformance.length) {
-      return (
-        <div className="empty-state">
-          {summary.itemDetailCoverage < 100
-            ? `No product data available for orders in this range (item detail limited to the most recent orders — ${summary.itemDetailCoverage}% coverage)`
-            : 'No product sales in this date range'}
-        </div>
-      );
+      return <div className="empty-state">No product sales in this date range</div>;
     }
 
     const top10 = productPerformance.slice(0, 10);
@@ -983,7 +811,7 @@ const Analytics = () => {
             <p className="metric-tile-label">Top Product</p>
             <p className="metric-tile-value text-sm flex items-center gap-1">
               <Crown className="w-4 h-4 text-yellow-500" />
-              {productPerformance[0]?.product_name || 'N/A'}
+              {productPerformance[0]?.product_name || 'No product sales yet'}
             </p>
           </div>
           <div className="metric-tile metric-tile-green">
@@ -1006,8 +834,8 @@ const Analytics = () => {
               <Tooltip contentStyle={chartTooltipStyle} />
               <Legend />
               <Bar dataKey="total_sold" fill="#6366f1" name="Units Sold" radius={[0, 4, 4, 0]}>
-                {top10.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                {top10.map((entry) => (
+                  <Cell key={String(entry.product_id)} fill={COLORS[(Number(entry.product_id) || 0) % COLORS.length]} />
                 ))}
               </Bar>
             </BarChart>
@@ -1115,7 +943,7 @@ const Analytics = () => {
       <div className="report-content-area">
         <div className="metric-grid-3">
           {metrics.map((m, i) => (
-            <div key={i} className={`metric-tile ${m.bgColor}`}>
+            <div key={m.label} className={`metric-tile ${m.bgColor}`}>
               <div className="flex items-center gap-2 mb-1">
                 <m.icon className={`w-4 h-4 ${m.color}`} />
                 <p className="metric-tile-label">{m.label}</p>
@@ -1126,7 +954,7 @@ const Analytics = () => {
         </div>
         <div className="metric-grid-3 mt-4">
           {growthMetrics.map((m, i) => (
-            <div key={i} className="metric-tile bg-gray-50 dark:bg-gray-700/50">
+            <div key={m.label} className="metric-tile bg-gray-50 dark:bg-gray-700/50">
               <p className="metric-tile-label">{m.label}</p>
               {m.value === null ? (
                 <p className="text-sm text-gray-400">No prior-period data</p>
@@ -1147,13 +975,13 @@ const Analytics = () => {
           <div className="metric-tile bg-yellow-50 dark:bg-yellow-900/20">
             <p className="metric-tile-label">🏆 Top Product</p>
             <p className="text-lg font-bold text-yellow-700 dark:text-yellow-300">
-              {productPerformance[0]?.product_name || 'N/A'}
+              {productPerformance[0]?.product_name || 'No product sales yet'}
             </p>
           </div>
           <div className="metric-tile bg-pink-50 dark:bg-pink-900/20">
             <p className="metric-tile-label">⭐ Top Customer</p>
             <p className="text-lg font-bold text-pink-700 dark:text-pink-300">
-              {customerAnalytics[0]?.name || 'N/A'}
+              {customerAnalytics[0]?.name || 'No customers yet'}
             </p>
           </div>
         </div>
@@ -1291,15 +1119,6 @@ const Analytics = () => {
             <Activity className="w-3 h-3 animate-pulse" aria-hidden="true" />
             <span>Last updated: {new Date().toLocaleTimeString()}</span>
           </div>
-          {summary.itemDetailCoverage < 100 && (
-            <>
-              <span className="w-px h-4 bg-white/20" aria-hidden="true"></span>
-              <span className="flex items-center gap-1 text-amber-200" title="Product-level revenue/profit is based on the most recent orders only">
-                <AlertCircle className="w-3 h-3" aria-hidden="true" />
-                Product data: {summary.itemDetailCoverage}% coverage for this range
-              </span>
-            </>
-          )}
           <span className="ml-auto flex items-center gap-1 text-indigo-200">
             <Shield className="w-3 h-3" aria-hidden="true" />
             Data encrypted
@@ -1403,8 +1222,8 @@ const Analytics = () => {
                     <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => name === 'Orders' ? value : formatCurrency(value)} />
                     <Legend />
                     <Bar yAxisId="left" dataKey="revenue" fill="#6366f1" name="Revenue ($)" radius={[4, 4, 0, 0]}>
-                      {monthlyChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      {monthlyChartData.map((entry) => (
+                        <Cell key={entry.month} fill={COLORS[Number(entry.month) % COLORS.length]} />
                       ))}
                     </Bar>
                     <Line yAxisId="right" type="monotone" dataKey="orders" stroke="#8b5cf6" name="Orders" strokeWidth={3} dot={{ r: 4 }} />
@@ -1433,8 +1252,8 @@ const Analytics = () => {
                       outerRadius={80}
                       paddingAngle={2}
                     >
-                      {monthlyChartData.filter(d => d.revenue > 0).map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      {monthlyChartData.filter(d => d.revenue > 0).map((entry) => (
+                        <Cell key={entry.month} fill={COLORS[Number(entry.month) % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => formatCurrency(value)} />
@@ -1465,8 +1284,8 @@ const Analytics = () => {
                   <YAxis stroke="#9ca3af" fontSize={12} />
                   <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => formatCurrency(value)} />
                   <Area type="monotone" dataKey="revenue" stroke="#6366f1" fill="#818cf8" fillOpacity={0.3}>
-                    {yearlyChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    {yearlyChartData.map((entry) => (
+                      <Cell key={String(entry.year)} fill={COLORS[Number(entry.year) % COLORS.length]} />
                     ))}
                   </Area>
                 </AreaChart>
@@ -1516,14 +1335,14 @@ const Analytics = () => {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={filteredProducts.slice(0, 15)} layout="vertical">
+                <BarChart data={[...filteredProducts].sort((a, b) => b.total_sold - a.total_sold).slice(0, 15)} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.1} />
                   <XAxis type="number" stroke="#9ca3af" fontSize={12} />
                   <YAxis type="category" dataKey="product_name" stroke="#9ca3af" fontSize={12} width={100} />
                   <Tooltip contentStyle={chartTooltipStyle} />
                   <Bar dataKey="total_sold" fill="#6366f1" radius={[0, 4, 4, 0]}>
-                    {filteredProducts.slice(0, 15).map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    {[...filteredProducts].sort((a, b) => b.total_sold - a.total_sold).slice(0, 15).map((entry) => (
+                      <Cell key={String(entry.product_id)} fill={COLORS[(Number(entry.product_id) || 0) % COLORS.length]} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -1592,7 +1411,7 @@ const Analytics = () => {
               <option value="">Select a customer</option>
               {customers.map((c) => {
                 const id = c.id ?? c.cus_id;
-                const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Unknown';
+                const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'No name recorded';
                 const phone = c.phone || '';
                 return (
                   <option key={id} value={id}>
@@ -1617,7 +1436,7 @@ const Analytics = () => {
                       {(() => {
                         const firstName = selectedCustomerRecord?.first_name || '';
                         const lastName = selectedCustomerRecord?.last_name || '';
-                        return `${firstName} ${lastName}`.trim() || 'Unknown';
+                        return `${firstName} ${lastName}`.trim() || 'No name recorded';
                       })()}
                     </p>
                     <p className="customer-id">ID: {selectedCustomer}</p>
@@ -1663,14 +1482,14 @@ const Analytics = () => {
                   </thead>
                   <tbody className="history-tbody">
                     {customerHistory.map((order, index) => {
-                      const status = order.status || 'Pending';
+                      const status = order.status || 'No status';
                       return (
                         <tr key={order.id ?? order.order_no ?? `order-${index}`} className="history-tr" style={{ animationDelay: `${index * 50}ms` }}>
-                          <td className="history-td order-id">{order.order_no || 'N/A'}</td>
+                          <td className="history-td order-id">{order.order_no || 'No order number'}</td>
                           <td className="history-td order-date">
-                            {order.date
-                              ? new Date(order.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-                              : 'N/A'}
+                            {order.order_date || order.ORDER_DATE || order.date
+                              ? new Date(order.order_date || order.ORDER_DATE || order.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+                              : 'No date'}
                           </td>
                           <td className="history-td text-right order-amount">{formatCurrency(order.total)}</td>
                           <td className="history-td text-center">

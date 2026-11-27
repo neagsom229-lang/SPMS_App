@@ -1,19 +1,23 @@
 // frontend/src/pages/Landing.jsx - Refactored for 3D Electronics Storefront & TechFlow
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
+import apiClient from '../api/client';
+import { DEFAULT_STORE_SLUG } from '../config/store';
 import '../styles/landing.css';
+
+// Lock only the current plan's button while more than 7 days remain.
+const renewalLocked = (sub, planId) =>
+  !!sub && sub.status === 'active' && String(sub.plan || 'free').toLowerCase() === String(planId).toLowerCase() &&
+  !!sub.expires && (new Date(sub.expires).getTime() - Date.now()) / 86400000 > 7;
 
 // ✅ CONFIRMED WORKING ICONS
 import {
-  ArrowRight, Star, Users, Shield, ChevronRight, Play, BarChart3,
-  Truck, Boxes, Receipt, Landmark, Quote, Menu, X, LogIn, UserPlus,
+  ArrowRight, Star, Users, Shield, ChevronRight, BarChart3,
+  Truck, Boxes, Receipt, Quote, Menu, X, LogIn, UserPlus,
   LayoutDashboard, LogOut, ChevronDown, Clock, RefreshCw, CheckCircle,
-  AlertCircle, TrendingUp, Package, Warehouse, Award, Heart, Zap,
-  Coffee, BookOpen, Target, Compass, Sparkles, Mail, Phone, MapPin,
-  Calendar, Globe, Send, MessageCircle, Headphones, LifeBuoy, Lightbulb,
-  ThumbsUp, ThumbsDown, Copy, ExternalLink, Bot, Search, Cpu, Laptop, Monitor
+  Zap, Sparkles, Send, Headphones, Bot, Cpu, Laptop, Monitor
 } from "lucide-react";
 
 // ============================================================
@@ -24,13 +28,6 @@ const TwitterIcon = ({ className, ...props }) => (
   <svg className={className} {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 4l11.733 16h4.267l-11.733 -16z" />
     <path d="M4 20l6.768 -6.768m2.46 -2.46l6.772 -6.772" />
-  </svg>
-);
-
-const YoutubeIcon = ({ className, ...props }) => (
-  <svg className={className} {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
-    <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
   </svg>
 );
 
@@ -135,16 +132,8 @@ const Landing = () => {
           return;
         }
 
-        const API_URL = 'http://localhost:5000/api';
-        const response = await fetch(`${API_URL}/users/${userId}/subscription`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
+        const { data } = await apiClient.get('/payment/subscription');
+        if (data) {
           setUserSubscription(data);
         } else {
           setUserSubscription(null);
@@ -215,9 +204,9 @@ const Landing = () => {
   const chatEndRef = useRef(null);
 
   // ─── CONSTANTS ───
-  const storeSlug = import.meta.env.VITE_DEFAULT_STORE_SLUG || 'demo-store';
+  const storeSlug = DEFAULT_STORE_SLUG;
 
-  const NAV_LINKS = [
+  const NAV_LINKS = useMemo(() => [
     { id: 'home', label: 'Home' },
     { id: 'storefront', label: 'Storefront', path: `/shop/${storeSlug}` },
     { id: 'features', label: 'Features' },
@@ -225,15 +214,15 @@ const Landing = () => {
     { id: 'testimonials', label: 'Testimonials' },
     { id: 'pricing', label: 'Pricing' },
     { id: 'faq', label: 'FAQ' },
-  ];
+  ], [storeSlug]);
 
   const FEATURES = [
-    { icon: Boxes, title: 'Smart Inventory Management', desc: 'Live stock counts across every branch, with low-stock alerts before you run out at the counter.', tag: 'Real-time sync', color: 'from-cyan-500 to-teal-500' },
-    { icon: Receipt, title: 'Fast Point of Sale', desc: 'Fast checkout, printed or Telegram receipts, and offline mode for when the connection drops.', tag: '< 2s per sale', color: 'from-purple-500 to-indigo-500' },
-    { icon: BarChart3, title: 'Insightful Reports', desc: 'Daily revenue, best-sellers, and margin by product — in Khmer or English, on your phone.', tag: 'Daily digest', color: 'from-blue-500 to-indigo-500' },
-    { icon: Truck, title: 'Supplier Management', desc: 'Reorder stock in two taps and track what is owed to each supplier without a paper ledger.', tag: 'No more notebooks', color: 'from-orange-500 to-amber-500' },
-    { icon: Users, title: 'Customer Loyalty', desc: 'Remember regulars, run simple loyalty stamps, and see who your best customers really are.', tag: 'Repeat business', color: 'from-rose-500 to-red-500' },
-    { icon: Shield, title: 'Secure & Reliable', desc: 'Role-based staff access and nightly backups, so a lost phone never means a lost shop.', tag: 'Bank-grade encryption', color: 'from-cyan-500 to-blue-500' },
+    { id: 'smart-inventory', icon: Boxes, title: 'Smart Inventory Management', desc: 'Live stock counts across every branch, with low-stock alerts before you run out at the counter.', tag: 'Real-time sync', color: 'from-cyan-500 to-teal-500' },
+    { id: 'fast-pos', icon: Receipt, title: 'Fast Point of Sale', desc: 'Fast checkout, printed or Telegram receipts, and offline mode for when the connection drops.', tag: '< 2s per sale', color: 'from-purple-500 to-indigo-500' },
+    { id: 'deep-reports', icon: BarChart3, title: 'Insightful Reports', desc: 'Daily revenue, best-sellers, and margin by product — in Khmer or English, on your phone.', tag: 'Daily digest', color: 'from-blue-500 to-indigo-500' },
+    { id: 'supplier-management', icon: Truck, title: 'Supplier Management', desc: 'Reorder stock in two taps and track what is owed to each supplier without a paper ledger.', tag: 'No more notebooks', color: 'from-orange-500 to-amber-500' },
+    { id: 'customer-loyalty', icon: Users, title: 'Customer Loyalty', desc: 'Remember regulars, run simple loyalty stamps, and see who your best customers really are.', tag: 'Repeat business', color: 'from-rose-500 to-red-500' },
+    { id: 'secure-reliability', icon: Shield, title: 'Secure & Reliable', desc: 'Role-based staff access and nightly backups, so a lost phone never means a lost shop.', tag: 'Bank-grade encryption', color: 'from-cyan-500 to-blue-500' },
   ];
 
   const STEPS = [
@@ -340,7 +329,7 @@ const Landing = () => {
       if (el) sectionObserver.observe(el);
     });
     return () => sectionObserver.disconnect();
-  }, []);
+  }, [NAV_LINKS]);
 
   // ─── REVEAL OBSERVER ───
   useEffect(() => {
@@ -506,21 +495,26 @@ const Landing = () => {
   };
 
   const renderStars = (count) => {
-    return [...Array(5)].map((_, i) => (
-      <Star key={i} className="w-4 h-4" style={{ fill: i < count ? 'var(--kf-gold)' : 'none', color: i < count ? 'var(--kf-gold)' : 'rgba(255,255,255,0.2)' }} />
-    ));
+    const stars = [];
+    for (let i = 0; i < 5; i += 1) {
+      stars.push(
+        <Star
+          key={`rating-star-${i}`}
+          className="w-4 h-4"
+          style={{ fill: i < count ? 'var(--kf-gold)' : 'none', color: i < count ? 'var(--kf-gold)' : 'rgba(255,255,255,0.2)' }}
+        />
+      );
+    }
+    return stars;
   };
 
   const hasActivePlan = (planId) => {
-    return user && userSubscription && userSubscription.status === 'active' && userSubscription.plan === planId;
+    return !!user && renewalLocked(userSubscription, planId);
   };
 
   const getPlanButton = (plan) => {
     if (hasActivePlan(plan.id)) {
       return { text: 'Go to Dashboard', action: goToDashboard, className: 'kf-btn-primary w-full justify-center', isActive: true };
-    }
-    if (user && userSubscription && userSubscription.status === 'active' && userSubscription.plan !== plan.id) {
-      return { text: `Current: ${userSubscription.planName}`, action: null, className: 'kf-btn-disabled w-full justify-center cursor-not-allowed opacity-60', isActive: false, isDisabled: true };
     }
     if (!user) {
       return { text: plan.id === 'market-stall' ? 'Start Free' : `Choose ${plan.name}`, action: () => navigate('/register'), className: plan.highlight ? 'kf-btn-primary w-full justify-center' : 'kf-btn-outline w-full justify-center', isActive: false, isDisabled: false };
@@ -582,7 +576,7 @@ const Landing = () => {
           <div className="px-4 py-2 border-t border-slate-800 bg-slate-900">
             <div className="flex flex-wrap gap-1.5">
               {aiSuggestions.map((suggestion, index) => (
-                <button key={index} onClick={() => handleAiSuggestionClick(suggestion)} className="px-2.5 py-1 text-[11px] bg-slate-800 text-slate-300 rounded-full hover:bg-cyan-950 hover:text-cyan-300 transition-colors">
+                <button key={suggestion} onClick={() => handleAiSuggestionClick(suggestion)} className="px-2.5 py-1 text-[11px] bg-slate-800 text-slate-300 rounded-full hover:bg-cyan-950 hover:text-cyan-300 transition-colors">
                   {suggestion}
                 </button>
               ))}
@@ -885,7 +879,7 @@ const Landing = () => {
 
                 <div className="kf-dash-card kf-dash-card-incoming">
                   <span className="kf-dash-dot kf-dash-dot-green" aria-hidden="true" />
-                  <div className="kf-dash-card-label">TODAY'S SALES</div>
+                  <div className="kf-dash-card-label">TODAY&apos;S SALES</div>
                   <div className="kf-dash-card-value">${dashboardStats.todaySales.toFixed(2)} <span className="kf-dash-card-sub">· {dashboardStats.todayOrders} rigs</span></div>
                 </div>
 
@@ -967,7 +961,7 @@ const Landing = () => {
             ].map((item, idx) => {
               const Icon = item.icon;
               return (
-                <div key={idx} className="group relative bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 hover:border-cyan-500/50 shadow-xl transition-all duration-300 hover:shadow-[0_10px_30px_rgba(6,182,212,0.15)] flex flex-col justify-between">
+                <div key={item.title} className="group relative bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-2xl p-6 hover:border-cyan-500/50 shadow-xl transition-all duration-300 hover:shadow-[0_10px_30px_rgba(6,182,212,0.15)] flex flex-col justify-between">
                   <div className="absolute -inset-px bg-gradient-to-r from-cyan-500 to-indigo-600 rounded-2xl opacity-0 group-hover:opacity-30 blur-md transition-opacity -z-10" />
                   <div>
                     <div className="flex items-center justify-between mb-4">
@@ -1016,14 +1010,14 @@ const Landing = () => {
             {FEATURES.map((f, i) => {
               const Icon = f.icon;
               return (
-                <div key={i} id={`feature-${i}`} className={`kf-card kf-reveal ${isVisible[`feature-${i}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 80}ms` }} onMouseMove={handleCardMove} onMouseEnter={() => setHoveredCard(i)} onMouseLeave={() => setHoveredCard(null)}>
+                <div key={f.id} id={`feature-${f.id}`} className={`kf-card kf-reveal ${isVisible[`feature-${f.id}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 80}ms` }} onMouseMove={handleCardMove} onMouseEnter={() => setHoveredCard(f.id)} onMouseLeave={() => setHoveredCard(null)}>
                   <div className={`kf-card-icon bg-gradient-to-br ${f.color}`}>
                     <Icon className="w-5 h-5" aria-hidden="true" />
                   </div>
                   <h3 className="kf-display kf-card-title">{f.title}</h3>
                   <p className="kf-body kf-card-desc">{f.desc}</p>
                   <span className="kf-pill">{f.tag}</span>
-                  {hoveredCard === i && <div className="kf-card-glow" />}
+                  {hoveredCard === f.id && <div className="kf-card-glow" />}
                 </div>
               );
             })}
@@ -1041,7 +1035,7 @@ const Landing = () => {
 
           <div className="kf-steps">
             {STEPS.map((s, i) => (
-              <div key={i} id={`step-${i}`} className={`kf-step kf-reveal ${isVisible[`step-${i}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 120}ms` }}>
+              <div key={s.n} id={`step-${s.n}`} className={`kf-step kf-reveal ${isVisible[`step-${s.n}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 120}ms` }}>
                 <span className="kf-mono kf-step-n" aria-hidden="true">{s.n}</span>
                 <h3 className="kf-display kf-step-title">{s.title}</h3>
                 <p className="kf-body kf-card-desc">{s.desc}</p>
@@ -1079,7 +1073,7 @@ const Landing = () => {
 
             <div className="flex justify-center gap-2 mt-8" role="tablist" aria-label="Choose testimonial">
               {TESTIMONIALS.map((t, index) => (
-                <button key={index} role="tab" aria-selected={index === activeTestimonial} aria-label={`Show testimonial from ${t.name}`} onClick={() => setActiveTestimonial(index)} className={`kf-tdot ${index === activeTestimonial ? 'kf-tdot-active' : ''}`} />
+                <button key={t.name} role="tab" aria-selected={index === activeTestimonial} aria-label={`Show testimonial from ${t.name}`} onClick={() => setActiveTestimonial(index)} className={`kf-tdot ${index === activeTestimonial ? 'kf-tdot-active' : ''}`} />
               ))}
             </div>
           </div>
@@ -1106,7 +1100,7 @@ const Landing = () => {
               const buttonInfo = getPlanButton(plan);
 
               return (
-                <div key={i} id={`plan-${i}`} className={`kf-plan kf-reveal ${plan.highlight ? 'kf-plan-highlight' : ''} ${isActive ? 'kf-plan-active' : ''} ${isVisible[`plan-${i}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 100}ms` }} onMouseMove={handleCardMove}>
+                <div key={plan.id} id={`plan-${plan.id}`} className={`kf-plan kf-reveal ${plan.highlight ? 'kf-plan-highlight' : ''} ${isActive ? 'kf-plan-active' : ''} ${isVisible[`plan-${plan.id}`] ? 'kf-reveal-in' : ''}`} style={{ transitionDelay: `${i * 100}ms` }} onMouseMove={handleCardMove}>
                   {plan.highlight && !isActive && <span className="kf-plan-badge">Most popular</span>}
                   {isActive && <span className="kf-plan-badge kf-plan-badge-active">✓ Active</span>}
 
@@ -1118,7 +1112,7 @@ const Landing = () => {
                   </div>
                   <ul className="space-y-3 mb-8">
                     {plan.features.map((f, j) => (
-                      <li key={j} className="flex items-start gap-2 kf-body text-sm">
+                      <li key={f} className="flex items-start gap-2 kf-body text-sm">
                         <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: isActive ? '#22c55e' : 'var(--kf-gold)' }} aria-hidden="true" />
                         <span className={isActive ? 'text-green-600 dark:text-green-400' : ''}>{f}</span>
                       </li>
@@ -1159,7 +1153,7 @@ const Landing = () => {
               {FAQS.map((faq, index) => {
                 const isOpen = openFaqs[index] || false;
                 return (
-                  <div key={index} className="kf-faq-item">
+                  <div key={faq.q} className="kf-faq-item">
                     <button className="kf-faq-question" onClick={() => toggleFaq(index)} aria-expanded={isOpen}>
                       <span className="kf-faq-q">{faq.q}</span>
                       <ChevronDown className={`kf-faq-icon ${isOpen ? 'kf-faq-icon-open' : ''}`} />
@@ -1183,7 +1177,7 @@ const Landing = () => {
           <h2 className="kf-display kf-h2" style={{ color: 'var(--kf-cream)' }}>Your tech store deserves a ledger this clear.</h2>
           <p className="kf-body kf-lede-sm mt-4 max-w-xl mx-auto" style={{ color: 'rgba(241,238,255,0.72)' }}>Set up in one evening. Free for your first counter, forever.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center mt-10">
-            <Link to={`/shop/demo-store/${storeSlug}`} className="kf-btn-primary bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)]">
+            <Link to={`/shop/${storeSlug}`} className="kf-btn-primary bg-gradient-to-r from-cyan-500 to-indigo-600 text-slate-950 font-black shadow-[0_0_25px_rgba(6,182,212,0.4)]">
               <span>Explore 3D Storefront</span>
               <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </Link>

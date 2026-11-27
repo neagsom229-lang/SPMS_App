@@ -2,49 +2,27 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import { 
-  Activity, Search, RefreshCw, Filter, X, 
-  Clock, User, Eye, Trash2, Download, 
-  AlertCircle, CheckCircle, Loader2,
-  Calendar, ChevronRight, ArrowUp, ArrowDown,
-  Grid3x3, List, ClipboardList, Shield, Zap,
-  Sparkles, Award, Star, Gift, Heart,
+  Activity, Search, RefreshCw, X, 
+  Clock, Eye, Download, 
+  AlertCircle, CheckCircle, Grid3x3, List, ClipboardList, Zap,
   AlertTriangle, Key
 } from 'lucide-react';
 import '../styles/activitylog.css';
 import apiClient from '../api/client';
+import { unwrapList as extractArrayData } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isAdminRole } from '../utils/roles';
 
 // ============================================
 // SHARED DATA HELPERS
 // ============================================
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (
-    typeof responseData === "string" &&
-    responseData.includes("<!DOCTYPE html>")
-  ) {
-    return null;
-  }
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key]))
-          return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 // ============================================
 // MAIN ACTIVITYLOG COMPONENT
 // ============================================
 const ActivityLog = () => {
+  const { user } = useAuth();
+  const canViewUsers = isAdminRole(user);
   // ===== STATE =====
   const [logs, setLogs] = useState([]);
   const [users, setUsers] = useState([]);
@@ -55,8 +33,8 @@ const ActivityLog = () => {
   const [filterAction, setFilterAction] = useState('all');
   const [filterUser, setFilterUser] = useState('all');
   const [filterTable, setFilterTable] = useState('all');
-  const [sortBy, setSortBy] = useState('date');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortBy] = useState('date');
+  const [sortOrder] = useState('desc');
   const [viewMode, setViewMode] = useState('list');
   const [selectedLogs, setSelectedLogs] = useState([]);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -129,7 +107,6 @@ const ActivityLog = () => {
         const data = extractArrayData(res.data, ['logs', 'items', 'data']);
         const rawArray = Array.isArray(data) ? data : [];
         const logsArray = rawArray.map(normalizeLog);
-        console.log(`📋 Activity logs loaded: ${logsArray.length}`);
         
         setLogs(logsArray);
         if (logsArray.length > 0) {
@@ -152,21 +129,26 @@ const ActivityLog = () => {
 
   // ===== FETCH USERS =====
   const fetchUsers = useCallback(async () => {
+    if (!canViewUsers) {
+      if (isMounted.current) setUsers([]);
+      return;
+    }
     try {
       const res = await apiClient.get('/users');
       if (isMounted.current) {
         const data = extractArrayData(res.data, ['users', 'items', 'data']);
         const usersArray = Array.isArray(data) ? data.map(normalizeUser) : [];
         setUsers(usersArray);
-        console.log(`👥 Users loaded: ${usersArray.length}`);
       }
     } catch (error) {
-      console.error('❌ Error fetching users:', error);
+      if (error?.response?.status !== 403) {
+        console.error('❌ Error fetching users:', error);
+      }
       if (isMounted.current) {
         setUsers([]);
       }
     }
-  }, []);
+  }, [canViewUsers]);
 
   // ===== INITIAL LOAD =====
   useEffect(() => {
@@ -289,9 +271,9 @@ const ActivityLog = () => {
     const tableCounts = {};
 
     logs.forEach(log => {
-      const action = log.action || 'Unknown';
-      const user = log.username || 'Unknown';
-      const table = log.table_name || 'Unknown';
+      const action = log.action || 'Not recorded';
+      const user = log.username || 'System';
+      const table = log.table_name || 'Not recorded';
       
       actionCounts[action] = (actionCounts[action] || 0) + 1;
       userCounts[user] = (userCounts[user] || 0) + 1;
@@ -355,7 +337,7 @@ const ActivityLog = () => {
 
   // ===== FORMAT DATE =====
   const formatDate = (dateStr) => {
-    if (!dateStr) return 'N/A';
+    if (!dateStr) return 'No date';
     try {
       const date = new Date(dateStr);
       if (isNaN(date)) return dateStr;
@@ -374,7 +356,7 @@ const ActivityLog = () => {
 
   // ===== TIME AGO =====
   const timeAgo = (dateStr) => {
-    if (!dateStr) return 'N/A';
+    if (!dateStr) return 'No date';
     try {
       const date = new Date(dateStr);
       const now = new Date();
@@ -433,7 +415,7 @@ const ActivityLog = () => {
       filteredLogs.forEach(log => {
         const row = [
           log.log_id || '',
-          `"${log.username || 'Unknown'}"`,
+          `"${log.username || 'System'}"`,
           `"${log.action || ''}"`,
           `"${log.table_name || ''}"`,
           log.record_id || '',
@@ -484,12 +466,6 @@ const ActivityLog = () => {
     });
     return Array.from(tables).sort();
   }, [logs]);
-
-  // ===== GET USER NAME =====
-  const getUserName = useCallback((userId) => {
-    const user = users.find(u => String(u.user_id) === String(userId));
-    return user?.username || user?.fullname || `User ${userId}`;
-  }, [users]);
 
   // ===== LOADING =====
   if (loading) {
@@ -724,7 +700,7 @@ const ActivityLog = () => {
                   const id = log.log_id;
                   const isSelected = selectedLogs.includes(id);
                   const actionEmoji = getActionEmoji(log.action);
-                  const username = log.username || 'Unknown';
+                  const username = log.username || 'System';
 
                   return (
                     <tr 
@@ -753,7 +729,7 @@ const ActivityLog = () => {
                       <td className="activitylog-list-td">
                         <span className={getActionBadge(log.action)}>
                           <span className="activitylog-action-emoji">{actionEmoji}</span>
-                          {log.action || 'Unknown'}
+                          {log.action || 'Not recorded'}
                         </span>
                       </td>
                       <td className="activitylog-list-td hidden md:table-cell">
@@ -788,7 +764,7 @@ const ActivityLog = () => {
             const id = log.log_id;
             const isSelected = selectedLogs.includes(id);
             const actionEmoji = getActionEmoji(log.action);
-            const username = log.username || 'Unknown';
+            const username = log.username || 'System';
 
             return (
               <div
@@ -826,7 +802,7 @@ const ActivityLog = () => {
 
                   <div className="activitylog-grid-card-action-badge">
                     <span className={getActionBadge(log.action)}>
-                      {log.action || 'Unknown'}
+                      {log.action || 'Not recorded'}
                     </span>
                   </div>
 
@@ -897,10 +873,10 @@ const ActivityLog = () => {
                 </div>
                 <div>
                   <p className="activitylog-modal-username">
-                    {selectedLogDetail.username || 'Unknown'}
+                    {selectedLogDetail.username || 'System'}
                   </p>
                   <p className="activitylog-modal-userid">
-                    User ID: {selectedLogDetail.user_id ?? 'N/A'}
+                    User ID: {selectedLogDetail.user_id ?? 'System'}
                   </p>
                 </div>
               </div>
@@ -915,7 +891,7 @@ const ActivityLog = () => {
                     {getActionEmoji(selectedLogDetail.action)}
                   </span>
                   <span className={`activitylog-modal-action-text ${getActionColor(selectedLogDetail.action)}`}>
-                    {selectedLogDetail.action || 'Unknown'}
+                    {selectedLogDetail.action || 'Not recorded'}
                   </span>
                 </div>
                 {selectedLogDetail.table_name && (

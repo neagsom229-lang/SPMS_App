@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Phase 12f: minimal gitleaks pre-commit secret scan.
+# Install (one line): git config core.hooksPath scripts
+if command -v gitleaks >/dev/null 2>&1; then
+  exec gitleaks protect --staged --redact --no-banner --exit-code 1 --config .gitleaks.toml
+fi
+echo "pre-commit: gitleaks not installed; skipping secret scan" >&2
+exit 0

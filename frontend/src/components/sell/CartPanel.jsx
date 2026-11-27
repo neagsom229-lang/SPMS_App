@@ -59,7 +59,7 @@ const CartPanel = ({
         <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl space-y-2">
           <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">Held Orders:</p>
           {heldOrders.map((h, idx) => (
-            <div key={idx} className="flex justify-between items-center bg-white dark:bg-gray-800 p-2 rounded-lg text-xs">
+            <div key={h.id} className="flex justify-between items-center bg-white dark:bg-gray-800 p-2 rounded-lg text-xs">
               <span>Order #{idx + 1} ({h.cart.length} items) - ${h.total.toFixed(2)}</span>
               <button
                 onClick={() => {

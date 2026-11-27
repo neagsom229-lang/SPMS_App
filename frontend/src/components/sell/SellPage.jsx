@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 import apiClient from '../../api/client';
+import { unwrapList, fetchPage } from '../../api/list';
 import ProductCatalog from './ProductCatalog';
 import CartPanel from './CartPanel';
 import CustomerPicker from './CustomerPicker';
@@ -14,6 +15,11 @@ const SellPage = () => {
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [productQuery, setProductQuery] = useState('');
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [productTotal, setProductTotal] = useState(0);
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [cart, setCart] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -25,36 +31,99 @@ const SellPage = () => {
 
   const queryClient = useQueryClient();
 
+  useEffect(() => {
+    let alive = true;
+    apiClient.get('/categories').then((res) => {
+      if (!alive) return;
+      const rows = unwrapList(res.data, ['categories']);
+      setCategories(rows.map((c) => ({ id: c.id || c.ID, name: c.name || c.NAME || c.category })).filter((c) => c.id && c.name));
+    }).catch(() => { if (alive) setCategories([]); });
+    return () => { alive = false; };
+  }, []);
+
   // Reset idempotency key when cart changes
   useEffect(() => {
     setIdempotencyKey(crypto.randomUUID());
   }, [cart]);
 
-  // Fetch Catalog & Customers
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // Fetch products (?q= search, limit 50 while searching, 200 newest otherwise)
+  const loadProducts = useCallback(async (q) => {
+    const params = { limit: 200, ...(q ? { q } : {}), ...(selectedCategory ? { category: selectedCategory } : {}) };
+    const { rows: list, pagination } = await fetchPage(apiClient, '/products', { params });
+    setProducts(list);
+    setProductTotal(pagination.total ?? list.length);
+    return list;
+  }, [selectedCategory]);
+
+  // Fetch customers (?q= search on name / phone / email)
+  const loadCustomers = useCallback(async (q) => {
+    const params = q ? { q } : { limit: 200 };
+    const res = await apiClient.get('/customers', { params });
+    return unwrapList(res.data, ['customers']);
+  }, []);
+
+  // Initial load (immediate) + debounced search for both lists. The sequence
+  // counter drops stale responses so a slow older request cannot overwrite a
+  // newer one.
+  const bootedRef = React.useRef(false);
+  const seqRef = React.useRef(0);
+  useEffect(() => {
+    const initial = !bootedRef.current;
+    const timer = setTimeout(async () => {
+      bootedRef.current = true;
+      const seq = ++seqRef.current;
+      if (initial) setLoading(true);
+      try {
+        const [prodList, custList] = await Promise.all([
+          loadProducts(productQuery),
+          loadCustomers(customerQuery)
+        ]);
+        if (seq !== seqRef.current) return;
+        setProducts(prodList);
+        setCustomers(custList);
+      } catch (err) {
+        if (seq !== seqRef.current) return;
+        console.error('Failed to load sell data:', err);
+        toast.error('Failed to load product catalog or customers');
+      } finally {
+        if (initial && seq === seqRef.current) setLoading(false);
+      }
+    }, initial ? 0 : 300);
+    return () => clearTimeout(timer);
+  }, [productQuery, customerQuery, loadProducts, loadCustomers]);
+
+  // Immediate refresh (used by the Refresh button and after a sale) with the
+  // queries that are currently in the inputs.
+  const refreshNow = useCallback(async () => {
+    const seq = ++seqRef.current;
     try {
-      const [prodRes, custRes] = await Promise.all([
-        apiClient.get('/products', { params: { limit: 200 } }),
-        apiClient.get('/customers', { params: { limit: 200 } })
+      const [prodList, custList] = await Promise.all([
+        loadProducts(productQuery),
+        loadCustomers(customerQuery)
       ]);
-
-      const prodList = prodRes.data.products || prodRes.data.data || (Array.isArray(prodRes.data) ? prodRes.data : []);
-      const custList = custRes.data.customers || custRes.data.data || (Array.isArray(custRes.data) ? custRes.data : []);
-
+      if (seq !== seqRef.current) return;
       setProducts(prodList);
       setCustomers(custList);
     } catch (err) {
-      console.error('Failed to load sell data:', err);
+      if (seq !== seqRef.current) return;
+      console.error('Failed to refresh sell data:', err);
       toast.error('Failed to load product catalog or customers');
-    } finally {
-      setLoading(false);
+    }
+  }, [loadProducts, loadCustomers, productQuery, customerQuery]);
+
+  // Exact-barcode lookup: used when Enter is pressed before the debounced
+  // search response has arrived.
+  const resolveByBarcode = useCallback(async (term) => {
+    try {
+      const res = await apiClient.get('/products', { params: { q: term, limit: 50 } });
+      const list = unwrapList(res.data, ['products']);
+      const wanted = String(term).toLowerCase();
+      return list.find(p => String(p.barcode || p.BARCODE || '').toLowerCase() === wanted) || null;
+    } catch (err) {
+      console.error('Barcode lookup failed:', err);
+      return null;
     }
   }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
 
   // Add to cart with stock capping
   const handleAddToCart = (product) => {
@@ -125,7 +194,7 @@ const SellPage = () => {
       toast.error('Cart is empty');
       return;
     }
-    setHeldOrders(prev => [...prev, { cart, discount, selectedCustomer, total }]);
+    setHeldOrders(prev => [...prev, { id: crypto.randomUUID(), cart, discount, selectedCustomer, total }]);
     setCart([]);
     setDiscount(0);
     toast.success('Order placed on hold');
@@ -172,12 +241,12 @@ const SellPage = () => {
       setCart([]);
       setDiscount(0);
       setShowPaymentModal(false);
-      fetchData(); // Refresh product stock levels
+      refreshNow(); // Refresh product stock levels
     } catch (err) {
       console.error('Checkout error:', err);
       const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to complete sale';
       toast.error(errorMsg);
-      fetchData();
+      refreshNow();
     } finally {
       setProcessing(false);
     }
@@ -202,7 +271,7 @@ const SellPage = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400">Scan items, build cart, and process checkout</p>
         </div>
         <button
-          onClick={fetchData}
+          onClick={refreshNow}
           className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow hover:bg-gray-50 dark:hover:bg-gray-700 transition"
         >
           <RefreshCw className="w-4 h-4" /> Refresh
@@ -212,10 +281,21 @@ const SellPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Catalog */}
         <div className="lg:col-span-2">
+          <div
+            data-testid="pos-product-total"
+            className="mb-3 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-sm rounded-xl"
+          >
+            Showing {products.length} of {productTotal} products
+          </div>
           <ProductCatalog
             products={products}
             cart={cart}
             onAddToCart={handleAddToCart}
+            onSearchChange={setProductQuery}
+            resolveByBarcode={resolveByBarcode}
+            categories={categories}
+            selectedCategory={selectedCategory}
+            onCategoryChange={setSelectedCategory}
           />
         </div>
 
@@ -226,6 +306,8 @@ const SellPage = () => {
             selectedCustomer={selectedCustomer}
             onSelectCustomer={setSelectedCustomer}
             onCustomerAdded={(newC) => setCustomers(prev => [newC, ...prev])}
+            searchQuery={customerQuery}
+            onSearchChange={setCustomerQuery}
           />
           <div className="flex-1 min-h-0">
             <CartPanel

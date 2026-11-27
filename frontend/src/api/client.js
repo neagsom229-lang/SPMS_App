@@ -1,14 +1,13 @@
 // frontend/src/api/client.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL;
-if (!API_URL) {
-  console.error('❌ VITE_API_URL environment variable is missing');
+const rawUrl = import.meta.env.VITE_API_URL;
+if (!rawUrl && import.meta.env.PROD) {
+  throw new Error('VITE_API_URL is required in production');
 }
 
-if (import.meta.env.DEV) {
-  console.log('🔧 API URL:', API_URL);
-}
+const cleanUrl = (rawUrl || 'http://127.0.0.1:5000/api').replace(/\/+$/, '');
+const API_URL = cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
 
 const apiClient = axios.create({
   baseURL: API_URL,

@@ -55,22 +55,22 @@ export const exportInvoicePDF = (orderData, filename) => {
             <div class="header">
               <div>
                 <h1>🧾 INVOICE</h1>
-                <div class="sub">Order #${orderData.order_no || 'N/A'}</div>
+                <div class="sub">Order #${orderData.order_no || 'No order number'}</div>
               </div>
               <div class="order-no">Date: ${new Date().toLocaleDateString()}</div>
             </div>
             <div class="info">
               <div>
                 <label>Customer</label>
-                <span class="value">${orderData.customer_name || 'Customer'}</span>
+                <span class="value">${orderData.customer_name || 'No customer'}</span>
               </div>
               <div>
                 <label>Status</label>
-                <span class="value">${orderData.status || 'Pending'}</span>
+                <span class="value">${orderData.status || 'No status recorded'}</span>
               </div>
               <div>
                 <label>Payment Method</label>
-                <span class="value">${orderData.payment_method || 'N/A'}</span>
+                <span class="value">${orderData.payment_method || 'No payment recorded'}</span>
               </div>
             </div>
             <table>

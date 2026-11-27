@@ -35,6 +35,7 @@ function migrationFiles(maxPrefix) {
 
 async function withClient(connectionString, fn) {
   const client = new Client({ connectionString });
+  client.on('error', () => {});
   await client.connect();
   try {
     return await fn(client);
@@ -71,11 +72,13 @@ async function main() {
       }
 
       // The runner creates this ledger. It is part of the state after 014, but
-      // deliberately kept empty so the baseline contains no data.
+      // deliberately kept empty so the baseline contains no data. Checksum column
+      // is nullable for legacy rows; runner fills it for newly applied migrations.
       await client.query(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
           filename VARCHAR(255) PRIMARY KEY,
-          executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          checksum TEXT
         );
       `);
     });
@@ -109,7 +112,15 @@ async function main() {
       throw new Error(`baseline contains objects from migrations after 014: ${forbidden.join(', ')}`);
     }
 
-    fs.writeFileSync(out, dump);
+    const header = [
+      '-- GENERATED FILE - do not edit by hand.',
+      '-- Produced by backend/scripts/make-baseline.js from database/schema.sql and migrations 001-014.',
+      '-- Regenerate with: node backend/scripts/make-baseline.js',
+      '--',
+      '',
+    ].join('\n');
+
+    fs.writeFileSync(out, header + dump);
     console.log(`wrote ${out} (${dump.split('\n').length} lines, 0 data statements)`);
   } finally {
     await withClient(testDatabaseUrl('postgres'), async cleanup => {

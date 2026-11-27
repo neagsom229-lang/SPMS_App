@@ -1,3 +1,7 @@
+-- GENERATED FILE - do not edit by hand.
+-- Produced by backend/scripts/make-baseline.js from database/schema.sql and migrations 001-014.
+-- Regenerate with: node backend/scripts/make-baseline.js
+--
 --
 -- PostgreSQL database dump
 --
@@ -42,7 +46,8 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.schema_migrations (
     filename character varying(255) NOT NULL,
-    executed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+    executed_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    checksum text
 );
 
 

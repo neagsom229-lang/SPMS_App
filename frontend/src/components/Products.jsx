@@ -3,6 +3,10 @@ import { toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Pagination from './Pagination';
 import apiClient from '../api/client';
+import { queryKeys } from '../api/queryKeys';
+import { fetchPage } from '../api/list';
+import { useAuth } from '../context/AuthContext';
+import { isViewerRole } from '../utils/roles';
 import {
   Search, Plus, Edit2, Trash2, Package, X, Save,
   RefreshCw, AlertCircle, CheckCircle, Loader2,
@@ -33,7 +37,7 @@ const getField = (obj, ...keys) => {
 };
 const getId = (p) => getField(p, 'PRODUCT_ID', 'product_id');
 const getNumericId = (p) => getField(p, 'id', 'ID');  // numeric id from DB
-const getName = (p) => getField(p, 'NAME_EN', 'name_en') || 'Unknown';
+const getName = (p) => getField(p, 'NAME_EN', 'name_en') || 'Unnamed product';
 const getNameKh = (p) => getField(p, 'NAME_KH', 'name_kh') || '';
 const getBarcode = (p) => getField(p, 'BARCODE', 'barcode') || '-';
 const getBrand = (p) => getField(p, 'BRAND', 'brand') || '';
@@ -60,23 +64,7 @@ const isValidImage = (url) => {
   return false;
 };
 
-const extractProductsData = (responseData) => {
-  if (typeof responseData === 'string' && responseData.includes('<!DOCTYPE html>')) return [];
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === 'object') {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    if (Array.isArray(responseData.products)) return responseData.products;
-    if (Array.isArray(responseData.items)) return responseData.items;
-    if (responseData.data && typeof responseData.data === 'object') {
-      if (Array.isArray(responseData.data.items)) return responseData.data.items;
-      if (Array.isArray(responseData.data.products)) return responseData.data.products;
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 const formatPrice = (price) => `$${Number(price || 0).toFixed(2)}`;
 
 const getStatusBadge = (status) => (status || 'Active') === 'Active'
@@ -101,6 +89,8 @@ const readFileAsDataURL = (file) => new Promise((resolve, reject) => {
 // ============================================
 const Products = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const viewer = isViewerRole(user);
 
   // ===== UI STATE =====
   const [search, setSearch] = useState('');
@@ -158,39 +148,64 @@ const Products = () => {
     setTimeout(() => setMessage(''), 5000);
   }, []);
 
+  const productParams = useMemo(() => ({
+    page,
+    limit: ITEMS_PER_PAGE,
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(filterStatus === 'active' ? { status: 'Active' }
+      : filterStatus === 'inactive' ? { status: 'Inactive' }
+      : filterStatus === 'lowStock' ? { lowStock: 'true' } : {}),
+    sort: sortBy,
+    order: sortOrder,
+  }), [page, debouncedSearch, filterStatus, sortBy, sortOrder]);
+
+  const statsParams = useMemo(() => ({
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    ...(filterStatus === 'active' ? { status: 'Active' }
+      : filterStatus === 'inactive' ? { status: 'Inactive' }
+      : filterStatus === 'lowStock' ? { lowStock: 'true' } : {}),
+    sort: sortBy,
+    order: sortOrder,
+  }), [debouncedSearch, filterStatus, sortBy, sortOrder]);
+
   // ============================================
   // QUERY: PRODUCTS
   // ============================================
   const {
-    data: products = [],
+    data: productPage,
     isLoading: loading,
     isFetching: isRefreshing,
     refetch,
   } = useQuery({
-    queryKey: ['products', debouncedSearch],
+    queryKey: ['products', productParams],
     queryFn: async () => {
   try {
-    const res = await apiClient.get('/products', { params: debouncedSearch ? { search: debouncedSearch } : {} });
-    if (typeof res.data === 'string' && res.data.includes('<!DOCTYPE html>')) {
-      showMessage('❌ API not available — could not load products', 'error');
-      return [];
-    }
-    const data = extractProductsData(res.data);
-    return Array.isArray(data) ? data : [];
+    const result = await fetchPage(apiClient, '/products', { params: productParams });
+    return result;
   } catch (error) {
     console.error('❌ Error fetching products:', error.message);
     showMessage('❌ Failed to load products from server', 'error');
-    return [];
+    return { rows: [], pagination: { page: 1, limit: ITEMS_PER_PAGE, total: 0, totalPages: 1 } };
   }
 },
     staleTime: 30_000,
+  });
+
+  const products = useMemo(() => productPage?.rows || [], [productPage]);
+  const serverPagination = productPage?.pagination || { total: 0, totalPages: 1 };
+
+  const { data: serverStats = {} } = useQuery({
+    queryKey: ['productStats', statsParams],
+    queryFn: async () => (await apiClient.get('/products/stats', { params: statsParams })).data,
+    staleTime: 30_000,
+    enabled: !viewer,
   });
 
   // ============================================
   // QUERY: STOCK (read‑only for stock info)
   // ============================================
   const { data: stockList = [] } = useQuery({
-    queryKey: ['stock'],
+    queryKey: queryKeys.stock,
     queryFn: async () => {
       try {
         const res = await apiClient.get('/stock');
@@ -237,16 +252,13 @@ const Products = () => {
     return getOwnStockField(product);
   }, [stockByNumericId]);
 
-  // ===== STATS =====
-  const productStats = useMemo(() => {
-    const arr = Array.isArray(products) ? products : [];
-    return {
-      total: arr.length,
-      lowStock: arr.filter(p => getStock(p) <= getAlert(p)).length,
-      active: arr.filter(p => getStatus(p) === 'Active').length,
-      totalValue: arr.reduce((sum, p) => sum + getSalePrice(p) * getStock(p), 0),
-    };
-  }, [products, getStock]);
+  // ===== STATS (tenant-wide, from the server) =====
+  const productStats = {
+    total: serverStats.total ?? 0,
+    lowStock: serverStats.lowStock ?? 0,
+    active: serverStats.active ?? 0,
+    totalValue: Number(serverStats.totalValue) || 0,
+  };
 
   // ============================================
   // MUTATIONS WITH AUTO STOCK SYNC (numeric IDs)
@@ -261,22 +273,12 @@ const Products = () => {
       }
       return apiClient.post('/products', payload);
     },
-    onSuccess: async (response) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
 
-      // If this is a new product, create a stock row automatically (if not already done by backend)
-      if (!editingProduct) {
-        const newProduct = response.data?.product || response.data;
-        const numericId = getNumericId(newProduct);
-        if (numericId) {
-          const qtyInStock = parseInt(formData.QTY_INSTOCK) || 0;
-          const qtyAlert = parseInt(formData.QTY_ALERT) || 10;
-          // Call helper – it will silently ignore if stock already exists
-          await createStockForProduct(numericId, qtyInStock, qtyAlert);
-          queryClient.invalidateQueries({ queryKey: ['stock'] });
-        }
-      }
+      // The server creates the tbl_stock row from the product payload, so the
+      // client must not POST stock again (it used to double-create).
 
       showMessage(editingProduct ? '✅ Product updated successfully!' : '✅ Product created with stock!');
       toast.success(editingProduct ? 'Product updated!' : 'Product created!');
@@ -287,24 +289,13 @@ const Products = () => {
     },
   });
 
-  // Delete product + its stock (numeric ID)
+  // Delete product (soft delete: status Inactive)
   const deleteMutation = useMutation({
-    mutationFn: async (productIdString) => {
-      // First, get the numeric ID from the product object we have in the list
-      const product = products.find(p => getId(p) === productIdString);
-      if (product) {
-        const numericId = getNumericId(product);
-        if (numericId) {
-          await deleteStockForProduct(numericId);
-        }
-      }
-      // Then delete the product (soft delete – set status to Inactive)
-      return apiClient.delete(`/products/${productIdString}`);
-    },
+    mutationFn: async (productIdString) => apiClient.delete(`/products/${productIdString}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
-      showMessage('✅ Product and its stock deleted successfully!');
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
+      showMessage('✅ Product deleted successfully!');
       toast.success('Product deleted!');
     },
     onError: (error) => {
@@ -313,26 +304,17 @@ const Products = () => {
     },
   });
 
-  // Bulk delete: delete each product + its stock
+  // Bulk delete
   const bulkDeleteMutation = useMutation({
     mutationFn: async (ids) => {
       for (const id of ids) {
-        const product = products.find(p => getId(p) === id);
-        if (product) {
-          const numericId = getNumericId(product);
-          if (numericId) {
-            try {
-              await deleteStockForProduct(numericId);
-            } catch (e) { /* ignore */ }
-          }
-        }
         await apiClient.delete(`/products/${id}`);
       }
     },
     onSuccess: (_data, ids) => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      queryClient.invalidateQueries({ queryKey: ['stock'] });
-      showMessage(`✅ ${ids.length} products and their stock deleted!`);
+      queryClient.invalidateQueries({ queryKey: queryKeys.stock });
+      showMessage(`✅ ${ids.length} products deleted!`);
       setSelectedProducts([]);
     },
     onError: () => showMessage('❌ Failed to delete some products', 'error'),
@@ -469,41 +451,10 @@ const Products = () => {
 
   const handleRefresh = useCallback(() => { refetch(); }, [refetch]);
 
-  // ============================================
-  // FILTERED & SORTED PRODUCTS
-  // ============================================
-  const filteredProducts = useMemo(() => {
-    let result = Array.isArray(products) ? [...products] : [];
-
-    if (filterStatus === 'lowStock') result = result.filter(p => getStock(p) <= getAlert(p));
-    else if (filterStatus === 'active') result = result.filter(p => getStatus(p) === 'Active');
-    else if (filterStatus === 'inactive') result = result.filter(p => getStatus(p) !== 'Active');
-
-    const sortGetters = {
-      NAME_EN: getName,
-      SALEOUT_PRICE: getSalePrice,
-      QtyInStock: getStock,
-      BARCODE: getBarcode,
-    };
-    const getSortVal = sortGetters[sortBy] || getName;
-
-    result.sort((a, b) => {
-      const aVal = getSortVal(a);
-      const bVal = getSortVal(b);
-      const comparison = typeof aVal === 'number' && typeof bVal === 'number'
-        ? aVal - bVal
-        : String(aVal).localeCompare(String(bVal));
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-
-    return result;
-  }, [products, filterStatus, sortBy, sortOrder, getStock]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
-  const paginatedProducts = useMemo(() => {
-    const start = (page - 1) * ITEMS_PER_PAGE;
-    return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredProducts, page]);
+  // Filtering, sorting and pagination are all server-side.
+  const filteredProducts = products;
+  const totalPages = Math.max(1, Number(serverPagination.totalPages) || 1);
+  const paginatedProducts = filteredProducts;
 
   const pageIds = useMemo(() => paginatedProducts.map(getId), [paginatedProducts]);
   const allOnPageSelected = pageIds.length > 0 && pageIds.every(id => selectedProducts.includes(id));
@@ -610,7 +561,7 @@ const Products = () => {
             { label: 'Active Products', value: productStats.active, icon: 'active' },
             { label: 'Inventory Value', value: `$${productStats.totalValue.toFixed(2)}`, icon: 'totalValue' }
           ].map((stat, index) => (
-            <div key={index} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
+            <div key={stat.icon} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 hover:bg-white/20 transition-all duration-300 hover:scale-105 animate-slideUp border border-white/5" style={{ animationDelay: `${index * 0.1}s` }}>
               <div className="flex items-center gap-2">
                 {getStatIcon(stat.icon)}
                 <p className="text-xs text-indigo-200">{stat.label}</p>
@@ -999,7 +950,7 @@ const Products = () => {
           currentPage={page}
           totalPages={totalPages}
           onPageChange={setPage}
-          totalItems={filteredProducts.length}
+          totalItems={serverPagination.total}
           itemsPerPage={ITEMS_PER_PAGE}
           loading={loading}
         />
@@ -1066,7 +1017,7 @@ const Products = () => {
                     <div className="mb-3 p-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-center text-gray-400 dark:text-gray-500">
                       <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-30" />
                       <p className="text-sm">No image uploaded</p>
-                      <p className="text-xs">Click "Upload Image" to add one</p>
+                      <p className="text-xs">Click &quot;Upload Image&quot; to add one</p>
                     </div>
                   )}
 

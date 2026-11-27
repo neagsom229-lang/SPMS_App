@@ -1,8 +1,26 @@
 # SPMS_App rules (read first, every session)
-- Database: Postgres in Docker only (docker-compose.test.yml, port 5434). Never connect to or write to the live Supabase DB. Never run supabase commands with --linked, --db-url or --remote.
-- Never read, print or edit .env. Never regenerate or edit database/baseline.sql (the owner maintains it).
+- Database: Postgres in Docker only (docker-compose.test.yml). The port comes from TEST_DB_PORT in backend/scripts/_guard.js (default 15432). Never connect to or write to the live Supabase DB. Never run supabase commands with --linked, --db-url or --remote.
+- Never edit a migration that may be applied to production. Treat 015-026 as possibly applied until the owner confirms; changes go in a NEW additive, idempotent migration.
+- Never read, print or edit .env.
+- `database/baseline.sql` is generated ONLY by `node backend/scripts/make-baseline.js` (local scratch DB, guard-protected); never hand-edit it. You may run that command.
 - Never type test counts or PASS/FAIL by hand. Only `npm run verify` and jest --json output count.
 - Never edit a test to make it pass unless the test itself is wrong; show the diff and why.
+- A denied-access test uses `expectDenied`: the denied role gets the code, the DB row is unchanged, and the same request with the allowed role returns 2xx.
 - Never write a handler that returns success without a real DB change.
 - The owner writes all Test-Mutation calls. Do not author mutants.
 - Commit a checkpoint before any deletion or large edit. Max 3 retries, then stop and show the raw error.
+- A test must FAIL when the behaviour in its title is removed. One behaviour per test. Never merge, generalise or rename tests to raise or keep a count.
+- You never commit, tag, push or switch branches. The owner does, between phases.
+- After the owner commits backend/tests/expected-names.txt you never edit it. When you delete tests, write the proposed names file to `backend/tests/expected-names.proposed.txt` and print its diff. The owner copies it over and commits. You never write mutation calls (mutants.ps1 is the owner's). When code the owner mutates changes, print the new exact text of the affected line.
+- Tests may run in parallel only if each jest worker has its own database.
+- `backend/jest.config.js` `maxWorkers` is 1 until the owner says otherwise.
+- Reports are raw command output only. If a number differs from the owner's terminal, say so.
+- Never set an owner-confirmation flag (PLANS_CONFIRMED etc.) to true and never edit render.yaml or other deployment config without owner approval: list the proposed change and wait.
+- Never delete, move or copy any file the owner marked HOLD, and never copy data files into temp folders.
+- Never download or run binaries. Ask the owner to install tools and say which.
+- `npm run verify` and `npm run dev` must work with backend/.env ABSENT. If one needs it, that is a bug to fix with test-only defaults.
+- Never describe your own earlier actions without git evidence (`git log` / `git diff`).
+- Tests must not contain early returns (`if (!x) return;`) or conditional expects.
+- Never publish ports on 0.0.0.0.
+- A report must not say "live" for anything but production; say "local e2e server".
+- Never print, log or pass connection strings or passwords on a command line (npm 12 echoes full commands as "npm notice run ..."); credentials go through environment variables only (PGPASSWORD passed with `docker run -e PGPASSWORD`).

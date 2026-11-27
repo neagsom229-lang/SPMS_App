@@ -60,8 +60,9 @@ const authenticate = async (req, res, next) => {
     }
 
     if (user.must_change_password) {
-      const path = req.path || req.url || '';
-      if (!path.includes('change-password') && !path.includes('update-password') && !path.includes('auth/logout') && !path.includes('auth/me')) {
+      const path = String(req.path || req.url || '').toLowerCase();
+      const allowedWhileForced = /^\/(change-password|update-password|logout|me)(\/|$)|(^|\/)auth\/(change-password|update-password|logout|me)(\/|$)/.test(path);
+      if (!allowedWhileForced) {
         return res.status(403).json({ error: 'PASSWORD_CHANGE_REQUIRED', message: 'Password change required' });
       }
     }

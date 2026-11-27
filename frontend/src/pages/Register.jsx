@@ -196,7 +196,7 @@ const Register = () => {
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
                 <h3 className="text-white text-xl font-semibold mb-4">Why Join SPMS?</h3>
                 {features.map((feature, index) => (
-                  <div key={index} className="flex items-start gap-3 mb-4">
+                  <div key={feature.title} className="flex items-start gap-3 mb-4">
                     <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
                       <feature.icon className="w-5 h-5" />
                     </div>
@@ -358,11 +358,11 @@ const Register = () => {
                   {formData.password && (
                     <div className="mt-2 space-y-1">
                       <div className="flex gap-1">
-                        {[...Array(5)].map((_, i) => (
+                        {[0, 1, 2, 3, 4].map((strength) => (
                           <div
-                            key={i}
+                            key={strength}
                             className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                              i < passwordStrength ? getStrengthColor() : 'bg-white/10'
+                              strength < passwordStrength ? getStrengthColor() : 'bg-white/10'
                             }`}
                           />
                         ))}

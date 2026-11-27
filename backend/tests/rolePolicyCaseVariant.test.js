@@ -5,10 +5,11 @@ const request = require('supertest');
 const app = require('../src/app');
 const db = require('../src/config/postgres');
 const jwt = require('jsonwebtoken');
+const { expectDenied } = require('./utils/expectDenied');
 
 describe('Role Policy Case-Variant and Route Walk Tests', () => {
   let cashierToken, adminToken;
-  let tenantId, orderId, prodId;
+  let tenantId, prodId, customerId;
 
   beforeAll(async () => {
     await db.query('DELETE FROM tenants WHERE subdomain LIKE $1', ['test-role-%']);
@@ -20,11 +21,11 @@ describe('Role Policy Case-Variant and Route Walk Tests', () => {
 
     const adminRes = await db.query(
       'INSERT INTO tbl_users (username, email, password, role, tenant_id) VALUES ($1, $2, $3, $4, $5) RETURNING userid',
-      ['admin_role_' + Date.now(), 'admin_role_' + Date.now() + '@test.com', 'hashed', 'admin', tenantId]
+      ['admin_role_' + Date.now(), 'admin_role_' + Date.now() + '@test.com', 'hashed', 'Admin', tenantId]
     );
     const adminId = adminRes.rows[0].userid;
     adminToken = jwt.sign(
-      { userId: adminId, username: 'admin', role: 'admin', tenantId, isSuperAdmin: false },
+      { userId: adminId, username: 'admin', role: 'Admin', tenantId, isSuperAdmin: false },
       process.env.JWT_SECRET || 'supersecretjwtkeyforunitandintegrationtesting123456789'
     );
 
@@ -39,18 +40,16 @@ describe('Role Policy Case-Variant and Route Walk Tests', () => {
       ['Prod Role', 'BAR-' + Date.now(), 5, 20, catId, tenantId]
     );
     prodId = pRes.rows[0].id;
+    await db.query(
+      'INSERT INTO tbl_stock (productid, qtyinstock, qtyavailable, tenant_id) VALUES ($1, $2, $3, $4)',
+      [prodId, 10, 10, tenantId]
+    );
 
     const cRes = await db.query(
       'INSERT INTO tbl_customers (cus_id, name, phone, tenant_id) VALUES ($1, $2, $3, $4) RETURNING id',
       ['CUS-' + Date.now(), 'Cust Role', '012345678', tenantId]
     );
-    const customerId = cRes.rows[0].id;
-
-    const oRes = await db.query(
-      'INSERT INTO tbl_orders (tenant_id, customer_id, total, payment_method, status, order_no) VALUES ($1, $2, $3, $4, $5, $6) RETURNING or_id',
-      [tenantId, customerId, 20, 'Cash', 'Pending', 'ORD-' + Date.now()]
-    );
-    orderId = oRes.rows[0].or_id;
+    customerId = cRes.rows[0].id;
 
     const uRes = await db.query(
       'INSERT INTO tbl_users (username, email, password, role, tenant_id) VALUES ($1, $2, $3, $4, $5) RETURNING userid',
@@ -68,52 +67,96 @@ describe('Role Policy Case-Variant and Route Walk Tests', () => {
     await db.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
   });
 
+  const createOrder = async () => {
+    const res = await db.query(
+      `INSERT INTO tbl_orders (tenant_id, customer_id, total, payment_method, status, order_no)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING or_id`,
+      [tenantId, customerId, 20, 'Cash', 'Pending', 'ORD-' + Date.now() + '-' + Math.random().toString(16).slice(2)]
+    );
+    return res.rows[0].or_id;
+  };
+
+  const orderRow = async id => (await db.query(
+    'SELECT status, voided_at, void_reason, updated_at FROM tbl_orders WHERE or_id = $1',
+    [id]
+  )).rows;
+
   it('Cashier case-variant POST /api/Orders/:id/Refund returns 403', async () => {
-    const res = await request(app)
-      .post(`/api/Orders/${orderId}/Refund`)
-      .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ reason: 'test' });
-    expect(res.status).toBe(403);
+    const id = await createOrder();
+    await expectDenied(app, {
+      method: 'post',
+      path: `/api/Orders/${id}/Refund`,
+      deniedToken: cashierToken,
+      allowedToken: adminToken,
+      body: { reason: 'test' },
+      status: 403,
+      readRow: () => orderRow(id),
+    });
   });
 
   it('Cashier case-variant POST /api/Orders/:id/Cancel returns 403', async () => {
-    const res = await request(app)
-      .post(`/api/Orders/${orderId}/Cancel`)
-      .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ reason: 'test' });
-    expect(res.status).toBe(403);
+    const id = await createOrder();
+    await expectDenied(app, {
+      method: 'post',
+      path: `/api/Orders/${id}/Cancel`,
+      deniedToken: cashierToken,
+      allowedToken: adminToken,
+      body: { reason: 'test' },
+      status: 403,
+      readRow: () => orderRow(id),
+    });
   });
 
   it('Cashier case-variant PATCH /api/Orders/:id/Status returns 403', async () => {
-    const res = await request(app)
-      .patch(`/api/Orders/${orderId}/Status`)
-      .set('Authorization', `Bearer ${cashierToken}`)
-      .send({ status: 'Cancelled' });
-    expect(res.status).toBe(403);
+    const id = await createOrder();
+    await expectDenied(app, {
+      method: 'patch',
+      path: `/api/Orders/${id}/Status`,
+      deniedToken: cashierToken,
+      allowedToken: adminToken,
+      body: { status: 'Cancelled' },
+      status: 403,
+      readRow: () => orderRow(id),
+    });
   });
 
   it('Cashier case-variant DELETE /api/Orders/:id returns 403', async () => {
-    const res = await request(app)
-      .delete(`/api/Orders/${orderId}`)
-      .set('Authorization', `Bearer ${cashierToken}`);
-    expect(res.status).toBe(403);
+    const id = await createOrder();
+    await expectDenied(app, {
+      method: 'delete',
+      path: `/api/Orders/${id}`,
+      deniedToken: cashierToken,
+      allowedToken: adminToken,
+      body: { reason: 'test' },
+      status: 403,
+      readRow: () => orderRow(id),
+    });
   });
 
   it('Cashier case-variant GET /api/USERS returns 403', async () => {
-    const res = await request(app)
-      .get('/api/USERS')
-      .set('Authorization', `Bearer ${cashierToken}`);
-    expect(res.status).toBe(403);
+    await expectDenied(app, {
+      method: 'get',
+      path: '/api/USERS',
+      deniedToken: cashierToken,
+      allowedToken: adminToken,
+      status: 403,
+    });
   });
 
   it('Cashier case-variant GET /api/Users/ returns 403', async () => {
-    const res = await request(app)
-      .get('/api/Users/')
-      .set('Authorization', `Bearer ${cashierToken}`);
-    expect(res.status).toBe(403);
+    await expectDenied(app, {
+      method: 'get',
+      path: '/api/Users/',
+      deniedToken: cashierToken,
+      allowedToken: adminToken,
+      status: 403,
+    });
   });
 
   it('Cashier case-variant GET /api/REPORTS returns 403', async () => {
+    // The reports prefix has no GET / handler, so the allowed role gets 404;
+    // expectDenied cannot be used here (it requires a 2xx for the allowed role).
+    // The cashier is stopped by rolePolicy before the router.
     const res = await request(app)
       .get('/api/REPORTS')
       .set('Authorization', `Bearer ${cashierToken}`);

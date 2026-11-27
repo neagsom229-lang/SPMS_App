@@ -6,6 +6,15 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// One allow-list for both create and update. Cashier/Manager are legacy values
+// kept so existing rows can still be saved; Viewer is the least-privilege default.
+const ASSIGNABLE_ROLES = ['admin', 'manager', 'staff', 'cashier', 'viewer'];
+const canonicalRole = (role) => {
+  const key = String(role || '').trim().toLowerCase();
+  if (!ASSIGNABLE_ROLES.includes(key)) return null;
+  return key.charAt(0).toUpperCase() + key.slice(1);
+};
+
 const getTenantId = (req) => {
   return req.user?.tenantId || req.tenantId || req.headers['x-tenant-id'];
 };
@@ -41,7 +50,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Users error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -75,12 +84,10 @@ router.post('/', authenticate, async (req, res) => {
   }
 
   const targetTenantId = isSuperAdmin ? (tenant_id || tenantId) : tenantId;
-    const ROLE_MAP = { admin: 'Admin', manager: 'Manager', cashier: 'Cashier' };
-    const roleKey = String(role).trim().toLowerCase();
-    const canonicalRole = (isSuperAdmin && roleKey === 'super admin') ? 'Super Admin' : ROLE_MAP[roleKey];
-    if (!canonicalRole) {
-      return res.status(400).json({ error: 'Role must be Admin, Manager or Cashier' });
-    }
+  const newRole = canonicalRole(role);
+  if (!newRole) {
+    return res.status(400).json({ error: `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}` });
+  }
 
   try {
     const existing = await pool.query(
@@ -104,7 +111,7 @@ router.post('/', authenticate, async (req, res) => {
         hashedPassword,
         fullname.trim(),
         email.trim(),
-        canonicalRole,
+        newRole,
         status ? status.trim() : 'ACTIVE'
       ]
     );
@@ -115,7 +122,7 @@ router.post('/', authenticate, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Create user error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -148,8 +155,9 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
   }
-  if (role !== undefined && !(isSuperAdmin ? ['admin', 'manager', 'cashier', 'super admin'] : ['admin', 'manager', 'cashier']).includes(String(role).trim().toLowerCase())) {
-    return res.status(400).json({ error: 'Role not allowed' });
+  // Same allow-list as create; Super Admin is never assignable through /users.
+  if (role !== undefined && !canonicalRole(role)) {
+    return res.status(400).json({ error: `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}` });
   }
   if (role !== undefined) {
     if (!role || typeof role !== 'string' || role.trim().length === 0) {
@@ -198,7 +206,7 @@ router.put('/:id', authenticate, async (req, res) => {
            password = COALESCE($6, password)
        WHERE userid = $7
        RETURNING userid, username, fullname, role, status, email`,
-      [username?.trim(), fullname?.trim(), email?.trim(), (role === undefined ? undefined : (String(role).trim().toLowerCase() === 'super admin' ? 'Super Admin' : String(role).trim().charAt(0).toUpperCase() + String(role).trim().slice(1).toLowerCase())), status?.trim(), hashedPassword, userId]
+      [username?.trim(), fullname?.trim(), email?.trim(), (role === undefined ? undefined : canonicalRole(role)), status?.trim(), hashedPassword, userId]
     );
 
     res.json({
@@ -207,7 +215,7 @@ router.put('/:id', authenticate, async (req, res) => {
     });
   } catch (err) {
     console.error('❌ Update user error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -220,13 +228,23 @@ router.delete('/:id', authenticate, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ message: 'User deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // ===== UPDATE USER PASSWORD =====
 router.put('/:id/password', authenticate, async (req, res) => {
   const tenantId = getTenantId(req);
+  const isSuperAdmin = req.user?.isSuperAdmin || false;
+  const userRole = req.user?.role;
+
+  // Same gate as the other user-management routes (GET /, POST /, PUT /:id):
+  // resetting someone's password is an admin action. Without it any
+  // authenticated staff member could take over any account in the tenant.
+  if (!isSuperAdmin && userRole !== 'Admin' && userRole !== 'Super Admin') {
+    return res.status(403).json({ error: 'Access denied. Admin privileges required.' });
+  }
+
   const id = req.params.id;
   const { newPassword, password } = req.body;
   const pwd = newPassword || password;
@@ -237,17 +255,10 @@ router.put('/:id/password', authenticate, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ message: 'Password updated successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ===== GET USER SUBSCRIPTION =====
-router.get('/:id/subscription', authenticate, async (req, res) => {
-  try {
-    res.json({ subscription: 'Active', plan: 'Enterprise', expires_at: new Date(Date.now() + 30*24*60*60*1000).toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 module.exports = router;

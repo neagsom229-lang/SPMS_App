@@ -2,14 +2,9 @@
 const express = require('express');
 const pool = require('../config/postgres');
 const { authenticate, getScope } = require('../middleware/auth');
-const rolePolicy = require('../middleware/rolePolicy');
+const { parsePaging } = require('../utils/paging');
 
 const router = express.Router();
-
-const getTenantId = (req, res) => {
-  const scope = getScope(req, res);
-  return scope ? scope.tenantId : null;
-};
 
 // ===== GET STOCK =====
 router.get('/', authenticate, async (req, res) => {
@@ -36,7 +31,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Stock error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -80,8 +75,8 @@ router.get('/log', authenticate, async (req, res) => {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
-  const { product_id, limit } = req.query;
-  const parsedLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
+  const { product_id } = req.query;
+  const { limit } = parsePaging(req, { defaultLimit: 50 });
 
   try {
     let query = `
@@ -99,13 +94,13 @@ router.get('/log', authenticate, async (req, res) => {
     }
 
     query += ` ORDER BY l.created_at DESC, l.id DESC LIMIT $${idx}`;
-    params.push(parsedLimit);
+    params.push(limit);
 
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Stock log error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -191,7 +186,7 @@ router.post('/receive', authenticate, async (req, res) => {
     await client.query('ROLLBACK');
     client.release();
     console.error('❌ Receive stock error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -273,7 +268,7 @@ router.post('/adjust', authenticate, async (req, res) => {
     await client.query('ROLLBACK');
     client.release();
     console.error('❌ Adjust stock error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -1,45 +1,53 @@
 // frontend/src/App.jsx
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from 'react-hot-toast';
 
-// Components
-import Login from "./components/Login";
-import Dashboard from "./components/Dashboard";
-import Orders from "./components/Orders";
-import Products from "./components/Products";
-import Customers from "./components/Customers";
-import Stock from "./components/Stock";
-import Suppliers from "./components/Suppliers";
-import Reports from "./components/Reports";
-import Users from "./components/Users";
-import ActivityLog from "./components/ActivityLog";
-import Warranty from "./components/Warranty";
+// Layout and the error boundary are part of the shell; every other route is a
+// separate chunk so a page like Analytics only downloads its own code.
 import Layout from "./components/Layout";
-import Analytics from "./components/Analytics";
-import Profile from "./components/Profile";
-import SellPage from "./components/sell/SellPage";
-import OnlineOrders from "./components/orders/OnlineOrders";
 import ErrorBoundary from './components/ErrorBoundary';
-import RegisterBusiness from './pages/RegisterBusiness';
+
+const Login = lazy(() => import("./components/Login"));
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const Orders = lazy(() => import("./components/Orders"));
+const Products = lazy(() => import("./components/Products"));
+const Customers = lazy(() => import("./components/Customers"));
+const Stock = lazy(() => import("./components/Stock"));
+const Suppliers = lazy(() => import("./components/Suppliers"));
+const Reports = lazy(() => import("./components/Reports"));
+const Users = lazy(() => import("./components/Users"));
+const ActivityLog = lazy(() => import("./components/ActivityLog"));
+const Warranty = lazy(() => import("./components/Warranty"));
+const Analytics = lazy(() => import("./components/Analytics"));
+const Profile = lazy(() => import("./components/Profile"));
+const ChangePassword = lazy(() => import("./components/ChangePassword"));
+const SellPage = lazy(() => import("./components/sell/SellPage"));
+const OnlineOrders = lazy(() => import("./components/orders/OnlineOrders"));
 
 // Super Admin Pages
-import SuperAdminDashboard from "./pages/SuperAdmin/Dashboard";
-import Businesses from "./pages/SuperAdmin/Businesses";
-import SystemUsers from "./pages/SuperAdmin/SystemUsers";
+const SuperAdminDashboard = lazy(() => import("./pages/SuperAdmin/Dashboard"));
+const Businesses = lazy(() => import("./pages/SuperAdmin/Businesses"));
+const SystemUsers = lazy(() => import("./pages/SuperAdmin/SystemUsers"));
 
 // Pages
-import Pricing from "./pages/Pricing";
-import Landing from "./pages/Landing";
-import Storefront from "./pages/Storefront";
-import Register from "./pages/Register";
-import Help from './pages/Help';
-import Settings from './pages/Settings';
+const Pricing = lazy(() => import("./pages/Pricing"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Storefront = lazy(() => import("./pages/Storefront"));
+const Register = lazy(() => import("./pages/Register"));
+const Help = lazy(() => import('./pages/Help'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 // Context
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { isViewerRole } from "./utils/roles";
+
+const ViewerRedirect = ({ children }) => {
+  const { user } = useAuth();
+  return isViewerRole(user) ? <Navigate to="/dashboard" replace /> : children;
+};
 
 // Create Query Client
 const queryClient = new QueryClient({
@@ -110,12 +118,7 @@ function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
+        <BrowserRouter>
           <AuthProvider>
             <ThemeProvider>
               <Toaster
@@ -154,50 +157,51 @@ function App() {
                 }}
               />
 
-              <Routes>
-                {/* ===== PUBLIC ROUTES ===== */}
-                <Route path="/" element={<Landing />} />
-                <Route path="/shop/:slug" element={<Storefront />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
-                <Route path="/register-business" element={<RegisterBusiness />} />
-                <Route path="/pricing" element={<Pricing />} />
-                <Route path="/help" element={<Help />} />
+              <Suspense fallback={<LoadingSpinner />}>
+                <Routes>
+                  {/* ===== PUBLIC ROUTES ===== */}
+                  <Route path="/" element={<Landing />} />
+                  <Route path="/shop/:slug" element={<Storefront />} />
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/register" element={<Register />} />
+                  <Route path="/pricing" element={<Pricing />} />
+                  <Route path="/help" element={<Help />} />
 
-                {/* ===== SUPER ADMIN ROUTES ===== */}
-                <Route element={<SuperAdminRoute />}>
-                  <Route path="/admin" element={<Layout><SuperAdminDashboard /></Layout>} />
-                  <Route path="/admin/tenants" element={<Layout><Businesses /></Layout>} />
-                  <Route path="/admin/tenants/new" element={<Layout><Businesses /></Layout>} />
-                  <Route path="/admin/users" element={<Layout><SystemUsers /></Layout>} />
-                </Route>
+                  {/* ===== SUPER ADMIN ROUTES ===== */}
+                  <Route element={<SuperAdminRoute />}>
+                    <Route path="/admin" element={<Layout><SuperAdminDashboard /></Layout>} />
+                    <Route path="/admin/tenants" element={<Layout><Businesses /></Layout>} />
+                    <Route path="/admin/users" element={<Layout><SystemUsers /></Layout>} />
+                  </Route>
 
-                {/* ===== PROTECTED ROUTES ===== */}
-                <Route element={<ProtectedRoute />}>
-                  <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
-                  <Route path="/orders" element={<Layout><Orders /></Layout>} />
-                  <Route path="/orders/new" element={<Layout><SellPage /></Layout>} />
-                  <Route path="/sell" element={<Layout><SellPage /></Layout>} />
-        <Route path="/online-orders" element={<Layout><OnlineOrders /></Layout>} />
-                  <Route path="/orders/:id" element={<Layout><Orders /></Layout>} />
-                  <Route path="/orders/:id/process" element={<Layout><Orders /></Layout>} />
-                  <Route path="/products" element={<Layout><Products /></Layout>} />
-                  <Route path="/products/new" element={<Layout><Products /></Layout>} />
-                  <Route path="/customers" element={<Layout><Customers /></Layout>} />
-                  <Route path="/stock" element={<Layout><Stock /></Layout>} />
-                  <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
-                  <Route path="/reports" element={<Layout><Reports /></Layout>} />
-                  <Route path="/users" element={<Layout><Users /></Layout>} />
-                  <Route path="/activity" element={<Layout><ActivityLog /></Layout>} />
-                  <Route path="/warranty" element={<Layout><Warranty /></Layout>} />
-                  <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
-                  <Route path="/profile" element={<Layout><Profile /></Layout>} />
-                  <Route path="/settings" element={<Layout><Settings /></Layout>} />
-                </Route>
+                  {/* ===== PROTECTED ROUTES ===== */}
+                  <Route element={<ProtectedRoute />}>
+                    <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
+                    <Route path="/orders" element={<Layout><Orders /></Layout>} />
+                    <Route path="/sell" element={<Layout><ViewerRedirect><SellPage /></ViewerRedirect></Layout>} />
+                    <Route path="/online-orders" element={<Layout><OnlineOrders /></Layout>} />
+                    <Route path="/orders/:id" element={<Layout><Orders /></Layout>} />
+                    <Route path="/products" element={<Layout><Products /></Layout>} />
+                    <Route path="/customers" element={<Layout><Customers /></Layout>} />
+                    <Route path="/stock" element={<Layout><Stock /></Layout>} />
+                    <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
+                    <Route path="/reports" element={<Layout><Reports /></Layout>} />
+                    <Route path="/users" element={<Layout><Users /></Layout>} />
+                    <Route path="/activity" element={<Layout><ViewerRedirect><ActivityLog /></ViewerRedirect></Layout>} />
+                    <Route path="/warranty" element={<Layout><Warranty /></Layout>} />
+                    <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
+                    <Route path="/profile" element={<Layout><Profile /></Layout>} />
+                    <Route path="/settings" element={<Layout><Settings /></Layout>} />
+                    {/* No Layout: the sidebar fires API calls that the auth
+                        middleware rejects with PASSWORD_CHANGE_REQUIRED until
+                        the new password is set. */}
+                    <Route path="/change-password" element={<ChangePassword />} />
+                  </Route>
 
-                {/* ===== CATCH ALL ===== */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
+                  {/* ===== CATCH ALL ===== */}
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </Suspense>
             </ThemeProvider>
           </AuthProvider>
         </BrowserRouter>

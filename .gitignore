@@ -1,169 +1,76 @@
-# ============= NODE =============
+# Dependencies and build output
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
-
-# ============= ENVIRONMENT =============
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-.env.*.local
-frontend/.env
-# ============= BUILD OUTPUTS =============
 dist/
 build/
 .vercel/
-out/
-.next/
+coverage/
 .cache/
 *.tsbuildinfo
 
-# ============= DATABASE =============
+# Environment: never commit real values
+.env*
+!.env.example
+
+# Logs
+*.log
+logs/
+backend/logs/
+
+# Test and mutation output
+test-results/
+playwright-report/
+ui-shots/
+jest-full.json
+nullltest.json
+backend/mut*.json
+backend/r*.json
+backend/result.json
+backend/names.*
+backend/names*.txt
+backend/setup.log
+backend/seed-out.txt
+backend/tests/expected-names.proposed.txt
+
+# Local databases and dumps
+*.db
 *.sqlite
 *.sqlite3
-*.db
 *.accdb
 *.accdb.lock
+*.laccdb
 *.mdb
-*.mdb.lock
 *.ldb
+prod_backup.sql
+prod_backup_*.json
 
-# ============= BACKEND SPECIFIC =============
-backend/node_modules/
-backend/.env
-backend/uploads/
-backend/temp/
-backend/logs/
-backend/*.log
-backend/dist/
-backend/build/
+# Supabase CLI
+supabase/.temp/
 
-# ============= FRONTEND SPECIFIC =============
-frontend/node_modules/
-frontend/dist/
-frontend/.env.local
-frontend/.env.production
-frontend/build/
-frontend/.cache/
-
-# ============= IDE & EDITORS =============
+# Editors and OS
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 .DS_Store
-*.iml
-*.code-workspace
-
-# ============= LOGS =============
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ============= MISC =============
-coverage/
-.nyc_output/
-tmp/
-temp/
-*.pem
-*.key
-*.cert
-*.crt
-*.p12
-
-# ============= GIT =============
-.git/
-.gitignore
-.gitattributes
-.gitmodules
-
-# ============= OS =============
 Thumbs.db
-.DS_Store
 desktop.ini
 
-# ============= TESTING =============
-*.test.js
-*.spec.js
-__tests__/
-coverage/
-
-# ============= DEPLOYMENT =============
-.vercel
-.netlify
-.elasticbeanstalk
-.serverless
-
-# ============= BACKUP =============
+# Misc
+tmp/
+temp/
+output.json/
 *.bak
 *.old
 *.orig
-*.tmp
-*.temp
+*.pem
+*.key
+*.crt
+*.p12
 
-# ============= MEDIA FILES (optional) =============
-*.mp4
-*.mp3
-*.wav
-*.avi
-*.mov
-*.mkv
-*.zip
-*.rar
-*.7z
-*.tar.gz
-*.tgz
-.env*
-database/*.db
+e2e-*.txt
+dev-smoke-run*.txt
+verify-final.txt
+backend/tests/expected-names.proposed.counts.txt
 
-database/*.accdb
-
-database/*.laccdb
-
-database/*.db
-
-database/*.accdb
-
-database/*.laccdb
-
-
-
-*.log
-seed-out.txt
-backend/server*.log
-.env
-.env.*
-!.env.example
-*.env
-backend/.env
-frontend/.env
-node_modules/
-dist/
-replacements.txt
-replacements.txt
-prod_backup.sql
-prod_backup_*.json
-backend/mut*.json
-backend/r.json
-backend/result.json
-backend/r2.json
-backend/r2.json
-backend/r3.json
-backend/r4.json
-backend/r5.json
-backend/r6.json
-backend/r*.json
-backend/setup.log
-backend/names.*
-backend/r8.json
-backend/names2.txt
-backend/r10.json
+dev-smoke-*.txt
+verify-*.txt

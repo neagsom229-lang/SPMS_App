@@ -2,11 +2,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import apiClient from '../api/client';
+import { unwrapList as extractArrayData } from '../api/list';
 import {
   Search, RefreshCw, AlertCircle, CheckCircle, Package, Clock,
   X, Download, Eye, Loader2, Database, ArrowUp, ArrowDown,
   Grid3x3, List, AlertTriangle, Layers, DollarSign, Edit2, Save,
-  Trash2, Plus, Filter, Info
 } from "lucide-react";
 import '../styles/stock.css';
 
@@ -27,25 +27,7 @@ import '../styles/stock.css';
 // ============================================================
 
 // -------- Helpers (all in one place) --------
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (typeof responseData === "string" && responseData.includes("<!DOCTYPE html>")) return null;
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key])) return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 
 const getStockValue = (item, field) => {
   if (!item || typeof item !== 'object') return 0;
@@ -108,7 +90,6 @@ const Stock = () => {
   const [sortBy, setSortBy] = useState("name");
   const [sortOrder, setSortOrder] = useState("asc");
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [showDuplicateWarning, setShowDuplicateWarning] = useState(true);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -147,7 +128,6 @@ const Stock = () => {
     isLoading: loading,
     isFetching: isRefreshing,
     refetch,
-    error: fetchError,
   } = useQuery({
     queryKey: ['stock'],
     queryFn: async () => {
@@ -202,11 +182,6 @@ const Stock = () => {
       __duplicateCount: counts.get(k) || 1,
     }));
   }, [rawStock]);
-
-  const duplicateProductCount = useMemo(
-    () => dedupedStock.filter((item) => item.__duplicateCount > 1).length,
-    [dedupedStock]
-  );
 
   // ============================================================
   // MUTATION: Update stock - FIXED
@@ -323,7 +298,7 @@ const Stock = () => {
     const productId = item.productid || item.PRODUCTID || '';
     setFormData({
       productId: productId,
-      productName: item.name_en || item.NAME_EN || 'Unknown',
+      productName: item.name_en || item.NAME_EN || 'Unnamed product',
       qtyInStock: getStockValue(item, "qtyinstock"),
       qtyAvailable: getStockValue(item, "qtyavailable"),
       qtyReserved: getStockValue(item, "qtyreserved"),
@@ -438,9 +413,6 @@ const Stock = () => {
     totalValue: <DollarSign className="w-5 h-5 text-purple-500" />,
   }[type] || <Package className="w-5 h-5 text-indigo-500" />), []);
 
-  // ===== SQL FIX HELPER =====
-  const sqlFix = `ALTER TABLE tbl_stock ADD CONSTRAINT stock_productid_unique UNIQUE (productid);`;
-
   // ===== LOADING =====
   if (loading) {
     return (
@@ -538,7 +510,7 @@ const Stock = () => {
             { label: "Out of Stock", value: stats.outOfStock, icon: "outOfStock" },
             { label: "Total Value", value: `$${stats.totalValue.toFixed(2)}`, icon: "totalValue" },
           ].map((stat, index) => (
-            <div key={index} className="stock-stat-card" style={{ animationDelay: `${index * 0.08}s` }}>
+            <div key={stat.icon} className="stock-stat-card" style={{ animationDelay: `${index * 0.08}s` }}>
               <div className="stock-stat-header">
                 {getStatIcon(stat.icon)}
                 <p className="stock-stat-label">{stat.label}</p>
@@ -629,7 +601,7 @@ const Stock = () => {
         <div className="stock-grid">
           {filteredStock.map((item, index) => {
             const productId = item.product_code || item.PRODUCT_CODE || '';
-            const productName = item.name_en || item.NAME_EN || 'Unknown';
+            const productName = item.name_en || item.NAME_EN || 'Unnamed product';
             const productNameKh = item.name_kh || item.NAME_KH || '';
             const qtyInStock = getStockValue(item, "qtyinstock");
             const qtyReserved = getStockValue(item, "qtyreserved");
@@ -735,7 +707,7 @@ const Stock = () => {
               </thead>
               <tbody className="stock-list-tbody">
                 {filteredStock.map((item, index) => {
-                  const productName = item.name_en || item.NAME_EN || 'Unknown';
+                  const productName = item.name_en || item.NAME_EN || 'Unnamed product';
                   const qtyInStock = getStockValue(item, "qtyinstock");
                   const qtyReserved = getStockValue(item, "qtyreserved");
                   const qtyAvailable = getStockValue(item, "qtyavailable");
@@ -821,7 +793,7 @@ const Stock = () => {
               <div className="stock-modal-product-info">
                 <div className="stock-modal-product-name">
                   <p className="stock-modal-product-label">Product</p>
-                  <p className="stock-modal-product-value">{selectedProduct.name_en || selectedProduct.NAME_EN || 'Unknown'}</p>
+                  <p className="stock-modal-product-value">{selectedProduct.name_en || selectedProduct.NAME_EN || 'Unnamed product'}</p>
                   {(selectedProduct.name_kh || selectedProduct.NAME_KH) && (
                     <p className="stock-modal-product-name-kh">{selectedProduct.name_kh || selectedProduct.NAME_KH}</p>
                   )}

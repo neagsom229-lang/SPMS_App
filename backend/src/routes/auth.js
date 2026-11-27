@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../config/postgres');
-const { authenticate, requireSuperAdmin, isActiveStatus, isTenantStatusValid } = require('../middleware/auth');
+const { authenticate, isActiveStatus, isTenantStatusValid } = require('../middleware/auth');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -17,7 +17,7 @@ if (!JWT_SECRET) {
 // ============================================
 router.put('/profile', authenticate, async (req, res) => {
   const userId = req.user?.userId;
-  const { fullname, name, email, phone } = req.body;
+  const { fullname, name, email } = req.body;
   const targetName = fullname || name;
   try {
     const result = await db.query(
@@ -27,19 +27,9 @@ router.put('/profile', authenticate, async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ message: 'Profile updated successfully', user: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('❌ Profile update error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
-});
-
-// ============================================
-// TEST ROUTE
-// ============================================
-router.get('/test', (req, res) => {
-  res.json({
-    message: '✅ Auth route is working!',
-    timestamp: new Date().toISOString(),
-    status: 'ok'
-  });
 });
 
 // ============================================
@@ -55,7 +45,7 @@ router.post('/login', async (req, res) => {
   try {
     const result = await db.query(
   `SELECT u.userid, u.username, u.password, u.fullname, u.role, u.status, u.email,
-          u.is_super_admin, u.tenant_id as user_tenant_id, u.must_change_password,
+          u.is_super_admin, u.tenant_id as user_tenant_id, u.must_change_password, u.token_version,
           t.id as tenant_row_id, t.name as tenant_name, t.subdomain, t.status as tenant_status
    FROM tbl_users u
    LEFT JOIN tenants t ON u.tenant_id = t.id
@@ -87,6 +77,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const tokenVersion = Number(user.token_version || 1);
     const token = jwt.sign(
       {
         userId: user.userid,
@@ -94,6 +85,7 @@ router.post('/login', async (req, res) => {
         role: user.role || 'Admin',
         tenantId: user.is_super_admin ? null : user.user_tenant_id,
         isSuperAdmin: user.is_super_admin || false,
+        tokenVersion,
       },
       JWT_SECRET,
       { expiresIn: '7d' }
@@ -280,7 +272,8 @@ router.post('/register-client', async (req, res) => {
         role: user.role,
         tenantId: tenant.id,
         tenantName: tenant.name,
-        isSuperAdmin: false
+        isSuperAdmin: false,
+        tokenVersion: 1,
       },
       JWT_SECRET,
       { expiresIn: '7d' }
@@ -315,56 +308,6 @@ router.post('/register-client', async (req, res) => {
 });
 
 // ============================================
-// REGISTER (Super Admin Only)
-// ============================================
-router.post('/register', authenticate, requireSuperAdmin, async (req, res) => {
-  const { username, email, password, firstName, lastName, companyName } = req.body;
-
-  if (!username || !email || !password || !firstName || !lastName || !companyName) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
-
-  try {
-    const existingUser = await db.query(
-      `SELECT userid FROM tbl_users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)`,
-      [username, email]
-    );
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'Username or email already exists' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const fullName = `${firstName} ${lastName}`;
-
-    const result = await db.query(
-      `INSERT INTO tbl_users (username, password, fullname, role, status, email) 
-       VALUES ($1, $2, $3, 'Admin', 'ACTIVE', $4) 
-       RETURNING userid, username, role`,
-      [username, hashedPassword, fullName, email]
-    );
-
-    const user = result.rows[0];
-
-    res.status(201).json({
-      message: 'Account created successfully',
-      user: {
-        user_id: user.userid,
-        username: user.username,
-        role: user.role,
-        fullname: fullName,
-        email: email,
-      },
-    });
-  } catch (err) {
-    console.error('❌ Registration error:', err.message);
-    res.status(500).json({ error: 'Registration failed. Please try again.' });
-  }
-});
-
-// ============================================
 // CHANGE PASSWORD
 // ============================================
 router.post('/change-password', authenticate, async (req, res) => {
@@ -375,7 +318,7 @@ router.post('/change-password', authenticate, async (req, res) => {
 
   try {
     const userRes = await db.query(
-      'SELECT userid, username, password, role, tenant_id, is_super_admin FROM tbl_users WHERE userid = $1',
+      'SELECT userid, username, password, role, tenant_id, is_super_admin, token_version FROM tbl_users WHERE userid = $1',
       [req.user.userId]
     );
     if (userRes.rows.length === 0) {
@@ -383,7 +326,15 @@ router.post('/change-password', authenticate, async (req, res) => {
     }
     const user = userRes.rows[0];
 
-    if (user.password && user.password.startsWith('$2') && oldPassword) {
+    // The old password is mandatory whenever the stored one is a bcrypt hash:
+    // previously the whole check was skipped when oldPassword was omitted, so
+    // any authenticated session could change its password without proving it
+    // knew the current one. (A legacy non-bcrypt stored value cannot be
+    // verified here and keeps the old behaviour.)
+    if (user.password && user.password.startsWith('$2')) {
+      if (typeof oldPassword !== 'string' || oldPassword.length === 0) {
+        return res.status(400).json({ error: 'Old password is required' });
+      }
       const isValid = await bcrypt.compare(oldPassword, user.password);
       if (!isValid) {
         return res.status(401).json({ error: 'Invalid old password' });
@@ -391,9 +342,10 @@ router.post('/change-password', authenticate, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(newPassword, 10);
+    const nextTokenVersion = Number(user.token_version || 1) + 1;
     await db.query(
-      'UPDATE tbl_users SET password = $1, must_change_password = FALSE WHERE userid = $2',
-      [hashed, user.userid]
+      'UPDATE tbl_users SET password = $1, must_change_password = FALSE, token_version = $2 WHERE userid = $3',
+      [hashed, nextTokenVersion, user.userid]
     );
 
     const token = jwt.sign(
@@ -403,6 +355,7 @@ router.post('/change-password', authenticate, async (req, res) => {
         role: user.role || 'Admin',
         tenantId: user.is_super_admin ? null : user.tenant_id,
         isSuperAdmin: user.is_super_admin || false,
+        tokenVersion: nextTokenVersion,
       },
       JWT_SECRET,
       { expiresIn: '7d' }

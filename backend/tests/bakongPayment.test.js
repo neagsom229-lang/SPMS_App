@@ -1,25 +1,20 @@
-jest.mock('../src/services/bakongVerifier', () => ({ verifyTransaction: jest.fn() }));
-
 const request = require('supertest');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
+const { Pool, Client } = require('pg');
 const app = require('../src/app');
-const { verifyTransaction } = require('../src/services/bakongVerifier');
+const paymentRoutes = require('../src/routes/paymentRoutes');
+const { expectDenied } = require('./utils/expectDenied');
 
 const runId = crypto.randomBytes(4).toString('hex');
 const prefix = `payt-${runId}-`;
-const WEBHOOK_SECRET = process.env.KHQR_WEBHOOK_SECRET || 'secret';
-
-function signBody(body) {
-  return crypto.createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex');
-}
 
 describe('Bakong payment routes', () => {
   let pool;
   let tenantPlanId;
   let tenantOtherId;
   let adminToken;
+  let staffToken;
   let otherToken;
   let superToken;
   let superId;
@@ -51,8 +46,8 @@ describe('Bakong payment routes', () => {
 
   async function createSession(tenantId, md5, extra = {}) {
     const res = await pool.query(
-      `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, expected_amount, currency, md5, status, expires_at)
-       VALUES ($1, $2, $3, 1, $4, $4, 'USD', $5, 'PENDING', NOW() + interval '15 minutes') RETURNING id`,
+      `INSERT INTO khqr_sessions (tenant_id, user_id, plan, period_months, amount, currency, md5, status, expires_at)
+       VALUES ($1, $2, $3, 1, $4, 'USD', $5, 'PENDING', NOW() + interval '15 minutes') RETURNING id`,
       [tenantId, extra.userId || null, extra.plan || 'shophouse', extra.amount || 19, md5]
     );
     return res.rows[0].id;
@@ -60,26 +55,47 @@ describe('Bakong payment routes', () => {
 
   const md5 = () => crypto.randomBytes(16).toString('hex');
 
+  const snapshot = async (sessionId, tenantId) => ({
+    session: (await pool.query(
+      `SELECT status, verified_by, paid_at, bakong_hash, raw_response FROM khqr_sessions WHERE id = $1`,
+      [sessionId]
+    )).rows,
+    tenant: (await pool.query(
+      `SELECT plan, plan_expires_at FROM tenants WHERE id = $1`,
+      [tenantId]
+    )).rows,
+  });
+
+  const markPaid = (sessionId, token, reason = 'manual test') =>
+    request(app)
+      .post(`/api/payment/admin/sessions/${sessionId}/mark-paid`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ reason });
+
   beforeAll(async () => {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    pool.on('error', () => {});
     tenantPlanId = await createTenant('shophouse');
     tenantOtherId = await createTenant('chain');
     await createUser(`${prefix}admin`, tenantPlanId);
+    await createUser(`${prefix}staff`, tenantPlanId, 'Staff');
     await createUser(`${prefix}other`, tenantOtherId);
     superId = await createUser(`${prefix}super`, null, 'Admin', true);
 
     adminToken = await login(`${prefix}admin`);
+    staffToken = await login(`${prefix}staff`);
     otherToken = await login(`${prefix}other`);
     superToken = await login(`${prefix}super`);
   });
 
   beforeEach(async () => {
-    verifyTransaction.mockReset();
-    await pool.query(`UPDATE tenants SET plan_expires_at = '2030-01-01T00:00:00Z' WHERE id = $1`, [tenantPlanId]);
+    await pool.query(
+      `UPDATE tenants SET plan = 'shophouse', plan_expires_at = '2030-01-01T00:00:00Z' WHERE id = $1`,
+      [tenantPlanId]
+    );
   });
 
   afterAll(async () => {
-    await pool.query(`DELETE FROM khqr_webhook_events WHERE event_id LIKE $1`, [`${prefix}%`]);
     await pool.query(`DELETE FROM tenants WHERE subdomain LIKE $1`, [`${prefix}%`]);
     await pool.end();
   });
@@ -107,26 +123,61 @@ describe('Bakong payment routes', () => {
     expect(qrChain.status).toBe(200);
     expect(Number(qrChain.body.amount)).toBe(49);
 
-    const row = await pool.query(`SELECT status, expected_amount, plan, tenant_id FROM khqr_sessions WHERE md5 = $1`, [qr.body.md5]);
+    const row = await pool.query(`SELECT status, plan, tenant_id FROM khqr_sessions WHERE md5 = $1`, [qr.body.md5]);
     expect(row.rows[0].status).toBe('PENDING');
-    expect(Number(row.rows[0].expected_amount)).toBe(19);
     expect(row.rows[0].plan).toBe('shophouse');
     expect(row.rows[0].tenant_id).toBe(tenantPlanId);
   });
 
-  test('invalid md5 is rejected with 400', async () => {
-    const res = await request(app)
-      .get('/api/payment/bakong/check/not-an-md5')
-      .set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(400);
+  test('subscription response includes status and planName with the effective plan', async () => {
+    const sub = await request(app).get('/api/payment/subscription').set('Authorization', `Bearer ${adminToken}`);
+    expect(sub.status).toBe(200);
+    expect(sub.body.plan).toBe('shophouse');
+    expect(sub.body.status).toBe('active');
+    expect(sub.body.planName).toBe('Shophouse');
   });
 
-  test('another tenant cannot read a session md5 (404)', async () => {
-    const sessionMd5 = md5();
-    await createSession(tenantPlanId, sessionMd5);
+  test('an expired paid plan behaves as free; a future expiry keeps it and a NULL plan reads free', async () => {
+    const mk = async (plan, expiresAt) => {
+      const sub = `${prefix}expiry-${plan}-${expiresAt}`;
+      const t = await pool.query(
+        `INSERT INTO tenants (name, subdomain, status, plan, plan_expires_at) VALUES ($1, $2, 'ACTIVE', $3, $4) RETURNING id`,
+        [`Expiry Pay ${plan} ${expiresAt}`, sub, plan, expiresAt]
+      );
+      await pool.query(
+        `INSERT INTO tbl_users (username, email, password, role, status, is_super_admin, tenant_id) VALUES ($1, $2, $3, 'Admin', 'ACTIVE', FALSE, $4)`,
+        [`${sub}_admin`, `${sub}@pay.test`, bcrypt.hashSync('password123', 8), t.rows[0].id]
+      );
+      const token = await login(`${sub}_admin`);
+      const subRes = await request(app).get('/api/payment/subscription').set('Authorization', `Bearer ${token}`);
+      return subRes;
+    };
+
+    const expiredPaid = await mk('shophouse', '2020-01-01T00:00:00Z');
+    expect(expiredPaid.body.plan).toBe('free'); // expired paid -> free
+    expect(expiredPaid.body.status).toBe('inactive'); // expired paid -> inactive
+    expect(expiredPaid.body.planName).toBe('free'); // expired paid -> free name
+
+    const futurePaid = await mk('shophouse', '2030-01-01T00:00:00Z');
+    expect(futurePaid.body.plan).toBe('shophouse'); // future paid
+    expect(futurePaid.body.status).toBe('active'); // future paid -> active
+    expect(futurePaid.body.planName).toBe('Shophouse'); // future paid -> name
+
+    const freePlan = await mk('free', '2030-01-01T00:00:00Z');
+    expect(freePlan.body.plan).toBe('free'); // free plan
+    expect(freePlan.body.status).toBe('inactive'); // free plan -> inactive
+    expect(freePlan.body.planName).toBe('free'); // free plan -> name
+
+    const nullPlan = await mk(null, null);
+    expect(nullPlan.body.plan).toBe('free'); // NULL plan -> free
+    expect(nullPlan.body.status).toBe('inactive'); // NULL plan -> inactive
+    expect(nullPlan.body.planName).toBe('free'); // NULL plan -> free name
+  });
+
+  test('removed KHQR check endpoint is gone (404)', async () => {
     const res = await request(app)
-      .get(`/api/payment/bakong/check/${sessionMd5}`)
-      .set('Authorization', `Bearer ${otherToken}`);
+      .get(`/api/payment/bakong/check/${md5()}`)
+      .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
 
@@ -137,6 +188,9 @@ describe('Bakong payment routes', () => {
       .send({ plan: 'shophouse', period_months: 1, currency: 'USD', amount: 1 });
     expect(legit.status).toBe(200);
     expect(Number(legit.body.amount)).toBe(19);
+
+    const stored = await pool.query(`SELECT amount FROM khqr_sessions WHERE md5 = $1`, [legit.body.md5]);
+    expect(Number(stored.rows[0].amount)).toBe(19);
 
     const unknownPlan = await request(app)
       .post('/api/payment/bakong/create-qr')
@@ -163,207 +217,66 @@ describe('Bakong payment routes', () => {
     expect(periodTooLong.status).toBe(400);
   });
 
-  test('20 concurrent polls activate exactly once, extend by one period and write one activity log', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
-    verifyTransaction.mockResolvedValue({ state: 'PAID', hash: `HASH-${runId}-A`, raw: { ok: true } });
-
-    const responses = await Promise.all(
-      Array.from({ length: 20 }, () =>
-        request(app).get(`/api/payment/bakong/check/${sessionMd5}`).set('Authorization', `Bearer ${adminToken}`)
-      )
-    );
-    expect(responses.every(r => r.status === 200)).toBe(true);
-
-    const session = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [sessionId]);
-    expect(session.rows[0].status).toBe('PAID');
-
-    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
-    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-02-01T00:00:00.000Z');
-
-    const logs = await pool.query(`SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_PAID'`, [tenantPlanId]);
-    expect(logs.rows[0].cnt).toBe(1);
-  });
-
-  test('amount/currency/account mismatch ends FAILED_MISMATCH and never PAID', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
-    verifyTransaction.mockResolvedValue({ state: 'FAILED_MISMATCH', hash: `HASH-${runId}-M`, raw: { mismatch: true } });
-
-    const res = await request(app)
-      .get(`/api/payment/bakong/check/${sessionMd5}`)
-      .set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body.status).toBe('VERIFYING_ERROR');
-
-    const session = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [sessionId]);
-    expect(session.rows[0].status).toBe('FAILED_MISMATCH');
-
-    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
-    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-01-01T00:00:00.000Z');
-  });
-
-  test('provider 401/403/429/500/timeout map to VERIFYING_ERROR with no activation', async () => {
-    for (const errorKind of ['AUTH', 'FORBIDDEN_OR_GEO', 'RATE', 'UPSTREAM', 'NETWORK']) {
-      const sessionMd5 = md5();
-      const sessionId = await createSession(tenantPlanId, sessionMd5);
-      verifyTransaction.mockResolvedValue({ state: 'ERROR', errorKind });
-
+  test('a zero or negative period is rejected', async () => {
+    for (const period_months of [0, -1]) {
       const res = await request(app)
-        .get(`/api/payment/bakong/check/${sessionMd5}`)
-        .set('Authorization', `Bearer ${adminToken}`);
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('VERIFYING_ERROR');
-
-      const session = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [sessionId]);
-      expect(session.rows[0].status).toBe('PENDING');
-    }
-
-    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
-    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-01-01T00:00:00.000Z');
-  });
-
-  test('a bakong_hash already used by another session does not activate the second session', async () => {
-    const firstMd5 = md5();
-    const firstId = await createSession(tenantPlanId, firstMd5);
-    verifyTransaction.mockResolvedValue({ state: 'PAID', hash: `HASH-${runId}-S`, raw: {} });
-
-    const first = await request(app)
-      .get(`/api/payment/bakong/check/${firstMd5}`)
-      .set('Authorization', `Bearer ${adminToken}`);
-    expect(first.status).toBe(200);
-    const firstRow = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [firstId]);
-    expect(firstRow.rows[0].status).toBe('PAID');
-
-    const secondMd5 = md5();
-    const secondId = await createSession(tenantPlanId, secondMd5);
-    const second = await request(app)
-      .get(`/api/payment/bakong/check/${secondMd5}`)
-      .set('Authorization', `Bearer ${adminToken}`);
-    expect(second.status).toBe(200);
-
-    const secondRow = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [secondId]);
-    expect(secondRow.rows[0].status).not.toBe('PAID');
-
-    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
-    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-02-01T00:00:00.000Z');
-  });
-
-  test('simulator route returns 404 when NODE_ENV=production', async () => {
-    const sessionMd5 = md5();
-    await createSession(tenantPlanId, sessionMd5);
-    const previous = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      const res = await request(app)
-        .post(`/api/payment/simulate-payment/${sessionMd5}`)
-        .set('Authorization', `Bearer ${superToken}`);
-      expect(res.status).toBe(404);
-    } finally {
-      process.env.NODE_ENV = previous;
+        .post('/api/payment/bakong/create-qr')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ plan: 'shophouse', period_months, currency: 'USD' });
+      expect(res.status).toBe(400);
     }
   });
 
-  test('webhook with a bad signature returns 401', async () => {
-    const body = JSON.stringify({ eventId: `${prefix}bad-sig-${runId}`, md5: md5() });
+  test('subscription status is not read from the removed endpoint anymore', async () => {
     const res = await request(app)
-      .post('/api/payment/webhook/khqr')
-      .set('Content-Type', 'application/json')
-      .set('x-khqr-signature', 'deadbeef')
-      .send(body);
-    expect(res.status).toBe(401);
+      .get(`/api/payment/bakong/check/${md5()}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(404);
   });
 
-  test('replayed webhook does not activate twice', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
-    verifyTransaction.mockResolvedValue({ state: 'PAID', hash: `HASH-${runId}-W`, raw: {} });
+  test('staff cannot mark a session paid', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
 
-    const body = JSON.stringify({ eventId: `${prefix}replay-${runId}`, md5: sessionMd5 });
-    const signature = signBody(body);
-
-    const first = await request(app)
-      .post('/api/payment/webhook/khqr')
-      .set('Content-Type', 'application/json')
-      .set('x-khqr-signature', signature)
-      .send(body);
-    expect(first.status).toBe(200);
-
-    const second = await request(app)
-      .post('/api/payment/webhook/khqr')
-      .set('Content-Type', 'application/json')
-      .set('x-khqr-signature', signature)
-      .send(body);
-    expect(second.status).toBe(200);
-
-    const logs = await pool.query(
-      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_WEBHOOK_PAID'`,
-      [tenantPlanId]
-    );
-    expect(logs.rows[0].cnt).toBe(1);
-    const events = await pool.query(`SELECT count(*)::int AS cnt FROM khqr_webhook_events WHERE event_id = $1`, [`${prefix}replay-${runId}`]);
-    expect(events.rows[0].cnt).toBe(1);
-    const session = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [sessionId]);
-    expect(session.rows[0].status).toBe('PAID');
+    await expectDenied(app, {
+      method: 'post',
+      path: `/api/payment/admin/sessions/${sessionId}/mark-paid`,
+      deniedToken: staffToken,
+      allowedToken: superToken,
+      body: { reason: 'staff denied control' },
+      status: 403,
+      readRow: () => snapshot(sessionId, tenantPlanId),
+    });
   });
 
-  test('valid webhook whose provider says unpaid performs no activation', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
-    verifyTransaction.mockResolvedValue({ state: 'NOT_FOUND', raw: {} });
-    const before = await pool.query(
-      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_WEBHOOK_PAID'`,
-      [tenantPlanId]
-    );
+  test('tenant admin cannot mark a session paid', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
 
-    const body = JSON.stringify({ eventId: `${prefix}unpaid-${runId}`, md5: sessionMd5 });
-    const res = await request(app)
-      .post('/api/payment/webhook/khqr')
-      .set('Content-Type', 'application/json')
-      .set('x-khqr-signature', signBody(body))
-      .send(body);
+    await expectDenied(app, {
+      method: 'post',
+      path: `/api/payment/admin/sessions/${sessionId}/mark-paid`,
+      deniedToken: adminToken,
+      allowedToken: superToken,
+      body: { reason: 'tenant admin denied control' },
+      status: 403,
+      readRow: () => snapshot(sessionId, tenantPlanId),
+    });
+  });
+
+  test('mark-paid changes tenants.plan and extends plan_expires_at by exactly one period', async () => {
+    const sessionId = await createSession(tenantPlanId, md5(), { plan: 'chain', amount: 49 });
+
+    const res = await markPaid(sessionId, superToken, 'one period');
     expect(res.status).toBe(200);
 
-    const session = await pool.query(`SELECT status FROM khqr_sessions WHERE id = $1`, [sessionId]);
-    expect(session.rows[0].status).toBe('PENDING');
-    const after = await pool.query(
-      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_WEBHOOK_PAID'`,
-      [tenantPlanId]
-    );
-    expect(after.rows[0].cnt).toBe(before.rows[0].cnt);
-    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
-    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-01-01T00:00:00.000Z');
-  });
-
-  test('valid signed webhook through the real app processes the payment', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
-    verifyTransaction.mockResolvedValue({ state: 'PAID', hash: `HASH-${runId}-V`, raw: {} });
-
-    const body = JSON.stringify({ eventId: `${prefix}valid-${runId}`, md5: sessionMd5 });
-    const res = await request(app)
-      .post('/api/payment/webhook/khqr')
-      .set('Content-Type', 'application/json')
-      .set('x-khqr-signature', signBody(body))
-      .send(body);
-    expect(res.status).toBe(200);
-
-    const session = await pool.query(`SELECT status, verified_by FROM khqr_sessions WHERE id = $1`, [sessionId]);
-    expect(session.rows[0].status).toBe('PAID');
-    expect(session.rows[0].verified_by).toBe('webhook');
-
-    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    const tenant = await pool.query(`SELECT plan, plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    expect(tenant.rows[0].plan).toBe('chain');
     expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-02-01T00:00:00.000Z');
   });
 
   test('manual mark-paid records the real admin id in ledger user_id and verified_by', async () => {
-    const sessionMd5 = md5();
-    const sessionId = await createSession(tenantPlanId, sessionMd5);
+    const sessionId = await createSession(tenantPlanId, md5());
 
-    const res = await request(app)
-      .post(`/api/payment/admin/sessions/${sessionId}/mark-paid`)
-      .set('Authorization', `Bearer ${superToken}`)
-      .send({ reason: 'manual test' });
+    const res = await markPaid(sessionId, superToken, 'manual test');
     expect(res.status).toBe(200);
 
     const session = await pool.query(`SELECT status, verified_by FROM khqr_sessions WHERE id = $1`, [sessionId]);
@@ -375,5 +288,235 @@ describe('Bakong payment routes', () => {
       [tenantPlanId]
     );
     expect(log.rows[0].user_id).toBe(superId);
+  });
+
+  test('mark-paid audit row stores the reason and the admin id', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    const reason = `bank slip ${runId}`;
+
+    const res = await markPaid(sessionId, superToken, reason);
+    expect(res.status).toBe(200);
+
+    const log = await pool.query(
+      `SELECT user_id, action, details FROM tbl_activity_logs WHERE tenant_id = $1 ORDER BY id DESC LIMIT 1`,
+      [tenantPlanId]
+    );
+    const details = JSON.parse(log.rows[0].details);
+    expect(log.rows[0].user_id).toBe(superId);
+    expect(log.rows[0].action).toBe('SUBSCRIPTION_MANUAL_PAID');
+    expect(details.reason).toBe(reason);
+  });
+
+  test('a repeat mark-paid call does not extend the plan twice', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    const countLogs = async () => (await pool.query(
+      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_MANUAL_PAID'`,
+      [tenantPlanId]
+    )).rows[0].cnt;
+
+    const before = await countLogs();
+    const first = await markPaid(sessionId, superToken, 'first call');
+    expect(first.status).toBe(200);
+
+    const second = await markPaid(sessionId, superToken, 'repeat call');
+    expect(second.status).toBe(200);
+
+    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-02-01T00:00:00.000Z');
+
+    expect(await countLogs()).toBe(before + 1);
+  });
+
+  test('mark-paid with an empty reason returns 400 and leaves the session pending', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    const before = await snapshot(sessionId, tenantPlanId);
+
+    const res = await markPaid(sessionId, superToken, '');
+
+    expect(res.status).toBe(400);
+    expect(await snapshot(sessionId, tenantPlanId)).toEqual(before);
+  });
+
+  test('mark-paid with a whitespace-only reason returns 400 and leaves the session pending', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    const before = await snapshot(sessionId, tenantPlanId);
+
+    const res = await markPaid(sessionId, superToken, '   ');
+
+    expect(res.status).toBe(400);
+    expect(await snapshot(sessionId, tenantPlanId)).toEqual(before);
+  });
+
+  test('mark-paid for a missing session returns 404 and writes no ledger row', async () => {
+    const countLogs = async () => (await pool.query(
+      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_MANUAL_PAID'`,
+      [tenantPlanId]
+    )).rows[0].cnt;
+    const before = await countLogs();
+
+    const res = await markPaid(999999999, superToken, 'missing session');
+
+    expect(res.status).toBe(404);
+    expect(await countLogs()).toBe(before);
+  });
+
+  test('renewal before expiry extends from the existing expiry, not from now', async () => {
+    const sessionId = await createSession(tenantPlanId, md5());
+    await pool.query(
+      `UPDATE tenants SET plan_expires_at = NOW() + interval '10 days' WHERE id = $1`,
+      [tenantPlanId]
+    );
+    const expected = (await pool.query(
+      `SELECT (plan_expires_at + interval '1 month') AS expires FROM tenants WHERE id = $1`,
+      [tenantPlanId]
+    )).rows[0].expires;
+
+    const res = await markPaid(sessionId, superToken, 'early renewal');
+
+    expect(res.status).toBe(200);
+    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe(new Date(expected).toISOString());
+  });
+
+  test('two different sessions marked paid in a row both succeed', async () => {
+    const firstSession = await createSession(tenantPlanId, md5());
+    const secondSession = await createSession(tenantPlanId, md5());
+    const countLogs = async () => (await pool.query(
+      `SELECT count(*)::int AS cnt FROM tbl_activity_logs WHERE tenant_id = $1 AND action = 'SUBSCRIPTION_MANUAL_PAID'`,
+      [tenantPlanId]
+    )).rows[0].cnt;
+    const before = await countLogs();
+
+    const first = await markPaid(firstSession, superToken, 'first session');
+    const second = await markPaid(secondSession, superToken, 'second session');
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(await countLogs()).toBe(before + 2);
+    const tenant = await pool.query(`SELECT plan_expires_at FROM tenants WHERE id = $1`, [tenantPlanId]);
+    expect(new Date(tenant.rows[0].plan_expires_at).toISOString()).toBe('2030-03-01T00:00:00.000Z');
+  });
+
+  // ===== 11a-fix step 3b: plan casing and expiry =====
+
+  async function createCasingTenant(plan, suffix) {
+    const res = await pool.query(
+      `INSERT INTO tenants (name, subdomain, status, plan) VALUES ($1, $2, 'ACTIVE', $3) RETURNING id`,
+      [`Case ${suffix} ${runId}`, `${prefix}case-${suffix}`, plan]
+    );
+    return res.rows[0].id;
+  }
+
+  async function subscriptionPlanFor(tenantId, suffix) {
+    const username = `${prefix}case-${suffix}`;
+    await createUser(username, tenantId);
+    const token = await login(username);
+    const res = await request(app).get('/api/payment/subscription').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    return res.body.plan;
+  }
+
+  test("stored plans 'FREE', 'free' and NULL all read as free", async () => {
+    const upperId = await createCasingTenant('FREE', 'upper');
+    const lowerId = await createCasingTenant('free', 'lower');
+    const nullId = await createCasingTenant(null, 'null');
+
+    expect(await subscriptionPlanFor(upperId, 'upper')).toBe('free');
+    expect(await subscriptionPlanFor(lowerId, 'lower')).toBe('free');
+    expect(await subscriptionPlanFor(nullId, 'null')).toBe('free');
+  });
+
+  test("stored plan 'SHOPHOUSE' reads as shophouse", async () => {
+    const id = await createCasingTenant('SHOPHOUSE', 'uppershop');
+
+    expect(await subscriptionPlanFor(id, 'uppershop')).toBe('shophouse');
+  });
+
+  test('create-qr accepts an uppercase plan name and prices it at the plan rate', async () => {
+    const qr = await request(app)
+      .post('/api/payment/bakong/create-qr')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ plan: 'SHOPHOUSE', period_months: 1, currency: 'USD' });
+
+    expect(qr.status).toBe(200);
+    expect(Number(qr.body.amount)).toBe(19);
+  });
+
+  test('create-qr stores the requested plan in lowercase', async () => {
+    const qr = await request(app)
+      .post('/api/payment/bakong/create-qr')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ plan: 'SHOPHOUSE', period_months: 1, currency: 'USD' });
+    expect(qr.status).toBe(200);
+
+    const row = await pool.query(`SELECT plan FROM khqr_sessions WHERE md5 = $1`, [qr.body.md5]);
+    expect(row.rows[0].plan).toBe('shophouse');
+  });
+
+  test("mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' extends a future expiry by exactly one calendar month in UTC", async () => {
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    client.on('error', () => {});
+    await client.connect();
+    try {
+      await client.query("SET TIME ZONE 'Asia/Phnom_Penh'");
+      const t = await client.query(
+        `INSERT INTO tenants (name, subdomain, status, plan, plan_expires_at)
+         VALUES ($1, $2, 'ACTIVE', 'chain', '2030-01-15 11:30:44') RETURNING id`,
+        [`Pnh future ${runId}`, `${prefix}pnh-future`]
+      );
+      const id = t.rows[0].id;
+
+      await paymentRoutes.extendPlan(client, 'chain', 1, id);
+
+      const r = await client.query(
+        `SELECT to_char(plan_expires_at, 'YYYY-MM-DD HH24:MI:SS') AS exp FROM tenants WHERE id = $1`,
+        [id]
+      );
+      expect(r.rows[0].exp).toBe('2030-02-15 11:30:44');
+    } finally {
+      await client.end();
+    }
+  });
+
+  test("mark-paid under SET TIME ZONE 'Asia/Phnom_Penh' computes a new expiry in UTC exactly one calendar month later", async () => {
+    const client = new Client({ connectionString: process.env.DATABASE_URL });
+    client.on('error', () => {});
+    await client.connect();
+    try {
+      await client.query("SET TIME ZONE 'Asia/Phnom_Penh'");
+      const t = await client.query(
+        `INSERT INTO tenants (name, subdomain, status, plan) VALUES ($1, $2, 'ACTIVE', 'chain') RETURNING id`,
+        [`Pnh null ${runId}`, `${prefix}pnh-null`]
+      );
+      const id = t.rows[0].id;
+
+      await paymentRoutes.extendPlan(client, 'chain', 1, id);
+
+      // No abs(interval) in PG: compare the stored naive UTC wall time against
+      // the expected naive UTC wall time with a +/-5s window. Both sides are
+      // `timestamp`, so the session TimeZone cannot shift the comparison.
+      const r = await client.query(
+        `SELECT plan_expires_at > ((now() AT TIME ZONE 'UTC') + make_interval(months => 1)) - interval '5 seconds'
+            AND plan_expires_at < ((now() AT TIME ZONE 'UTC') + make_interval(months => 1)) + interval '5 seconds' AS ok
+           FROM tenants WHERE id = $1`,
+        [id]
+      );
+      expect(r.rows[0].ok).toBe(true);
+    } finally {
+      await client.end();
+    }
+  });
+
+  test('mark-paid stores the session plan value in lowercase', async () => {
+    const t = await pool.query(
+      `INSERT INTO tenants (name, subdomain, status, plan) VALUES ($1, $2, 'ACTIVE', 'chain') RETURNING id`,
+      [`Case write ${runId}`, `${prefix}case-write`]
+    );
+    const id = t.rows[0].id;
+
+    await paymentRoutes.extendPlan(pool, 'SHOPHOUSE', 1, id);
+
+    const r = await pool.query(`SELECT plan FROM tenants WHERE id = $1`, [id]);
+    expect(r.rows[0].plan).toBe('shophouse');
   });
 });

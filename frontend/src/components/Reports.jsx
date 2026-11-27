@@ -3,48 +3,71 @@ import {
   ClipboardList, Download, Printer, RefreshCw, 
   AlertCircle, CheckCircle, Loader2, Database,
   TrendingUp, Package, Users, ShoppingBag,
-  Calendar, Filter, ChevronDown, X, Eye,
-  Clock, Award, Star, Zap, Activity, 
-  BarChart3, PieChart, LineChart as LineChartIcon,
-  ArrowUp, ArrowDown, Grid3x3, List,
-  Plus, Edit2, Trash2, Truck, Phone, Mail,
-  MapPin, User, Building2, Globe, Shield,
-  Search, Save, ChevronRight
+  Calendar, X, Eye,
+  Clock, Award, ArrowUp, ArrowDown, List,
+  Truck, Search, ChevronRight
 } from 'lucide-react';
 import '../styles/reports.css';
 import apiClient from '../api/client';
+import { fetchPage } from '../api/list';
+import Pagination from './Pagination';
 
 // ============================================
 // SHARED DATA HELPERS
 // ============================================
-const extractArrayData = (responseData, extraKeys = []) => {
-  if (
-    typeof responseData === "string" &&
-    responseData.includes("<!DOCTYPE html>")
-  ) {
-    return null;
-  }
-  if (Array.isArray(responseData)) return responseData;
-  if (responseData && typeof responseData === "object") {
-    if (Array.isArray(responseData.data)) return responseData.data;
-    for (const key of extraKeys) {
-      if (Array.isArray(responseData[key])) return responseData[key];
-    }
-    if (responseData.data && typeof responseData.data === "object") {
-      for (const key of extraKeys) {
-        if (Array.isArray(responseData.data[key]))
-          return responseData.data[key];
-      }
-      const values = Object.values(responseData.data);
-      if (values.length > 0 && Array.isArray(values[0])) return values[0];
-    }
-  }
-  return [];
-};
-
+// Shared list unwrapping lives in ../api/list.js
 // ============================================
 // MAIN REPORTS COMPONENT
 // ============================================
+// Module-level: a static lookup table, stable across renders.
+const reportOptions = [
+  { 
+    value: 'customers', 
+    label: '👥 Customer List',
+    description: 'View all customers with contact details',
+    icon: Users,
+    color: 'from-blue-500 to-cyan-500',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    endpoint: '/customers'
+  },
+  { 
+    value: 'products', 
+    label: '📦 Product List',
+    description: 'View all products with pricing and stock',
+    icon: Package,
+    color: 'from-emerald-500 to-green-500',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+    endpoint: '/products'
+  },
+  { 
+    value: 'orders', 
+    label: '🛒 Order Summary',
+    description: 'View all orders with status and amounts',
+    icon: ShoppingBag,
+    color: 'from-purple-500 to-pink-500',
+    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+    endpoint: '/orders'
+  },
+  { 
+    value: 'stock', 
+    label: '📊 Stock Report',
+    description: 'View current stock levels and alerts',
+    icon: TrendingUp,
+    color: 'from-amber-500 to-orange-500',
+    bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+    endpoint: '/stock'
+  },
+  { 
+    value: 'suppliers', 
+    label: '🚚 Supplier List',
+    description: 'View all suppliers with contact information',
+    icon: Truck,
+    color: 'from-indigo-500 to-purple-500',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+    endpoint: '/suppliers'
+  }
+];
+
 const Reports = () => {
   // ===== STATE =====
   const [reportType, setReportType] = useState('');
@@ -53,6 +76,8 @@ const Reports = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [totalRecords, setTotalRecords] = useState(0);
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPaging, setReportPaging] = useState({ totalPages: 1, total: 0 });
   const [generatedAt, setGeneratedAt] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -76,55 +101,6 @@ const Reports = () => {
   const isMounted = useRef(true);
   const messageTimeout = useRef(null);
 
-  // ===== REPORT OPTIONS =====
-  const reportOptions = [
-    { 
-      value: 'customers', 
-      label: '👥 Customer List',
-      description: 'View all customers with contact details',
-      icon: Users,
-      color: 'from-blue-500 to-cyan-500',
-      bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-      endpoint: '/customers'
-    },
-    { 
-      value: 'products', 
-      label: '📦 Product List',
-      description: 'View all products with pricing and stock',
-      icon: Package,
-      color: 'from-emerald-500 to-green-500',
-      bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
-      endpoint: '/products'
-    },
-    { 
-      value: 'orders', 
-      label: '🛒 Order Summary',
-      description: 'View all orders with status and amounts',
-      icon: ShoppingBag,
-      color: 'from-purple-500 to-pink-500',
-      bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-      endpoint: '/orders'
-    },
-    { 
-      value: 'stock', 
-      label: '📊 Stock Report',
-      description: 'View current stock levels and alerts',
-      icon: TrendingUp,
-      color: 'from-amber-500 to-orange-500',
-      bgColor: 'bg-amber-50 dark:bg-amber-900/20',
-      endpoint: '/stock'
-    },
-    { 
-      value: 'suppliers', 
-      label: '🚚 Supplier List',
-      description: 'View all suppliers with contact information',
-      icon: Truck,
-      color: 'from-indigo-500 to-purple-500',
-      bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
-      endpoint: '/suppliers'
-    }
-  ];
-
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {
     setError(type === 'error' ? text : '');
@@ -140,7 +116,7 @@ const Reports = () => {
   const getReportEndpoint = useCallback((type) => {
     const option = reportOptions.find(r => r.value === type);
     return option?.endpoint || `/${type}`;
-  }, [reportOptions]);
+  }, []);
 
   // ===== NORMALIZE DATA BASED ON REPORT TYPE =====
   const normalizeReportData = useCallback((type, rawData) => {
@@ -150,7 +126,7 @@ const Reports = () => {
       case 'customers':
         return rawData.map(c => ({
           ID: c.CUS_ID || c.cus_id || c.ID,
-          NAME: `${c.FIRST_NAME || c.first_name || ''} ${c.LAST_NAME || c.last_name || ''}`.trim() || 'Unknown',
+          NAME: `${c.FIRST_NAME || c.first_name || ''} ${c.LAST_NAME || c.last_name || ''}`.trim() || 'No name recorded',
           PHONE: c.PHONE || c.phone || '',
           EMAIL: c.E_MAIL || c.e_mail || c.email || '',
           ADDRESS: c.ADDRESS || c.address || '',
@@ -162,7 +138,7 @@ const Reports = () => {
       case 'products':
         return rawData.map(p => ({
           ID: p.PRODUCT_ID || p.product_id || p.ID,
-          NAME_EN: p.NAME_EN || p.name_en || 'Unknown',
+          NAME_EN: p.NAME_EN || p.name_en || 'Unnamed product',
           NAME_KH: p.NAME_KH || p.name_kh || '',
           BARCODE: p.BARCODE || p.barcode || '',
           BRAND: p.BRAND || p.brand || '',
@@ -177,19 +153,19 @@ const Reports = () => {
       case 'orders':
         return rawData.map(o => ({
           ID: o.OR_ID || o.or_id || o.id || o.ID,
-          ORDER_NO: o.ORDER_NO || o.order_no || `ORD-${o.id || o.ID || ''}`,
+          ORDER_NO: o.ORDER_NO || o.order_no || 'No order number',
           DATE: o.ORDER_DATE || o.order_date || o.date || '',
-          CUSTOMER: o.customer_name || o.CUSTOMER_NAME || o.customer || 'Unknown',
+          CUSTOMER: o.customer_name || o.CUSTOMER_NAME || o.customer || 'No customer',
           TOTAL: Number(o.AMOUNT_US || o.amount_us || o.total || 0),
-          STATUS: o.STATUS || o.status || 'Pending',
-          PAYMENT: o.PAYMENT_METHOD || o.payment_method || o.PaymentMethod || 'N/A',
+          STATUS: o.STATUS || o.status || 'No status',
+          PAYMENT: o.PAYMENT_METHOD || o.payment_method || o.PaymentMethod || 'No payment recorded',
           ITEMS: o.items?.length || o.item_count || 0
         }));
 
       case 'stock':
         return rawData.map(s => ({
           ID: s.STOCKID || s.stockid || s.PRODUCT_ID || s.product_id || s.ID,
-          PRODUCT: s.NAME_EN || s.name_en || s.PRODUCT_NAME || s.product_name || 'Unknown',
+          PRODUCT: s.NAME_EN || s.name_en || s.PRODUCT_NAME || s.product_name || 'Unnamed product',
           IN_STOCK: Number(s.QtyInStock || s.qty_instock || s.in_stock || 0),
           RESERVED: Number(s.QtyReserved || s.qty_reserved || s.reserved || 0),
           AVAILABLE: Number(s.QtyAvailable || s.qty_available || s.available || 0),
@@ -201,7 +177,7 @@ const Reports = () => {
       case 'suppliers':
         return rawData.map(s => ({
           ID: s.SUP_ID || s.sup_id || s.ID,
-          NAME: s.SUP_NAME || s.sup_name || s.name || 'Unknown',
+          NAME: s.SUP_NAME || s.sup_name || s.name || 'Unnamed supplier',
           CONTACT: s.CONTACT_PERSON || s.contact_person || s.contact || '',
           PHONE: s.PHONE || s.phone || '',
           EMAIL: s.EMAIL || s.email || '',
@@ -262,7 +238,6 @@ const Reports = () => {
   // ===== GENERATE REPORT =====
   const generateReport = useCallback(async () => {
     if (isGenerating) {
-      console.log('⚠️ Already generating, skipping...');
       return;
     }
     
@@ -271,7 +246,6 @@ const Reports = () => {
       return;
     }
     
-    console.log(`📊 Generating ${reportType} report...`);
     
     setIsGenerating(true);
     setLoading(true);
@@ -283,26 +257,18 @@ const Reports = () => {
     
     try {
       const endpoint = getReportEndpoint(reportType);
-      console.log(`📡 Fetching from: ${endpoint}`);
+      const { rows: rawData, pagination } = await fetchPage(apiClient, endpoint, {
+        params: { page: reportPage, limit: 20 },
+      });
+      setReportPaging(pagination);
       
-      const res = await apiClient.get(endpoint);
-      console.log(`📥 Response received:`, res.status);
-      
-      // Extract raw data
-      let rawData = extractArrayData(res.data, ['data', 'items', 'results']);
-      if (rawData === null || !Array.isArray(rawData)) {
-        rawData = [];
-      }
-      
-      console.log(`📊 Raw data count: ${rawData.length}`);
       
       // Normalize data
       const normalizedData = normalizeReportData(reportType, rawData);
-      console.log(`📊 Normalized data count: ${normalizedData.length}`);
       
       if (isMounted.current) {
         setData(normalizedData);
-        setTotalRecords(normalizedData.length);
+        setTotalRecords(pagination.total ?? normalizedData.length);
         setGeneratedAt(new Date().toLocaleString());
         calculateStats(reportType, normalizedData);
         showMessage(`✅ ${reportOptions.find(r => r.value === reportType)?.label} report generated successfully! (${normalizedData.length} records)`, 'success');
@@ -326,7 +292,7 @@ const Reports = () => {
         setIsGenerating(false);
       }
     }
-  }, [reportType, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage, reportOptions]);
+  }, [reportType, reportPage, getReportEndpoint, normalizeReportData, calculateStats, isGenerating, showMessage]);
 
   // ===== INITIAL MOUNT / CLEANUP =====
   useEffect(() => {
@@ -346,10 +312,13 @@ const Reports = () => {
   // re-trigger this effect and cause an infinite fetch loop.
   useEffect(() => {
     if (reportType) {
-      console.log(`📊 Report type changed to: ${reportType}, generating...`);
       generateReport();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportType, reportPage]);
+
+  useEffect(() => {
+    setReportPage(1);
   }, [reportType]);
 
   // ===== FILTERED DATA (search, status filter, sort — all client-side) =====
@@ -406,24 +375,34 @@ const Reports = () => {
   }, [data, searchTerm, filterStatus, sortBy, sortOrder]);
 
   // ===== EXPORT CSV =====
-  const exportCSV = useCallback(() => {
-    if (!data || data.length === 0) {
+  const exportCSV = useCallback(async () => {
+    if (!reportType || totalRecords === 0) {
       showMessage('❌ No data to export', 'error');
       return;
     }
-    
     try {
-      const headers = Object.keys(data[0]);
+      // All matching rows come from the server, not just the current page.
+      const res = await apiClient.get(`/reports/rows/${reportType}`);
+      const truncated = res.headers?.get?.('x-truncated') === 'true';
+      const rows = normalizeReportData(reportType, res.data?.rows || []);
+      if (truncated) {
+        showMessage('Export limited to 10,000 rows (narrow the report before exporting again)', 'warning');
+      }
+      if (rows.length === 0) {
+        showMessage('❌ No data to export', 'error');
+        return;
+      }
+      const headers = Object.keys(rows[0]);
       const csv = [
         headers.join(','),
-        ...data.map(row => headers.map(h => {
+        ...rows.map(row => headers.map(h => {
           const value = row[h] ?? '';
-          return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
-            ? `"${value.replace(/"/g, '""')}"` 
+          return typeof value === 'string' && (value.includes(',') || value.includes('"'))
+            ? `"${value.replace(/"/g, '""')}"`
             : value;
         }).join(','))
       ].join('\n');
-      
+
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -433,14 +412,12 @@ const Reports = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
-      showMessage(`✅ CSV exported successfully!`, 'success');
-      
+      showMessage(`✅ CSV exported successfully! (${rows.length} records)`, 'success');
     } catch (error) {
       console.error('❌ Export error:', error);
       showMessage('❌ Failed to export CSV', 'error');
     }
-  }, [data, reportType, showMessage]);
+  }, [reportType, totalRecords, normalizeReportData, showMessage]);
 
   // ===== PRINT REPORT =====
   const printReport = useCallback(() => {
@@ -484,14 +461,14 @@ const Reports = () => {
     const color = getStatusColor(status);
     return (
       <span className={`status-badge ${color}`}>
-        {status || 'N/A'}
+        {status || 'No status'}
       </span>
     );
   }, [getStatusColor]);
 
   // ===== FORMAT DATE =====
   const formatDate = useCallback((dateValue) => {
-    if (!dateValue) return 'N/A';
+    if (!dateValue) return 'No date';
     try {
       const date = new Date(dateValue);
       if (isNaN(date.getTime())) return dateValue;
@@ -507,7 +484,7 @@ const Reports = () => {
 
   // ===== FORMAT CURRENCY =====
   const formatCurrency = useCallback((value) => {
-    if (value === undefined || value === null || isNaN(value)) return 'N/A';
+    if (value === undefined || value === null || isNaN(value)) return 'No value';
     const num = Number(value);
     if (isNaN(num)) return value;
     return new Intl.NumberFormat('en-US', {
@@ -520,17 +497,17 @@ const Reports = () => {
   // ===== GET REPORT LABEL =====
   const getReportLabel = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.label || 'Report';
-  }, [reportType, reportOptions]);
+  }, [reportType]);
 
   // ===== GET REPORT COLOR =====
   const getReportColor = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.color || 'from-indigo-500 to-purple-500';
-  }, [reportType, reportOptions]);
+  }, [reportType]);
 
   // ===== GET REPORT ICON =====
   const getReportIcon = useCallback(() => {
     return reportOptions.find(r => r.value === reportType)?.icon || ClipboardList;
-  }, [reportType, reportOptions]);
+  }, [reportType]);
 
   // ===== GET STAT ICON =====
   const getStatIcon = useCallback((type) => {
@@ -671,7 +648,7 @@ const Reports = () => {
         {data && data.length > 0 && (
           <div className="reports-stats">
             {statsCards.map((stat, index) => (
-              <div key={index} className="reports-stat-card" style={{ animationDelay: `${index * 0.1}s` }}>
+              <div key={stat.label} className="reports-stat-card" style={{ animationDelay: `${index * 0.1}s` }}>
                 <div className="reports-stat-header">
                   {getStatIcon(stat.icon)}
                   <p className="reports-stat-label">{stat.label}</p>
@@ -903,7 +880,7 @@ const Reports = () => {
                         }
                         else if (key.toLowerCase().includes('status') || key.toLowerCase().includes('type')) {
                           return (
-                            <td key={i} className="reports-td">
+                            <td key={key} className="reports-td">
                               {renderStatusBadge(value)}
                             </td>
                           );
@@ -915,7 +892,7 @@ const Reports = () => {
                         }
                         
                         return (
-                          <td key={i} className="reports-td" title={displayValue}>
+                          <td key={key} className="reports-td" title={displayValue}>
                             {displayValue}
                           </td>
                         );
@@ -938,11 +915,19 @@ const Reports = () => {
 
           {/* Footer */}
           <div className="reports-footer">
-            <span>Showing {filteredData.length} of {data.length} records</span>
+            <span>Showing {filteredData.length} of {totalRecords} records</span>
             <span className="reports-footer-right">
               <span>Generated: {generatedAt}</span>
               <span className="reports-footer-total">• Total: {totalRecords} records</span>
             </span>
+            <Pagination
+              currentPage={reportPage}
+              totalPages={Math.max(1, Number(reportPaging.totalPages) || 1)}
+              onPageChange={setReportPage}
+              totalItems={totalRecords}
+              itemsPerPage={20}
+              loading={loading}
+            />
           </div>
         </div>
       ) : data && data.length === 0 ? (
@@ -1021,7 +1006,7 @@ const Reports = () => {
             <div className="reports-modal-body">
               <div className="reports-modal-grid">
                 {Object.entries(selectedDetail).map(([key, value]) => {
-                  let displayValue = value !== null && value !== undefined ? String(value) : 'N/A';
+                  let displayValue = value !== null && value !== undefined ? String(value) : 'No value';
                   
                   if (key.toLowerCase().includes('date') && value) {
                     displayValue = formatDate(value);

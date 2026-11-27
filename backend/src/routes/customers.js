@@ -5,18 +5,14 @@ const { authenticate, getScope } = require('../middleware/auth');
 
 const router = express.Router();
 
-const getTenantId = (req, res) => {
-  const scope = getScope(req, res);
-  return scope ? scope.tenantId : null;
-};
-
 // ===== GET ALL CUSTOMERS =====
 router.get('/', authenticate, async (req, res) => {
   const scope = getScope(req, res);
   if (!scope) return;
   const tenantId = scope.tenantId;
   const isSuperAdmin = scope.isSuperAdmin;
-  const { search } = req.query;
+  const { search, q } = req.query;
+  const searchTerm = search || q;
 
   try {
     let sql = "SELECT * FROM tbl_customers WHERE LOWER(status) = 'active'";
@@ -27,10 +23,10 @@ router.get('/', authenticate, async (req, res) => {
       params.push(tenantId);
     }
 
-    if (search) {
+    if (searchTerm) {
       const paramIndex = params.length + 1;
       sql += ` AND (name ILIKE $${paramIndex} OR phone ILIKE $${paramIndex} OR email ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
+      params.push(`%${searchTerm}%`);
     }
 
     sql += " ORDER BY name ASC";
@@ -39,7 +35,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Customers error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -89,7 +85,7 @@ router.post('/', authenticate, async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error("❌ Create customer error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -160,7 +156,7 @@ router.put('/:id', authenticate, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error("❌ Update customer error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -192,7 +188,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     res.json({ message: 'Customer deactivated successfully', customer: result.rows[0] });
   } catch (err) {
     console.error("❌ Delete customer error:", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

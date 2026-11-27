@@ -3,14 +3,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
-  User, Mail, Phone, MapPin, Calendar, Edit2, Save,
-  X, Camera, UserCircle, Shield, Clock, CheckCircle,
-  AlertCircle, Loader2, Key, Lock, Unlock,
-  Building2, Globe, Award, Star, TrendingUp,
+  Calendar, Edit2, Save,
+  X, Camera, UserCircle, Shield, Clock, CheckCircle, Sun, Moon,
+  AlertCircle, Loader2, Key, Lock, Award,
   ShoppingCart, DollarSign, Users, Activity,
-  Sparkles, Zap, Heart, Briefcase, Upload,
-  Image as ImageIcon, Trash2, Settings, LogOut,
-  HelpCircle, Bell, Moon, Sun, Monitor
+  Trash2, Settings, LogOut, HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '../styles/profile.css';
@@ -19,6 +16,20 @@ import apiClient from '../api/client';
 // ============================================
 // PROFILE COMPONENT
 // ============================================
+// Module-level: stable across renders so callbacks don't need it as a dependency.
+const avatarColors = [
+  'bg-gradient-to-br from-red-500 to-rose-500',
+  'bg-gradient-to-br from-orange-500 to-amber-500',
+  'bg-gradient-to-br from-yellow-500 to-amber-500',
+  'bg-gradient-to-br from-green-500 to-emerald-500',
+  'bg-gradient-to-br from-teal-500 to-cyan-500',
+  'bg-gradient-to-br from-blue-500 to-indigo-500',
+  'bg-gradient-to-br from-indigo-500 to-purple-500',
+  'bg-gradient-to-br from-purple-500 to-pink-500',
+  'bg-gradient-to-br from-pink-500 to-rose-500',
+  'bg-gradient-to-br from-rose-500 to-red-500'
+];
+
 const Profile = () => {
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuth();
@@ -29,7 +40,7 @@ const Profile = () => {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('success');
   const [avatarColor, setAvatarColor] = useState('bg-indigo-500');
-  const [showSuccess, setShowSuccess] = useState(false);
+  const [, setShowSuccess] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(
@@ -96,20 +107,6 @@ const Profile = () => {
   const fileInputRef = useRef(null);
   const messageTimeout = useRef(null);
   const isMounted = useRef(true);
-
-  // ===== AVATAR COLORS =====
-  const avatarColors = [
-    'bg-gradient-to-br from-red-500 to-rose-500',
-    'bg-gradient-to-br from-orange-500 to-amber-500',
-    'bg-gradient-to-br from-yellow-500 to-amber-500',
-    'bg-gradient-to-br from-green-500 to-emerald-500',
-    'bg-gradient-to-br from-teal-500 to-cyan-500',
-    'bg-gradient-to-br from-blue-500 to-indigo-500',
-    'bg-gradient-to-br from-indigo-500 to-purple-500',
-    'bg-gradient-to-br from-purple-500 to-pink-500',
-    'bg-gradient-to-br from-pink-500 to-rose-500',
-    'bg-gradient-to-br from-rose-500 to-red-500'
-  ];
 
   // ===== SHOW MESSAGE =====
   const showMessage = useCallback((text, type = 'success') => {
@@ -337,7 +334,7 @@ const Profile = () => {
       // First try to get from Auth context
       if (user) {
         const userData = {
-          username: user.username || user.USERNAME || 'Unknown',
+          username: user.username || user.USERNAME || 'No username',
           email: user.email || user.E_MAIL || 'user@example.com',
           fullname: user.fullname || user.FULLNAME || user.username || 'User',
           phone: user.phone || user.PHONE || '',
@@ -385,7 +382,7 @@ const Profile = () => {
       if (isMounted.current) {
         setProfile(prev => ({
           ...prev,
-          username: user?.username || 'Unknown',
+          username: user?.username || 'No username',
           fullname: user?.fullname || user?.username || 'User',
           role: user?.role || user?.role_name || 'User',
           status: user?.status || 'Active'
@@ -461,6 +458,13 @@ const Profile = () => {
   }, [formData, profile.user_id, profile.username, updateUser, getAvatarColor, showMessage]);
 
   // ===== HANDLE CHANGE PASSWORD =====
+  // Self-service change through POST /auth/change-password, which verifies the
+  // current password (oldPassword is mandatory server-side) and returns a
+  // fresh token. The previous call went to the admin-only
+  // PUT /users/:id/password with keys that route does not read
+  // (current_password/new_password vs newPassword/password), so every attempt
+  // failed with 400 - and had it succeeded, it would have skipped the
+  // current-password check entirely.
   const handleChangePassword = useCallback(async (e) => {
     e.preventDefault();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
@@ -474,14 +478,17 @@ const Profile = () => {
 
     setLoading(true);
     try {
-      const userId = profile.user_id;
-      if (userId) {
-        await apiClient.put(`/users/${userId}/password`, {
-          current_password: passwordData.currentPassword,
-          new_password: passwordData.newPassword
-        });
+      const res = await apiClient.post('/auth/change-password', {
+        oldPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
+      });
+
+      // The server returns a fresh token; swap it in so storage stays current.
+      if (res.data && res.data.token) {
+        localStorage.setItem('token', res.data.token);
+        apiClient.defaults.headers.common['Authorization'] = `Bearer ${res.data.token}`;
       }
-      
+
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setShowPasswordForm(false);
       showMessage('✅ Password changed successfully!', 'success');
@@ -491,7 +498,7 @@ const Profile = () => {
     } finally {
       setLoading(false);
     }
-  }, [passwordData, profile.user_id, showMessage]);
+  }, [passwordData, showMessage]);
 
   // ===== TOGGLE THEME =====
   const toggleTheme = useCallback(() => {
@@ -515,10 +522,10 @@ const Profile = () => {
 
   // ===== FORMAT DATE =====
   const formatDate = useCallback((dateStr) => {
-    if (!dateStr) return 'N/A';
+    if (!dateStr) return 'No date';
     try {
       const date = new Date(dateStr);
-      if (isNaN(date)) return 'N/A';
+      if (isNaN(date)) return 'No date';
       return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',

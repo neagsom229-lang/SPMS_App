@@ -1,5 +1,5 @@
--- Seed 023: Massive Electronics Seeding (40+ Products & 6 Categories for demo-store)
--- Automatically resolves tenant_id from store_settings where slug = 'demo-store'
+-- Seed 023: Massive Electronics Seeding (40+ Products & 6 Categories for demo)
+-- Automatically resolves tenant_id from store_settings where slug = 'demo'
 
 DO $$
 DECLARE
@@ -11,8 +11,8 @@ DECLARE
     v_cat_audio INTEGER;
     v_cat_smarthome INTEGER;
 BEGIN
-    -- 1. Resolve tenant_id for demo-store
-    SELECT tenant_id INTO v_tenant_id FROM store_settings WHERE slug = 'demo-store' LIMIT 1;
+    -- 1. Resolve tenant_id for demo
+    SELECT tenant_id INTO v_tenant_id FROM store_settings WHERE slug = 'demo' LIMIT 1;
     
     IF v_tenant_id IS NULL THEN
         SELECT id INTO v_tenant_id FROM tenants LIMIT 1;

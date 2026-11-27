@@ -2,23 +2,35 @@
   "name": "spms-app",
   "version": "1.0.0",
   "description": "SPMS - Sale & Product Management System",
+  "private": true,
   "scripts": {
-    "verify": "node backend/scripts/verify.js",
+    "dev": "node backend/scripts/dev.js",
+    "db:dev:preflight": "node backend/scripts/dev-db.js preflight",
+    "db:dev:up": "node backend/scripts/dev-db.js up",
+    "db:dev:migrate": "node backend/scripts/dev-db.js migrate",
+    "db:dev:seed": "node backend/scripts/dev-db.js seed",
+    "db:reset:local": "node backend/scripts/reset-local.js",
+    "smoke:local": "node backend/scripts/smoke-local.js",
+    "test:dev-smoke": "node backend/scripts/dev-smoke.js",
+    "verify": "node backend/scripts/verify.js && node scripts/verify-store.js",
+    "verify:store": "node scripts/verify-store.js",
+    "gen:images": "node scripts/gen-images.js",
+    "db:deploy": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target live",
+    "db:deploy:dry": "powershell -ExecutionPolicy Bypass -File ./backend/scripts/deploy-db.ps1 -Target local -DryRun",
+    "verify:full": "node backend/scripts/verify-full.js",
+    "test:e2e": "playwright test",
+    "ui:shots": "node backend/scripts/ui-shots.js",
+    "rehearse": "node backend/scripts/rehearse.js",
+    "names:diff": "node backend/scripts/names-diff.js",
+    "names:accept": "node backend/scripts/names-accept.js",
     "install:all": "npm install --prefix backend && npm install --prefix frontend",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "start": "cd backend && npm start",
     "build": "cd frontend && npm run build",
     "vercel-build": "cd frontend && npm install && npm run build"
   },
   "devDependencies": {
-    "concurrently": "^8.0.1"
-  },
-  "dependencies": {
-    "@emailjs/browser": "^4.4.1",
-    "bakong-khqr": "^1.0.20",
-    "express": "^5.3.0",
-    "qrcode": "^1.5.4"
+    "@playwright/test": "^1.50.0"
   }
 }

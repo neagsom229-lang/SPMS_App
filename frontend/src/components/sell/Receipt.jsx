@@ -39,7 +39,7 @@ const Receipt = ({ order, onNewSale }) => {
           </div>
           <div className="border-t border-b border-dashed border-gray-300 py-2 space-y-1">
             {items.map((i, idx) => (
-              <div key={idx} className="flex justify-between">
+              <div key={i.product_id ?? i.id ?? i.name} className="flex justify-between">
                 <span className="truncate pr-2">{i.name || i.product_name || 'Item'} x{i.qty || i.quantity}</span>
                 <span>${((i.unit_price || 0) * (i.qty || i.quantity || 1)).toFixed(2)}</span>
               </div>

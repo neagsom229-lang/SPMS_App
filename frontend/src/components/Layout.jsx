@@ -11,70 +11,35 @@ import {
   ClipboardList, 
   Truck, 
   LogOut,
-  Moon,
-  Sun,
   Shield,
   Clock,
   TrendingUp,
-  ChevronLeft,
   ChevronRight,
-  Bell,
-  Search,
   User,
   Settings,
-  HelpCircle,
   Menu,
   X,
-  ChevronDown,
-  AlertTriangle,
-  DollarSign,
   UserCircle,
-  CreditCard,
-  Gift,
-  Mail,
-  Phone,
-  MapPin,
-  Calendar,
   Award,
-  Star,
-  Heart,
   Zap,
-  Coffee,
-  BookOpen,
-  Target,
-  Compass,
   Sparkles,
-  Filter,
-  Grid,
-  List,
-  Plus,
-  Edit,
-  Trash,
-  Check,
-  AlertCircle,
-  Info,
   RefreshCw,
-  Download,
-  Upload,
-  Printer,
-  Share2,
-  Link2,
   Globe,
-  Send,
   Building2
 } from 'lucide-react';
-import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import apiClient from '../api/client';
+import { queryKeys } from '../api/queryKeys';
+import { DEFAULT_STORE_SLUG } from '../config/store';
+import { isViewerRole } from '../utils/roles';
 
 const Layout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { darkMode, toggleDarkMode } = useTheme();
   const { user, logout, tenant, isSuperAdmin } = useAuth();
   const { data: onlineCounts } = useQuery({
-    queryKey: ['online-orders-count'],
+    queryKey: queryKeys.onlineOrdersCount,
     queryFn: async () => { const res = await apiClient.get('/orders/online/count'); return res.data || {}; },
     enabled: !!user && !isSuperAdmin,
     staleTime: 30000,
@@ -85,26 +50,15 @@ const Layout = ({ children }) => {
   
   // ===== STATE =====
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchQuery] = useState('');
+  const [, setSearchResults] = useState([]);
   const [avatarPreview, setAvatarPreview] = useState(null);
-  const [notifications, setNotifications] = useState([
-    { id: 1, title: 'Welcome to TechFlow!', time: 'Just now', read: false, type: 'info' },
-  ]);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [greeting, setGreeting] = useState('Good morning');
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [searchHistory, setSearchHistory] = useState([]);
-  const [showSearchHistory, setShowSearchHistory] = useState(false);
-  
+  const [, setShowSearchResults] = useState(false);
+  const [, setIsOnline] = useState(navigator.onLine);
+
   const headerRef = useRef(null);
-  const searchInputRef = useRef(null);
 
   // ===== GET MENU ITEMS BASED ON ROLE =====
   const getMenuItems = useCallback(() => {
@@ -131,7 +85,7 @@ const Layout = ({ children }) => {
       ];
     }
 
-    return [
+    const tenantMenu = [
       ...baseMenu,
       { path: '/users', icon: Shield, label: 'Users', color: 'text-red-400', bg: 'bg-red-500/15', keywords: ['accounts', 'permissions'] },
       { path: '/activity', icon: Clock, label: 'Activity', color: 'text-orange-400', bg: 'bg-orange-500/15', keywords: ['logs', 'history'] },
@@ -140,7 +94,10 @@ const Layout = ({ children }) => {
       { path: '/profile', icon: UserCircle, label: 'Profile', color: 'text-indigo-400', bg: 'bg-indigo-500/15', keywords: ['account', 'settings'] },
       { path: '/settings', icon: Settings, label: 'Settings', color: 'text-slate-400', bg: 'bg-slate-500/15', keywords: ['preferences', 'config'] },
     ];
-  }, [isSuperAdmin]);
+    return isViewerRole(user)
+      ? tenantMenu.filter((item) => item.path !== '/activity')
+      : tenantMenu;
+  }, [isSuperAdmin, user]);
 
   const menu = useMemo(() => getMenuItems(), [getMenuItems]);
 
@@ -210,36 +167,12 @@ const Layout = ({ children }) => {
     return () => clearTimeout(timer);
   }, [searchQuery, performSearch]);
 
-  const addToSearchHistory = useCallback((query) => {
-    if (!query.trim()) return;
-    setSearchHistory(prev => [query, ...prev.filter(i => i !== query)].slice(0, 10));
-  }, []);
-
-  const handleSearchSubmit = useCallback((e) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      addToSearchHistory(searchQuery);
-      if (searchResults.length > 0) {
-        navigate(searchResults[0].path);
-        setSearchQuery('');
-        setShowSearchResults(false);
-        setShowSearchHistory(false);
-        toast.success(`🔍 Navigating to ${searchResults[0].label}`);
-      } else {
-        toast(`No results found for "${searchQuery}"`, { icon: 'ℹ️' });
-      }
-    }
-  }, [searchQuery, searchResults, navigate, addToSearchHistory]);
-
-  const unreadCount = useMemo(() => notifications.filter(n => !n.read).length, [notifications]);
-
   const userName = user?.fullname || user?.username || user?.name || 'Admin';
   const userRole = user?.role || user?.role_name || 'Admin';
   const userInitial = userName.charAt(0).toUpperCase();
-  const userEmail = user?.email || 'admin@techflow.com';
   const userAvatar = user?.avatar || avatarPreview;
   const tenantName = tenant?.name || user?.tenant?.name || 'TechFlow Electronics';
-  const subdomain = tenant?.subdomain || user?.tenant?.subdomain || 'demo-store';
+  const subdomain = tenant?.subdomain || user?.tenant?.subdomain || DEFAULT_STORE_SLUG;
 
   const currentPage = menu.find(item => item.path === location.pathname)?.label || 'Dashboard';
   const currentIcon = menu.find(item => item.path === location.pathname)?.icon || LayoutDashboard;
@@ -253,7 +186,7 @@ const Layout = ({ children }) => {
   }, [userAvatar, userInitial]);
 
   const renderNavItems = useCallback(() => (
-    <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
+    <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto" data-testid="sidebar-nav">
       {menu.map((item) => {
         const Icon = item.icon;
         const isActive = location.pathname === item.path;
@@ -263,7 +196,7 @@ const Layout = ({ children }) => {
             to={item.path}
             onClick={() => setIsSidebarOpen(false)}
             className={`
-              flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all duration-200 group relative text-xs font-bold uppercase tracking-wider
+              flex items-center gap-3 px-3.5 py-3 min-h-11 rounded-xl transition-all duration-200 group relative text-xs font-bold uppercase tracking-wider
               ${isActive 
                 ? 'bg-cyan-500/10 text-cyan-400 border-l-2 border-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]' 
                 : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
@@ -359,7 +292,7 @@ const Layout = ({ children }) => {
         {renderNavItems()}
 
         {/* ===== BOTTOM ACTIONS ===== */}
-        <div className="p-3 border-t border-slate-800/80 space-y-1">
+        <div className="p-3 border-t border-slate-800/80 space-y-1" data-testid="sidebar-footer">
           <Link
             to={`/shop/${subdomain}`}
             className="flex items-center gap-3 w-full px-3.5 py-2.5 rounded-xl text-cyan-400 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all duration-200 text-xs font-bold"

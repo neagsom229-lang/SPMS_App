@@ -1,15 +1,13 @@
 // frontend/src/pages/SuperAdmin/SystemUsers.jsx
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import apiClient from '../../api/client';
 import { toast } from 'react-hot-toast';
 import { 
-  Users, Plus, Search, Edit, Trash2,
+  Plus, Search, Edit, Trash2,
   RefreshCw, X, Shield, UserCog, User
 } from 'lucide-react';
 
 const SystemUsers = () => {
-  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [tenants, setTenants] = useState([]);
@@ -280,7 +278,7 @@ const SystemUsers = () => {
                   onChange={(e) => setFormData({ ...formData, fullname: e.target.value })}
                   required
                   className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="John Doe"
+                  placeholder="Enter full name"
                 />
               </div>
 
