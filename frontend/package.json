@@ -13,29 +13,29 @@
     "lint": "eslint src --ext js,jsx"
   },
   "dependencies": {
-    "@emailjs/browser": "^4.4.1",
-    "@sentry/react": "^10.68.0",
-    "@tanstack/react-query": "^5.101.4",
-    "axios": "^1.18.1",
-    "framer-motion": "^12.42.2",
-    "lucide-react": "^1.27.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-hot-toast": "^2.6.0",
-    "react-router-dom": "^7.18.5",
-    "recharts": "^2.15.4"
+    "@emailjs/browser": "^5.0.3",
+    "@sentry/react": "^11.17.0",
+    "@tanstack/react-query": "^5.108.4",
+    "axios": "^1.21.1",
+    "framer-motion": "^14.14.0",
+    "lucide-react": "^1.79.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-hot-toast": "^2.6.1",
+    "react-router-dom": "^7.18.6",
+    "recharts": "^3.11.1"
   },
   "devDependencies": {
-    "@babel/eslint-parser": "^7.29.13",
-    "@babel/plugin-syntax-jsx": "^7.29.7",
+    "@babel/eslint-parser": "^8.1.2",
+    "@babel/plugin-syntax-jsx": "^8.0.1",
     "@tailwindcss/postcss": "^4.3.5",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.16",
-    "eslint": "^8.55.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "autoprefixer": "^10.7.0",
+    "eslint": "^10.15.0",
     "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^4.6.0",
-    "postcss": "^8.4.31",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
-    "vite": "^5.4.6"
+    "vite": "^8.3.8"
   }
 }
