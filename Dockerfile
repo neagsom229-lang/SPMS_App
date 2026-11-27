@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:26-alpine
 
 # Install ODBC dependencies
 RUN apk add --no-cache \
