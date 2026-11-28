@@ -64,7 +64,9 @@ const isNeon = dbHost ? (
   process.env.DB_SSL === 'true' ||
   (process.env.NODE_ENV === 'production' && process.env.DB_SSL !== 'false')
 ) : false;
-const isCloud = isSupabase || isNeon;
+// Never negotiate SSL to loopback hosts (local dev/test docker). Remote/cloud
+// hosts still get TLS when detected or when DB_SSL/NODE_ENV requires it.
+const isCloud = !isLocalHost && (isSupabase || isNeon);
 
 // Optional CA for hosts whose chain is not in Node's default root store.
 // DB_SSL_CA may be PEM text or a path to a PEM file (e.g. the Supabase CA).
