@@ -214,8 +214,8 @@ const Users = () => {
     
     if (!editingUser && !formData.password) {
       errors.password = 'Password is required for new users';
-    } else if (formData.password && formData.password.length < 4) {
-      errors.password = 'Password must be at least 4 characters';
+    } else if (formData.password && formData.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters';
     }
     
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {

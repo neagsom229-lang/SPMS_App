@@ -471,8 +471,8 @@ const Profile = () => {
       showMessage('❌ Passwords do not match', 'error');
       return;
     }
-    if (passwordData.newPassword.length < 6) {
-      showMessage('❌ Password must be at least 6 characters', 'error');
+    if (passwordData.newPassword.length < 8) {
+      showMessage('❌ Password must be at least 8 characters', 'error');
       return;
     }
 

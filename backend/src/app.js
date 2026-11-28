@@ -60,6 +60,7 @@ const {
   generalLimiter,
   authLimiter,
   apiLimiter,
+  passwordLimiter,
 } = require("./middleware/rateLimit");
 const { authenticate, getScope, requireSuperAdmin } = require("./middleware/auth");
 const { parsePaging } = require("./utils/paging");
@@ -154,6 +155,7 @@ app.use("/api", generalLimiter);
 const { registerLimiter } = require("./middleware/rateLimit");
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register-client", registerLimiter);
+app.use("/api/auth/change-password", passwordLimiter);
 app.use("/api/reports", apiLimiter);
 app.use("/api/export", apiLimiter);
 

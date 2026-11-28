@@ -75,7 +75,7 @@ const Settings = () => {
 
   // ===== AI RESPONSES =====
   const aiResponses = {
-    'password': "🔐 To change your password:\n1. Go to Security tab\n2. Enter your current password\n3. Enter your new password (min 6 characters)\n4. Confirm your new password\n5. Click 'Update Security'\n\n💡 Tip: Use a mix of letters, numbers, and special characters for a strong password.",
+    'password': "🔐 To change your password:\n1. Go to Security tab\n2. Enter your current password\n3. Enter your new password (min 8 characters)\n4. Confirm your new password\n5. Click 'Update Security'\n\n💡 Tip: Use a mix of letters, numbers, and special characters for a strong password.",
 
     'inventory': "📦 Here's how to manage inventory effectively:\n1. Go to Products > Stock\n2. Use the 'Low Stock' filter to see items that need reordering\n3. Set up automatic reorder points\n4. Use the bulk update feature for quick changes\n5. Generate inventory reports weekly\n\n📊 Pro tip: Track your best-selling items to optimize stock levels.",
 
@@ -354,8 +354,8 @@ const Settings = () => {
   //                              fresh token
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
-    if (profileData.newPassword && profileData.newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    if (profileData.newPassword && profileData.newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
       return;
     }
     if (profileData.newPassword !== profileData.confirmPassword) {
