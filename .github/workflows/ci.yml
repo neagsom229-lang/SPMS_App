@@ -18,23 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    services:
-      postgres:
-        # Same image as docker-compose.test.yml. verify.js probes this and
-        # skips `docker compose up` because the test DB is already reachable.
-        image: public.ecr.aws/supabase/postgres:17.11.0.011
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 127.0.0.1:15432:5432
-        options: >-
-          --tmpfs /var/lib/postgresql/data
-          --health-cmd "pg_isready -h 127.0.0.1 -p 5432 -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       # 127.0.0.1 + port 15432 + a name ending in _test (the guard is exact).
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:15432/spms_test
@@ -55,6 +38,21 @@ jobs:
             package-lock.json
             backend/package-lock.json
             frontend/package-lock.json
+
+      - name: start test db
+        env:
+          TEST_DB_PORT: '15432'
+        run: |
+          # ECR Public anonymous pulls can hit "Data limit exceeded"; login best-effort, then retry.
+          aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws || true
+          for i in 1 2 3 4 5; do
+            if docker compose -f docker-compose.test.yml pull postgres; then
+              break
+            fi
+            echo "docker pull attempt $i failed, retrying in $((i*15))s..."
+            sleep $((i*15))
+          done
+          docker compose -f docker-compose.test.yml up -d --wait
 
       - name: install root
         run: npm ci
