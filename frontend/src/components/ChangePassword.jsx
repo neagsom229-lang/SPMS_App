@@ -25,8 +25,8 @@ const ChangePassword = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!newPassword || newPassword.length < 6) {
-      toast.error('New password must be at least 6 characters');
+    if (!newPassword || newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -115,7 +115,7 @@ const ChangePassword = () => {
                   name="newPassword"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                   disabled={loading}
                   required
                   minLength={6}

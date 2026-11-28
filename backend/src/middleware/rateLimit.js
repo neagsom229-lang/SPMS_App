@@ -60,9 +60,23 @@ const apiLimiter = rateLimit({
   skip: skipPreflight,
 });
 
+// Password changes: sensitive, limit attempts.
+const passwordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    error: "Too many password change attempts, please try again later.",
+    retryAfter: "15 minutes",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipPreflight,
+});
+
 module.exports = {
   generalLimiter,
   authLimiter,
   registerLimiter,
   apiLimiter,
+  passwordLimiter,
 };
